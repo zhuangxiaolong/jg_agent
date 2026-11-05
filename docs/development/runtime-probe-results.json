@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-11-04T05:45:07.192Z",
+  "runtimeHome": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\jinggong-runtime-probe-2jlbLS\\runtime-home",
+  "binary": "D:\\jinggong-agent\\apps\\desktop\\resources\\runtime\\bin\\codex.exe",
+  "sha256": "70bcb05f9bf1a4e7306edd0cd1b57d02af3267ad02a34b26f45c8c4bb20a3301",
+  "checks": [
+    {
+      "name": "initialize",
+      "passed": true,
+      "result": {
+        "userAgent": "jinggong_agent_probe/0.156.1 (Windows 10.0.26200; x86_64) unknown (jinggong_agent_probe; 0.1.0)",
+        "codexHome": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\jinggong-runtime-probe-2jlbLS\\runtime-home",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+      }
+    },
+    {
+      "name": "independent-auth",
+      "passed": true,
+      "accountPresent": false,
+      "requiresOpenaiAuth": true
+    },
+    {
+      "name": "thread/start",
+      "passed": true,
+      "threadId": "01a1a516-f62e-7940-93ee-666f7c40dfc9",
+      "cwd": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\jinggong-runtime-probe-2jlbLS\\只读项目 空格",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      }
+    },
+    {
+      "name": "dynamic-read-tools/no-built-in-environment",
+      "passed": true,
+      "toolNames": [
+        "list_project_files",
+        "read_project_file"
+      ],
+      "environments": []
+    },
+    {
+      "name": "windowsSandbox/readiness",
+      "passed": true,
+      "result": {
+        "status": "notConfigured"
+      }
+    },
+    {
+      "name": "turn/interrupt-without-active-turn",
+      "passed": true,
+      "result": "no active turn to interrupt"
+    },
+    {
+      "name": "empty-thread/resume",
+      "passed": true,
+      "limitation": "no rollout found for thread id 01a1a516-f62e-7940-93ee-666f7c40dfc9"
+    },
+    {
+      "name": "persisted-user-input/resume",
+      "passed": true,
+      "environments": [],
+      "note": "动态工具未经真实模型调用，恢复后的工具调用仍待专用凭据验证"
+    },
+    {
+      "name": "standalone-read-command",
+      "passed": true,
+      "result": {
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "stdio-eof-exit",
+      "passed": true,
+      "code": 0,
+      "forced": false
+    }
+  ],
+  "notifications": [
+    "remoteControl/status/changed",
+    "thread/started",
+    "deprecationNotice",
+    "thread/goal/cleared",
+    "command/exec/outputDelta"
+  ],
+  "stderrBytes": 0
+}

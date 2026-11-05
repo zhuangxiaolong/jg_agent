@@ -1,0 +1,59 @@
+.dock-layout [hidden] { display: none !important; }
+.dock-layout .workspace { position: relative; }
+.dock-layout .workspace-header { padding: 0 18px; height: 58px; gap: 12px; }
+.dock-layout .header-actions { gap: 10px; }
+.dock-layout .breadcrumbs { gap: 8px; overflow: hidden; }
+.dock-layout .breadcrumbs strong, .dock-layout .breadcrumb-session { overflow: hidden; text-overflow: ellipsis; }
+.panel-toggles { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-0); }
+.panel-toggles .icon-button { width: 28px; height: 27px; border-radius: 4px; }
+.panel-toggles .icon { width: 16px; height: 16px; }
+.panel-toggles .panel-visible { background: var(--surface-2); color: var(--text); }
+.dock-layout .workspace-body { position: relative; overflow: hidden; }
+.dock-layout .conversation { min-height: 0; outline-offset: -3px; }
+.dock-layout .inspector { display: flex; width: clamp(330px, 32vw, 470px); min-height: 0; }
+.dock-layout .inspector-tabs { min-height: 46px; height: 46px; padding: 0 12px; gap: 16px; }
+.dock-layout .inspector-tabs>button.active:after { background: var(--accent); }
+.inspector-panel { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.inspector-panel>.jira-page { min-height: 0; }
+.activity-panel { display: flex; flex-direction: column; flex: 0 0 clamp(128px, 22vh, 208px); min-height: 0; border-top: 1px solid var(--line); background: var(--surface-0); }
+.activity-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-shrink: 0; height: 39px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+.activity-panel-header>div { display: flex; gap: 20px; align-items: center; height: 100%; }
+.activity-panel-header button { display: inline-flex; align-items: center; gap: 7px; height: 100%; position: relative; font-size: 10px; color: var(--muted); padding: 0 1px; }
+.activity-panel-header button.active { color: var(--text); }
+.activity-panel-header button.active:after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); }
+.activity-panel-header .icon { width: 13px; height: 13px; }
+.activity-panel-header>span { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.activity-events { overflow: auto; flex: 1; min-height: 0; padding: 8px 18px 12px; }
+.activity-event { display: flex; gap: 12px; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 10px; line-height: 1.7; color: var(--text-secondary); }
+.activity-event time { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; flex-shrink: 0; margin-top: 1px; }
+.activity-event>span { flex-shrink: 0; min-width: 23px; color: var(--muted); }
+.activity-event pre { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; margin: 0; font-size: 10px; line-height: 1.7; }
+.activity-error pre, .activity-error>span { color: var(--danger); }
+.activity-empty { display: flex; align-items: flex-start; gap: 9px; padding: 15px 0; color: var(--muted); font-size: 10px; line-height: 1.8; }
+.activity-empty .icon { height: 15px; width: 15px; margin-top: 1px; }
+@media (max-width: 1250px) {
+  .dock-layout .inspector { width: 340px; }
+  .dock-layout .conversation-topline { padding: 15px 18px 12px; }
+  .dock-layout .session-configuration { margin-left: 18px; margin-right: 18px; }
+  .dock-layout .messages, .dock-layout .composer-container { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 1050px) {
+  .dock-layout .inspector { width: 315px; }
+  .dock-layout .inspector-tabs { padding-left: 10px; padding-right: 10px; gap: 12px; }
+  .dock-layout .header-actions { gap: 7px; }
+  .dock-layout .mode-badge { display: none; }
+  .dock-layout .breadcrumbs { font-size: 11px; }
+}
+@media (max-width: 850px) {
+  .dock-layout .inspector { position: absolute; right: 0; top: 0; bottom: 0; width: min(390px, calc(100% - 25px)); z-index: 4; box-shadow: -14px 0 35px var(--shadow); }
+  .dock-layout .workspace-header { padding: 0 12px; }
+  .dock-layout .sidebar { width: 190px; }
+  .dock-layout .breadcrumbs>span:first-child, .dock-layout .breadcrumbs>.icon:first-of-type { display: none; }
+  .activity-panel { flex-basis: 130px; }
+}
+@media (max-height: 720px) {
+  .activity-panel { flex-basis: 126px; }
+  .dock-layout .session-configuration { margin-bottom: 8px; padding-bottom: 9px; }
+  .dock-layout .composer textarea { min-height: 54px; height: 54px; }
+  .dock-layout .session-welcome { padding-top: 12px; }
+}

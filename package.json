@@ -1,0 +1,77 @@
+{
+  "name": "jinggong-agent",
+  "version": "0.5.0",
+  "private": true,
+  "description": "精工 Agent Windows 桌面客户端 PoC",
+  "author": "精工研发",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "start": "node scripts/start.mjs",
+    "dev": "npm run build && npm start",
+    "test": "tsx --test tests/*.test.ts",
+    "test:desktop": "node scripts/desktop-smoke.mjs",
+    "runtime:probe": "node scripts/probes/runtime-probe.mjs",
+    "pack": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",
+    "dist": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.12.0",
+    "fflate": "0.8.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sql.js": "1.15.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@openai/codex": "0.156.1",
+    "@playwright/test": "1.61.1",
+    "@types/node": "24.12.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/sql.js": "1.4.9",
+    "electron": "45.2.2",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  },
+  "build": {
+    "appId": "com.jinggong.agent",
+    "productName": "精工 Agent",
+    "artifactName": "JinggongAgent-Setup-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "apps/desktop/resources/runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+        "to": "sql-wasm.wasm"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": true,
+      "icon": "apps/desktop/resources/branding/app.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "installer/custom.nsh",
+      "installerIcon": "apps/desktop/resources/branding/app.ico",
+      "uninstallerIcon": "apps/desktop/resources/branding/app.ico"
+    },
+    "electronDist": "node_modules/electron/dist"
+  }
+}

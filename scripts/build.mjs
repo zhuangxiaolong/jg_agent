@@ -1,0 +1,8 @@
+import { build } from 'esbuild';
+import { mkdir, copyFile, cp } from 'node:fs/promises';
+await mkdir('dist/renderer', { recursive: true });
+await build({ entryPoints: ['apps/desktop/src/main/index.ts'], bundle: true, platform: 'node', format: 'cjs', outfile: 'dist/main.cjs', external: ['electron', 'sql.js'], sourcemap: true });
+await build({ entryPoints: ['apps/desktop/src/preload/index.ts'], bundle: true, platform: 'node', format: 'cjs', outfile: 'dist/preload.cjs', external: ['electron'] });
+await build({ entryPoints: ['apps/desktop/src/renderer/main.tsx'], bundle: true, platform: 'browser', outfile: 'dist/renderer/renderer.js', minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
+await copyFile('apps/desktop/src/renderer/index.html', 'dist/renderer/index.html');
+await cp('apps/desktop/resources/branding', 'dist/renderer/assets', { recursive: true });

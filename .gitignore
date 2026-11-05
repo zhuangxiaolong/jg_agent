@@ -1,0 +1,17 @@
+node_modules/
+dist/
+release/
+.poc-data/
+.runtime-probe/
+test-results/
+apps/desktop/resources/runtime/
+*.log
+.env*
+!.env.example
+*.dpapi
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+auth.json
