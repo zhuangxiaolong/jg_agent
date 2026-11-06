@@ -1,12 +1,12 @@
 {
-  "version": "2026.11.06.1",
+  "version": "2026.11.06.2",
   "documents": [
     {
       "key": "mes-wms-development",
       "name": "WMS_MES5_MES6_开发规范.md",
       "system": "通用",
       "path": "development.md",
-      "sha256": "d0d35ae1e38f4f081209727ff527f6ed5dbcfdd9b138a30d5afde5f1e4cc137a"
+      "sha256": "7bf3b0bbe0fa632534dbd68b03b905a0439a9bc11f140da759dfd9a73ae2f9cb"
     }
   ]
 }
