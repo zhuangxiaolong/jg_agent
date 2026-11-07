@@ -12,6 +12,8 @@ if (publisher && certificate && password) {
   console.log('在线更新发布：使用 Windows Authenticode 签名。');
 } else {
   console.warn('在线更新发布：未配置 Windows 签名证书，将使用 HTTPS + latest.yml SHA512 校验发布无签名安装包。');
+  // 无证书时跳过 Windows 可执行文件签名/编辑器，避免 Runner 上的签名工具初始化失败。
+  args.push('--config.win.signExecutable=false', '--config.win.signAndEditExecutable=false', '--config.nsis.unicode=true');
 }
 const result = spawnSync(process.execPath, args, { stdio: 'inherit', shell: false, env: process.env });
 if (result.error) throw result.error;
