@@ -21,12 +21,12 @@ jobs:
           cache: npm
       - name: 安装依赖
         run: npm ci
+      - name: 构建应用资源
+        run: npm run build
+      - name: 准备运行时资源
+        run: node scripts/stage-runtime.mjs
       - name: 构建 Windows 安装包
-        run: |
-          Write-Host "开始构建无证书更新引导包；证书存在时由 release-win.mjs 启用签名。"
-          npm run build
-          node scripts/stage-runtime.mjs
-          node scripts/release-win.mjs
+        run: node scripts/release-win.mjs
         env:
           JINGGONG_PUBLISH_MODE: never
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
