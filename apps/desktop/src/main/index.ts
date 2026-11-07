@@ -26,8 +26,9 @@ import { rememberCompletedSession, sessionMemories } from './session-memory';
 import { appendJiraCommitUrl } from './commit-message';
 import { BrowserManager } from './browser';
 import { exportShare, parseShare, prepareShareImport, sharedSessionContext, MAX_SHARE_BYTES } from './sharing';
-import { requirementsSource, updateRequirements } from './requirements-sync';
+import { requirementsSource, shouldSyncRequirementsOnStartup, updateRequirements } from './requirements-sync';
 import { JiraTestImages, jiraFlowSchema, sessionTestResult } from './jira-workflow';
+import { ensureBuiltinDictionaries } from './bundled-dictionaries';
 
 app.setName('精工 Agent');
 let browsers: BrowserManager;
@@ -415,6 +416,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   for (const folder of ['database', 'workspaces', 'config', 'runtime/home', 'exports', 'logs', 'knowledge', 'attachments']) mkdirSync(path.join(dataRoot, folder), { recursive: true });
   const wasm = app.isPackaged ? path.join(process.resourcesPath, 'sql-wasm.wasm') : path.resolve(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm');
   store = await LocalStore.open(path.join(dataRoot, 'database/jinggong-agent.db'), wasm, { recoverUnfinished: !cliMode });
+  await ensureBuiltinDictionaries(store, resourcesRoot);
   // 升级旧会话的执行模式，保留历史、工作区、项目和用户设置。
   if (!cliMode) for (const session of store.listSessions()) if (session.mode !== 'develop') store.saveSession({ ...session, mode: 'develop' });
   git = new GitConnector(path.join(dataRoot, 'workspaces'));
@@ -481,7 +483,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     catch (error) { const state = { ...store.getRequirementsSync(), lastChecked: new Date().toISOString(), error: clean((error as Error).message) }; store.saveRequirementsSync(state); throw error; }
   };
   handle('requirements:sync', syncRequirements);
-  if (store.getRequirementsSync().automatic && !process.env.JINGGONG_TEST_DATA) {
+  const requirementsState = store.getRequirementsSync();
+  if (shouldSyncRequirementsOnStartup(requirementsState) && !process.env.JINGGONG_TEST_DATA) {
     const check = setTimeout(() => { if (!runs.current) void syncRequirements().catch(() => undefined); }, 10000); check.unref();
   }
   handle('project:select', async () => {

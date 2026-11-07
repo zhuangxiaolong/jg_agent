@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { LocalStore } from '../packages/storage/src';
 import { exportShare, parseShare, prepareShareImport, sharedSessionContext } from '../apps/desktop/src/main/sharing';
-import { requirementsSource, updateRequirements } from '../apps/desktop/src/main/requirements-sync';
+import { requirementsSource, shouldSyncRequirementsOnStartup, updateRequirements } from '../apps/desktop/src/main/requirements-sync';
 import type { Session } from '../packages/domain/src';
 import { CodexRuntime } from '../packages/agent-runtime/src';
 
@@ -58,6 +58,12 @@ test('在线规范按清单校验摘要、原子保存、保留禁用状态，�
     const actual = JSON.parse(await readFile('standards/manifest.json', 'utf8'));
     assert.equal(hash(await readFile('standards/development.md', 'utf8')), actual.documents[0].sha256);
   } finally { store.close(); }
+});
+
+test('开发规范首次启动默认拉取，后续按自动更新设置后台检查', () => {
+  assert.equal(shouldSyncRequirementsOnStartup({ url: 'https://example.invalid', automatic: false }), true);
+  assert.equal(shouldSyncRequirementsOnStartup({ url: 'https://example.invalid', automatic: false, version: '1', lastChecked: '2026-11-07T00:00:00Z' }), false);
+  assert.equal(shouldSyncRequirementsOnStartup({ url: 'https://example.invalid', automatic: true, version: '1' }), true);
 });
 
 test('浏览器工具绑定当前活动任务，截图作为原生图片结果返回，取消后不写回', async () => {

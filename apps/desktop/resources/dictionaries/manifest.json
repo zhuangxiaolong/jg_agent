@@ -1,0 +1,26 @@
+{
+  "version": "2026.11.07.1",
+  "documents": [
+    {
+      "id": "builtin-dictionary-mes5",
+      "name": "MES5.md",
+      "system": "MES5",
+      "path": "MES5.md",
+      "sha256": "d4f12457166e0a34a6124a3559138cd9ee72d889915bf0ce709618a9d5edad2c"
+    },
+    {
+      "id": "builtin-dictionary-mes6",
+      "name": "MES6.md",
+      "system": "MES6",
+      "path": "MES6.md",
+      "sha256": "4e068777e273f53a067d245324c427cc88c54f17b043b279ea66cc79044759ae"
+    },
+    {
+      "id": "builtin-dictionary-wms",
+      "name": "WMS.md",
+      "system": "WMS",
+      "path": "WMS.md",
+      "sha256": "304d49aa7917716ae2620c978dffe75b6721e6aa1c4a00213bfb4e7d00977432"
+    }
+  ]
+}

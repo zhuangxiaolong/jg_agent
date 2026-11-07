@@ -12,9 +12,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Preformatted
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.6.6'
+VERSION = '0.6.7'
 SOURCE = ROOT / 'docs' / f'使用说明-{VERSION}.md'
-OUTPUT = ROOT / 'release-v066'
+OUTPUT = ROOT / 'release-v067'
 OUTPUT.mkdir(exist_ok=True)
 stem = f'精工 Agent {VERSION} 开发人员使用说明'
 text = SOURCE.read_text(encoding='utf-8')
@@ -102,7 +102,7 @@ def page_chrome(canvas, doc):
     canvas.line(43, height - 37, width - 43, height - 37)
     canvas.setFont('YaHei', 8)
     canvas.setFillColor(colors.HexColor('#718377'))
-    canvas.drawString(43, height - 28, '精工 Agent 0.6.6  |  开发人员使用说明')
+    canvas.drawString(43, height - 28, '精工 Agent 0.6.7  |  开发人员使用说明')
     canvas.line(43, 37, width - 43, 37)
     canvas.drawString(43, 24, '战区研发使用  ·  2026-11-07')
     canvas.drawRightString(width - 43, 24, f'第 {doc.page} 页')

@@ -485,7 +485,9 @@ try {
   assert.equal(recovered.layout.composerHeight, 150);
   assert.equal(recovered.projects[0].collapsed, false);
   assert.equal(settingsAfterRestart.providers.length, 2); assert.equal(settingsAfterRestart.jira.hasPassword, true);
-  assert.equal(settingsAfterRestart.documents.length, 5); assert.equal(settingsAfterRestart.memories.length, 1);
+  assert.ok(settingsAfterRestart.documents.length >= 5);
+  assert.deepEqual(new Set(settingsAfterRestart.documents.filter(item => item.kind === 'dictionary').map(item => item.system)), new Set(['MES5', 'MES6', 'WMS']));
+  assert.equal(settingsAfterRestart.memories.length, 1);
   assert.ok(!(await readFile(path.join(data, 'database/jinggong-agent.db'))).includes(Buffer.from(jiraPassword)));
   checks.push('退出重启后读回真实SQLite会话/多模型/外观/Jira/字典/要求/记忆，备份有效且无密码明文');
   await writeFile(credentialPath, Buffer.from('damaged-test-credential'));
