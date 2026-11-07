@@ -10,6 +10,6 @@ if (!publisher || !certificate || !password) {
 }
 
 const cli = path.resolve('node_modules/electron-builder/cli.js');
-const result = spawnSync(process.execPath, [cli, '--win', 'nsis', '--x64', '--publish', 'always', '--config.win.signExecutable=true', '--config.win.forceCodeSigning=true', `--config.win.publisherName=${publisher}`], { stdio: 'inherit', shell: false, env: process.env });
+const result = spawnSync(process.execPath, [cli, '--win', 'nsis', '--x64', '--publish', 'always', '--config.win.signExecutable=true', '--config.forceCodeSigning=true', `--config.win.signtoolOptions.publisherName=${publisher}`], { stdio: 'inherit', shell: false, env: process.env });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);
