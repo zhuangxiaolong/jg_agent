@@ -26,9 +26,6 @@ jobs:
           npm run build
           node scripts/stage-runtime.mjs
           node scripts/release-win.mjs
-          $version = node -p "require('./package.json').version"
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-        id: version
         env:
           JINGGONG_PUBLISH_MODE: never
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
@@ -37,14 +34,19 @@ jobs:
       - name: 发布 GitHub Release
         shell: pwsh
         run: |
-          $version = '${{ steps.version.outputs.version }}'
+          $version = node -p "require('./package.json').version"
+          $files = @(
+            "release/JinggongAgent-Setup-$version-x64.exe",
+            "release/JinggongAgent-Setup-$version-x64.exe.blockmap",
+            'release/latest.yml'
+          )
+          foreach ($file in $files) {
+            if (!(Test-Path -LiteralPath $file)) { throw "发布文件不存在: $file" }
+          }
           gh release view '${{ github.ref_name }}' *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create '${{ github.ref_name }}' --title '${{ github.ref_name }}' --generate-notes
           }
-          gh release upload '${{ github.ref_name }}' `
-            "release/JinggongAgent-Setup-$version-x64.exe" `
-            "release/JinggongAgent-Setup-$version-x64.exe.blockmap" `
-            'release/latest.yml' --clobber
+          gh release upload '${{ github.ref_name }}' @files --clobber
         env:
           GH_TOKEN: ${{ github.token }}
