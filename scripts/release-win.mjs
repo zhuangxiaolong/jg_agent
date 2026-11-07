@@ -4,8 +4,9 @@ import path from 'node:path';
 const publisher = process.env.JINGGONG_UPDATE_PUBLISHER?.trim();
 const certificate = process.env.CSC_LINK || process.env.WIN_CSC_LINK;
 const password = process.env.CSC_KEY_PASSWORD || process.env.WIN_CSC_KEY_PASSWORD;
+const publishMode = process.env.JINGGONG_PUBLISH_MODE?.trim() || 'always';
 const cli = path.resolve('node_modules/electron-builder/cli.js');
-const args = [cli, '--win', 'nsis', '--x64', '--publish', 'always'];
+const args = [cli, '--win', 'nsis', '--x64', '--publish', publishMode];
 if (publisher && certificate && password) {
   args.push('--config.win.signExecutable=true', '--config.forceCodeSigning=true', `--config.win.signtoolOptions.publisherName=${publisher}`);
   console.log('在线更新发布：使用 Windows Authenticode 签名。');
