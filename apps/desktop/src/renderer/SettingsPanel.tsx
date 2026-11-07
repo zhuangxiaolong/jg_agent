@@ -72,7 +72,7 @@ export function SettingsPanel({ settings, onChanged, onClose, initialTab = 'prov
 interface Operations { api: DesktopApi; pending: boolean; act: (work: () => Promise<unknown>, success?: SuccessNotice) => Promise<boolean> }
 
 function updateText(status: UpdateStatus): string {
-  return status.message || ({ disabled: '当前安装包未配置更新签名', idle: '等待检查', checking: '正在检查更新…', available: '发现新版本', downloading: '正在下载更新…', downloaded: '更新已下载', 'not-available': '当前已是最新版本', error: '更新检查失败' } as Record<string, string>)[status.state];
+  return status.message || ({ disabled: '在线更新不可用', idle: '等待检查', checking: '正在检查更新…', available: '发现新版本', downloading: '正在下载更新…', downloaded: '更新已下载', 'not-available': '当前已是最新版本', error: '更新检查失败' } as Record<string, string>)[status.state];
 }
 function Updates({ snapshot, api, act, pending }: Operations & { snapshot: SettingsSnapshot }) {
   const [status, setStatus] = useState<UpdateStatus>(snapshot.update);

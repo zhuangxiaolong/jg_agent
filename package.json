@@ -1,6 +1,6 @@
 {
   "name": "jinggong-agent",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "private": true,
   "description": "精工 Agent Windows 桌面客户端 PoC",
   "author": "精工研发",

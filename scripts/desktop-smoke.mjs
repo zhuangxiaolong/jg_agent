@@ -329,7 +329,7 @@ try {
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).updateUrl === 'https://updates.example.invalid/agent/');
   await expect(page.getByLabel('更新地址', { exact: true })).toHaveValue('https://updates.example.invalid/agent/');
   checks.push('更新设置显示真实当前版本，编辑保存 HTTPS 更新地址后主进程读回正确');
-  await expect(page.getByText(/未配置更新签名|等待检查/)).toBeVisible();
+  await expect(page.getByText(/开发运行模式不会检查在线更新|在线更新已启用|等待检查/)).toBeVisible();
   await page.getByRole('radio', { name: '手动更新', exact: true }).check();
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).preferences.updateMode === 'manual');
   await expect(page.getByRole('radio', { name: '手动更新', exact: true })).toBeChecked();
@@ -340,7 +340,7 @@ try {
   await expect(page.getByRole('radio', { name: '自动更新', exact: true })).toBeChecked();
   await expect(page.getByRole('radio', { name: '自动更新', exact: true })).toBeEnabled();
   assert.equal((await page.evaluate(() => window.jinggong.getSettings())).preferences.updateMode, 'automatic');
-  checks.push('设置内支持自动/手动更新切换；未签名安装包明确提示更新不可用');
+  checks.push('设置内支持自动/手动更新切换；开发运行明确提示不检查在线更新，发布包使用 HTTPS + SHA512 更新校验');
   await page.getByRole('button', { name: '模型中转站', exact: true }).click();
   await page.locator('#provider-url').fill('https://gateway.example.invalid/v1');
   await page.locator('#provider-model').fill('test-model');

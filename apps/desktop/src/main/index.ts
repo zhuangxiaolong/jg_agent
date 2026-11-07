@@ -53,7 +53,7 @@ let shutdownStarted = false;
 let updateDownloaded = false;
 let installingUpdate = false;
 let updaterEnabled = false;
-let updateStatus: UpdateStatus = { state: 'disabled', message: '当前安装包未配置更新签名' };
+let updateStatus: UpdateStatus = { state: 'disabled', message: '开发运行模式不会检查在线更新' };
 const creating = new Set<string>();
 let gitBusy = false;
 const MAX_CONVERSATION_ATTACHMENTS = 20;
@@ -122,7 +122,7 @@ function configureUpdaterMode(mode: UpdateMode): void {
   autoUpdater.autoDownload = mode === 'automatic';
 }
 async function checkForUpdate(): Promise<UpdateStatus> {
-  if (!updaterEnabled) return publishUpdate({ state: 'disabled', message: '当前安装包未配置更新签名' });
+  if (!updaterEnabled) return publishUpdate({ state: 'disabled', message: '当前安装包未包含在线更新配置' });
   if (['checking', 'downloading', 'downloaded'].includes(updateStatus.state)) return updateStatus;
   publishUpdate({ state: 'checking', message: '正在检查更新…' });
   try {
@@ -706,7 +706,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   handle('app:update-check', () => checkForUpdate());
   handle('app:update-download', async () => {
-    if (!updaterEnabled) return publishUpdate({ state: 'disabled', message: '当前安装包未配置更新签名' });
+    if (!updaterEnabled) return publishUpdate({ state: 'disabled', message: '当前安装包未包含在线更新配置' });
     if (updateStatus.state !== 'available') return updateStatus;
     publishUpdate({ ...updateStatus, state: 'downloading', progress: 0, message: '正在下载更新…' });
     try { await autoUpdater.downloadUpdate(); } catch (error) { return publishUpdate({ state: 'error', message: redact(error instanceof Error ? error.message : String(error)) }); }
@@ -895,13 +895,16 @@ if (primaryInstance) app.whenReady().then(async () => {
     const updateConfig = path.join(process.resourcesPath, 'app-update.yml');
     const updateConfigText = existsSync(updateConfig) ? readFileSync(updateConfig, 'utf8') : '';
     const publisherLine = /^publisherName:\s*(.*?)\s*$/m.exec(updateConfigText)?.[1]?.replace(/^(['"])(.*)\1$/, '$2').trim();
-    const publisherConfigured = !!publisherLine && publisherLine !== 'null' && publisherLine !== '~';
-    if (publisherConfigured) {
+    const publisherConfigured = (!!publisherLine && publisherLine !== 'null' && publisherLine !== '~')
+      || /^publisherName:\s*\r?\n\s*-\s*\S+/m.test(updateConfigText);
+    const updateConfigAvailable = /^provider:\s*\S+/m.test(updateConfigText);
+    if (updateConfigAvailable) {
       updaterEnabled = true;
       autoUpdater.setFeedURL(updateFeed(store.getUpdateUrl() ?? DEFAULT_UPDATE_URL).feed);
       autoUpdater.autoDownload = updateMode() === 'automatic';
       autoUpdater.autoInstallOnAppQuit = false;
       autoUpdater.allowPrerelease = false;
+      publishUpdate({ state: 'idle', message: publisherConfigured ? '在线更新已启用（已配置签名）' : '在线更新已启用（HTTPS + SHA512 校验）' });
       autoUpdater.on('update-downloaded', info => {
         updateDownloaded = true;
         publishUpdate({ state: 'downloaded', version: info.version, progress: 100, message: `版本 ${info.version} 已下载，重启后完成更新` });
@@ -911,7 +914,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       autoUpdater.on('download-progress', info => publishUpdate({ state: 'downloading', progress: Math.round(info.percent), message: `正在下载更新 ${Math.round(info.percent)}%` }));
       autoUpdater.on('error', error => { publishUpdate({ state: 'error', message: redact(error.message) }); console.warn('[online-update]', redact(error.message)); });
       if (updateMode() === 'automatic') void checkForUpdate();
-    } else { publishUpdate({ state: 'disabled', message: '当前安装包未配置更新签名' }); console.warn('[online-update] Windows 发布者签名未配置，已关闭自动更新检查与安装'); }
+    } else { publishUpdate({ state: 'disabled', message: '当前安装包未包含在线更新配置' }); console.warn('[online-update] 未找到有效 app-update.yml，已关闭自动更新检查与安装'); }
   }
 }).catch(error => { dialog.showErrorBox('精工 Agent 启动失败', redact(String(error))); app.quit(); });
 app.on('window-all-closed', () => app.quit());
