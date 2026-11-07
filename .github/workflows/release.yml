@@ -23,6 +23,7 @@ jobs:
         run: npm ci
       - name: 构建 Windows 安装包
         run: |
+          Write-Host "开始构建无证书更新引导包；证书存在时由 release-win.mjs 启用签名。"
           npm run build
           node scripts/stage-runtime.mjs
           node scripts/release-win.mjs
