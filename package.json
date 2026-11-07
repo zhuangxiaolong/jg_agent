@@ -2,7 +2,7 @@
   "name": "jinggong-agent",
   "version": "0.6.8",
   "private": true,
-  "description": "精工 Agent Windows 桌面客户端 PoC",
+  "description": "精工智能开发平台 Windows 桌面客户端",
   "author": "精工研发",
   "main": "dist/main.cjs",
   "scripts": {
@@ -41,7 +41,7 @@
   },
   "build": {
     "appId": "com.jinggong.agent",
-    "productName": "精工 Agent",
+    "productName": "精工智能开发平台",
     "artifactName": "JinggongAgent-Setup-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"

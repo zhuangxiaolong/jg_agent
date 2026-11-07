@@ -30,7 +30,7 @@ import { requirementsSource, shouldSyncRequirementsOnStartup, updateRequirements
 import { JiraTestImages, jiraFlowSchema, sessionTestResult } from './jira-workflow';
 import { ensureBuiltinDictionaries } from './bundled-dictionaries';
 
-app.setName('精工 Agent');
+app.setName('精工智能开发平台');
 let browsers: BrowserManager;
 const jiraTestImages = new JiraTestImages();
 let jiraFlowBusy = false;
@@ -262,15 +262,15 @@ function isCliHealthCommand(args: string[]): boolean {
 
 async function runStandaloneCli(): Promise<number> {
   const cliArgs = process.argv.slice(cliArgumentIndex + 1);
-  if (!existsSync(executable)) throw new Error('运行时未准备，请重新安装精工 Agent');
+  if (!existsSync(executable)) throw new Error('运行时未准备，请重新安装精工智能开发平台');
   const home = path.join(dataRoot, 'runtime/home');
   let args = cliArgs;
   let apiKey: string | undefined;
   if (!isCliHealthCommand(cliArgs)) {
     const profile = settings.profiles()[0];
-    if (!profile) throw new Error('请先在精工 Agent 设置中配置模型中转站');
+    if (!profile) throw new Error('请先在精工智能开发平台设置中配置模型中转站');
     apiKey = settings.credential(profile.id).read(profile.baseUrl);
-    if (!apiKey) throw new Error('请先在精工 Agent 设置中配置模型 API Key');
+    if (!apiKey) throw new Error('请先在精工智能开发平台设置中配置模型 API Key');
     args = [...cliConfigArgs(profile), ...cliArgs];
   }
   const child = spawn(executable, args, { cwd: process.cwd(), env: runtimeEnvironment(home, apiKey), windowsHide: false, stdio: 'inherit' });
@@ -435,7 +435,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     return;
   }
   images = new JiraImageStore(dataRoot);
-  window = new BrowserWindow({ title: '精工 Agent', icon: path.join(__dirname, 'renderer/assets/app-icon.png'), width: 1440, height: 960, minWidth: 1000, minHeight: 700, backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+  window = new BrowserWindow({ title: '精工智能开发平台', icon: path.join(__dirname, 'renderer/assets/app-icon.png'), width: 1440, height: 960, minWidth: 1000, minHeight: 700, backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -448,13 +448,13 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('share:export', async (value: unknown) => {
     const input = z.object({ kind: z.enum(['session', 'memories']), sessionId: idSchema.optional(), memoryIds: z.array(idSchema).max(100).optional() }).strict().parse(value);
     const content = exportShare(store, input, text => settings.redactContent(text));
-    const destination = await dialog.showSaveDialog(window, { title: '导出分享文件', defaultPath: path.join(dataRoot, 'exports', `${input.kind === 'session' ? '会话经验' : '记忆'}-${new Date().toISOString().slice(0, 10)}.jgshare.json`), filters: [{ name: '精工 Agent 分享文件', extensions: ['json'] }] });
+    const destination = await dialog.showSaveDialog(window, { title: '导出分享文件', defaultPath: path.join(dataRoot, 'exports', `${input.kind === 'session' ? '会话经验' : '记忆'}-${new Date().toISOString().slice(0, 10)}.jgshare.json`), filters: [{ name: '精工智能开发平台分享文件', extensions: ['json'] }] });
     if (destination.canceled || !destination.filePath) return null;
     await writeFile(destination.filePath, content, 'utf8'); return destination.filePath;
   });
   handle('share:import', async (value?: unknown) => {
     assertIdle(); const projectId = value === undefined ? undefined : projectIdSchema.parse(value);
-    const selected = await dialog.showOpenDialog(window, { title: '导入会话或记忆分享文件', properties: ['openFile'], filters: [{ name: '精工 Agent 分享文件', extensions: ['json'] }] });
+    const selected = await dialog.showOpenDialog(window, { title: '导入会话或记忆分享文件', properties: ['openFile'], filters: [{ name: '精工智能开发平台分享文件', extensions: ['json'] }] });
     if (selected.canceled) return null;
     const stat = await lstat(selected.filePaths[0]); if (!stat.isFile() || stat.size > MAX_SHARE_BYTES) throw new Error('请选择不超过 32 MiB 的分享文件');
     const bundle = parseShare(await readFile(selected.filePaths[0], 'utf8')); settings.assertCleanValue(bundle); assertIdle();
@@ -698,7 +698,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       if (!window.isVisible() && !window.isMinimized()) window.showInactive();
       window.flashFrame(true);
     }
-    if (Notification.isSupported()) new Notification({ title: '精工 Agent', body: `会话「${clean(value.trim())}」已完成。`, silent: true }).show();
+    if (Notification.isSupported()) new Notification({ title: '精工智能开发平台', body: `会话「${clean(value.trim())}」已完成。`, silent: true }).show();
   });
   handle('app:update-install', () => {
     if (!updateDownloaded) throw new Error('当前没有已下载完成的更新');
@@ -872,7 +872,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   }));
   handle('git:file-discard', (value: unknown, fileValue: unknown) => gitOperation(async () => {
     const session = await sessionWithWorkspace(value); const file = gitFileSchema.parse(fileValue);
-    const confirmation = await dialog.showMessageBox(window, { type: 'warning', title: '撤销文件变更', message: `确认撤销“${file}”的全部未提交修改？`, detail: '已修改文件将恢复到当前会话分支 HEAD；未跟踪文件将被删除。此操作不可在精工 Agent 中恢复。', buttons: ['取消', '确认撤销'], defaultId: 0, cancelId: 0 });
+    const confirmation = await dialog.showMessageBox(window, { type: 'warning', title: '撤销文件变更', message: `确认撤销“${file}”的全部未提交修改？`, detail: '已修改文件将恢复到当前会话分支 HEAD；未跟踪文件将被删除。此操作不可在精工智能开发平台中恢复。', buttons: ['取消', '确认撤销'], defaultId: 0, cancelId: 0 });
     if (confirmation.response !== 1) throw new Error('已取消撤销');
     await git.discard(session.workspacePath, file); emit(session.id, 'tool', `已撤销文件变更：${file}`);
   }));
@@ -916,7 +916,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       if (updateMode() === 'automatic') void checkForUpdate();
     } else { publishUpdate({ state: 'disabled', message: '当前安装包未包含在线更新配置' }); console.warn('[online-update] 未找到有效 app-update.yml，已关闭自动更新检查与安装'); }
   }
-}).catch(error => { dialog.showErrorBox('精工 Agent 启动失败', redact(String(error))); app.quit(); });
+}).catch(error => { dialog.showErrorBox('精工智能开发平台启动失败', redact(String(error))); app.quit(); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (!primaryInstance) return;

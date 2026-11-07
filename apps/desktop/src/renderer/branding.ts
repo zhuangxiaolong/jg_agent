@@ -12,7 +12,7 @@ export function sessionDisplayName(session: Pick<Session, 'title' | 'alias' | 'j
 /** 仅用于平台提示的显示名称；保留路径、URL、代码片段及底层原始数据。 */
 export function engineText(value = '') {
   return value.replace(/仅允许读取应用管理的隔离工作区。?/g, '当前会话工作区不可用，请新建会话后重试。').split(/((?:[A-Za-z]:[\\/]|\\\\|https?:\/\/)[^\r\n"<>，。；：]*|```[\s\S]*?```|`[^`]*`)/g)
-    .map((part, index) => index % 2 ? part : part.replace(/(?<![\\/A-Za-z0-9_.-])Codex(?: Runtime)?(?![\\/A-Za-z0-9_.-])/gi, '精工 Agent 引擎').replace(/(?<![\\/A-Za-z0-9_.-])Runtime(?![\\/A-Za-z0-9_.-])/g, '引擎'))
+    .map((part, index) => index % 2 ? part : part.replace(/(?<![\\/A-Za-z0-9_.-])Codex(?: Runtime)?(?![\\/A-Za-z0-9_.-])/gi, '精工智能开发平台引擎').replace(/(?<![\\/A-Za-z0-9_.-])Runtime(?![\\/A-Za-z0-9_.-])/g, '引擎'))
     .join('');
 }
 export function engineVersion(value = '') { return value.replace(/^codex(?:[- ]cli)?\s*/i, ''); }

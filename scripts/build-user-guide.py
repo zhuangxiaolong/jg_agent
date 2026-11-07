@@ -16,7 +16,7 @@ VERSION = '0.6.7'
 SOURCE = ROOT / 'docs' / f'使用说明-{VERSION}.md'
 OUTPUT = ROOT / 'release-v067'
 OUTPUT.mkdir(exist_ok=True)
-stem = f'精工 Agent {VERSION} 开发人员使用说明'
+stem = f'精工智能开发平台 {VERSION} 开发人员使用说明'
 text = SOURCE.read_text(encoding='utf-8')
 parts = re.split(r'^## (.+)$', text, flags=re.M)
 intro = parts[0].split('\n', 2)[2].strip()
@@ -70,7 +70,7 @@ section{{background:white;padding:24px 30px;margin-bottom:20px;border:1px solid 
 pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf3ef;border:1px solid #d7e2db;border-radius:5px;padding:15px;color:#254c36;line-height:1.9}}code{{font-family:"Microsoft YaHei",sans-serif;font-size:14px}}footer{{text-align:center;color:#77877e;font-size:12px;padding:12px 20px 30px}}button{{padding:7px 14px;border:1px solid #94b2a0;border-radius:4px;color:white;background:transparent;font:inherit;cursor:pointer}}
 @media(max-width:800px){{.layout{{display:block}}nav{{position:static;margin-bottom:20px}}nav a{{padding:5px 10px}}section{{padding:18px}}h1{{font-size:24px}}}}
 @media print{{body{{background:white;font-size:11pt}}header{{background:white;color:#172a23;padding:0 0 20px}}header p{{color:#52675c}}button,nav{{display:none}}.layout{{display:block;margin:0;padding:0}}section{{border:0;padding:0;break-before:page}}section:first-child{{break-before:auto}}footer{{display:none}}}}
-</style></head><body><header><small>精工研发 · 战区开发使用指南</small><h1>精工 Agent {VERSION}<br>开发人员使用说明</h1><p>{html.escape(intro)}</p><button onclick="window.print()">打印 / 保存 PDF</button></header><div class="layout"><nav aria-label="使用说明目录">{nav}</nav><main>{body}</main></div><footer>精工 Agent {VERSION} · 2026-11-06 · 可离线打开</footer></body></html>'''
+</style></head><body><header><small>精工研发 · 战区开发使用指南</small><h1>精工智能开发平台 {VERSION}<br>开发人员使用说明</h1><p>{html.escape(intro)}</p><button onclick="window.print()">打印 / 保存 PDF</button></header><div class="layout"><nav aria-label="使用说明目录">{nav}</nav><main>{body}</main></div><footer>精工智能开发平台 {VERSION} · 2026-11-06 · 可离线打开</footer></body></html>'''
 (OUTPUT / f'{stem}.html').write_text(document, encoding='utf-8')
 
 pdfmetrics.registerFont(TTFont('YaHei', 'C:/Windows/Fonts/msyh.ttc', subfontIndex=0))
@@ -86,7 +86,7 @@ for i, (title, content) in enumerate(sections):
     if i:
         story.append(PageBreak())
     else:
-        story.extend([Paragraph(f'精工 Agent {VERSION}<br/>开发人员使用说明', cover), Paragraph(html.escape(intro), caption)])
+        story.extend([Paragraph(f'精工智能开发平台 {VERSION}<br/>开发人员使用说明', cover), Paragraph(html.escape(intro), caption)])
     story.append(Paragraph(html.escape(title), heading))
     for kind, value in blocks(content):
         if kind == 'code':
@@ -102,7 +102,7 @@ def page_chrome(canvas, doc):
     canvas.line(43, height - 37, width - 43, height - 37)
     canvas.setFont('YaHei', 8)
     canvas.setFillColor(colors.HexColor('#718377'))
-    canvas.drawString(43, height - 28, '精工 Agent 0.6.7  |  开发人员使用说明')
+    canvas.drawString(43, height - 28, '精工智能开发平台 0.6.7  |  开发人员使用说明')
     canvas.line(43, 37, width - 43, 37)
     canvas.drawString(43, 24, '战区研发使用  ·  2026-11-07')
     canvas.drawRightString(width - 43, 24, f'第 {doc.page} 页')

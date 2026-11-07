@@ -65,7 +65,7 @@ async function launch() {
   if (process.env.JINGGONG_TEST_NO_NODE) env.PATH = `${process.env.SystemRoot}\\System32;C:\\Program Files\\Git\\cmd`;
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow(); page.on('request', request => { if (/^https?:/.test(request.url())) rendererRequests.push(request.url()); });
-  await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
   return page;
 }
 async function databaseRecord(table, id) {
@@ -235,7 +235,7 @@ try {
   const imageFile = path.join(data, 'attachments/jira', `${imageHash}.png`), heldImage = `${imageFile}.held`;
   await rename(imageFile, heldImage);
   try {
-    await page.reload(); await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor(); await page.locator('.session-jira-link>summary').click();
+    await page.reload(); await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor(); await page.locator('.session-jira-link>summary').click();
     await page.locator('.session-jira-link').getByRole('alert').filter({ hasText: '图片加载失败：Jira 图片缓存缺失' }).waitFor(); assert.equal(await page.locator('.session-jira-link').getByRole('button', { name: '查看图片 合成验收图.png', exact: true }).count(), 0);
   } finally { await rename(heldImage, imageFile); }
   await page.locator('.session-jira-link').getByRole('button', { name: '重试图片', exact: true }).click(); await page.locator('.session-jira-link').getByRole('button', { name: '查看图片 合成验收图.png', exact: true }).waitFor();

@@ -44,7 +44,7 @@ try {
   const env = { ...process.env, JINGGONG_TEST_DATA: data }; delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ args: ['.'], env }); const page = await app.firstWindow(); page.setDefaultTimeout(15000);
   await app.evaluate(async ({ dialog }, root) => { const fs = process.getBuiltinModule('fs'); process.on('uncaughtException', error => fs.writeFileSync(root + '/uncaught.log', error.stack || String(error))); }, root);
-  await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
   await app.evaluate(({ dialog }, repo) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] }); }, repo);
   await page.getByRole('button', { name: '选择本地项目', exact: true }).click(); await page.getByRole('button', { name: '新建 Agent 会话', exact: true }).click();
   await page.getByRole('textbox', { name: '输入任务', exact: true }).waitFor();
@@ -100,7 +100,7 @@ try {
   console.log('功能检查通过'); checks.push('真实内置 Chromium：读取页面、填写、下拉、点击查询、iframe、JS、截图、新标签、报表下载、关闭重开保留登录Cookie；远程页面无应用桥接');
 
   await page.evaluate(async base => { await window.jinggong.saveJira({ baseUrl: base + '/jira', account: 'fixture-user', password: 'synthetic-jira-password', projectKey: 'TEST', dateFieldId: '11116' }); }, base);
-  await page.reload(); await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor();
+  await page.reload(); await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor();
   await page.getByRole('button', { name: '查看 Jira 任务 TEST-1', exact: true }).click();
   await page.getByRole('button', { name: '从此任务创建会话', exact: true }).waitFor();
   assert.ok(!(await page.getByRole('button', { name: '从此任务创建会话', exact: true }).textContent()).includes('隔离'));

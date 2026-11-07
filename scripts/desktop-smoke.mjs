@@ -35,7 +35,7 @@ async function launch() {
   if (process.env.JINGGONG_TEST_NO_NODE) env.PATH = `${process.env.SystemRoot}\\System32;C:\\Program Files\\Git\\cmd`;
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow();
-  await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
   return page;
 }
 try {

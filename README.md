@@ -1,4 +1,4 @@
-# 精工 Agent
+# 精工智能开发平台
 
 Windows 桌面研发 Agent。正式依据为 docs 内三份 V1.1，运行时固定 Codex CLI 0.156.1。无应用服务器、无 localhost API、无 Docker/PostgreSQL/Python 依赖。
 
@@ -38,13 +38,13 @@ npm start
 npm run dist
 ```
 
-安装后即使精工 Agent 主窗口和托盘进程已经退出，也可以直接调用 `resources\runtime\jinggong-agent.cmd` 使用随包 Codex CLI。命令包装器会读取精工 Agent 已保存的第一个模型配置和 DPAPI 密钥，不会启动主界面；例如：
+安装后即使精工智能开发平台主窗口和托盘进程已经退出，也可以直接调用 `resources\runtime\jinggong-agent.cmd` 使用随包 Codex CLI。命令包装器会读取精工智能开发平台已保存的第一个模型配置和 DPAPI 密钥，不会启动主界面；例如：
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\jinggong-agent\resources\runtime\jinggong-agent.cmd" exec --full-auto "检查当前目录并给出修改方案"
 ```
 
-开发环境可使用 `npm run cli -- --version` 验证无窗口 CLI 入口。主程序退出后，CLI 仍是独立进程；关闭 CLI 命令不会重新打开精工 Agent。
+开发环境可使用 `npm run cli -- --version` 验证无窗口 CLI 入口。主程序退出后，CLI 仍是独立进程；关闭 CLI 命令不会重新打开精工智能开发平台。
 
 本次安装包使用独立输出目录生成于 `release-v066/JinggongAgent-Setup-0.6.6-x64.exe`。在线更新可在设置中选择自动或手动；自动模式启动后静默检查并后台下载，手动模式由“检查更新/下载更新”触发，下载完成后“重启并更新”会安静退出、覆盖安装并重新启动，不需要手动卸载或运行安装包。自动检查/安装要求通过签名检查的发布包；本地未签名包会在设置中显示未配置更新签名。
 

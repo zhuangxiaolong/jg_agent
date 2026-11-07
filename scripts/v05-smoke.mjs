@@ -68,7 +68,7 @@ async function launch() {
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow(); page.on('request', request => { if (/^https?:/.test(request.url())) rendererRequests.push(request.url()); });
   await page.bringToFront();
-  await page.getByText('精工 Agent 引擎已就绪', { exact: true }).waitFor({ state: 'attached', timeout: 30000 });
+  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ state: 'attached', timeout: 30000 });
   await expect(page.getByRole('button', { name: /^(隐藏|显示)右侧面板$/, exact: true })).toBeEnabled();
   return page;
 }
