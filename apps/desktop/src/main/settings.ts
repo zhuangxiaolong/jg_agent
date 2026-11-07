@@ -4,12 +4,13 @@ import { CredentialStore } from './credentials';
 import { idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, redact, requirementInputSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
+import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
 import type { LocalStore } from '../../../../packages/storage/src';
-import type { ManagedDocument, ProviderProfile, ProviderSettings, SettingsSnapshot } from '../../../../packages/domain/src';
+import type { ManagedDocument, ProviderProfile, ProviderSettings, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
 
 /** 凭据只在主进程解密，数据库和 Renderer 永远只接收是否已配置。 */
 export class SettingsService {
-  constructor(private readonly store: LocalStore, private readonly dataRoot: string, private readonly assertIdle: () => void) {}
+  constructor(private readonly store: LocalStore, private readonly dataRoot: string, private readonly assertIdle: () => void, private readonly appVersion = '开发版') {}
 
   credential(id: string): CredentialStore {
     profileIdSchema.parse(id);
@@ -21,8 +22,8 @@ export class SettingsService {
     const profile = this.profiles()[0];
     return profile ? { baseUrl: profile.baseUrl, model: profile.models[0], hasKey: profile.hasKey } : { baseUrl: '', model: '', hasKey: false };
   }
-  snapshot(): SettingsSnapshot {
-    return { preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories() };
+  snapshot(update: UpdateStatus = { state: 'disabled', message: '更新检查尚未启动' }): SettingsSnapshot {
+    return { preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, requirementsSync: this.store.getRequirementsSync() };
   }
   redact(text: string): string {
     let value = redact(text);
@@ -33,7 +34,20 @@ export class SettingsService {
     return value;
   }
   assertCleanText(content: string): void {
-    if (this.redact(content) !== content || /(?:password|api[_-]?key|access[_-]?token)\s*["']?\s*[:=]\s*["']?[^\s"',}]{6,}/i.test(content)) throw new Error('资料中疑似包含密码或 Token，请移除真实凭据后重新导入');
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential()];
+    for (const vault of vaults) {
+      let secret: string | undefined;
+      try { secret = vault.read(); } catch { continue; }
+      if (secret && content.includes(secret)) throw new Error('内容包含当前配置的连接凭据，请移除后重试');
+    }
+  }
+  redactContent(content: string): string {
+    let value = content;
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential()];
+    for (const vault of vaults) {
+      try { const secret = vault.read(); if (secret) value = value.split(secret).join('[已脱敏]'); } catch { /* 凭据损坏不能阻断会话显示。 */ }
+    }
+    return value;
   }
   assertCleanValue(value: unknown): void {
     // 在 JSON 转义之前检查原始字符串，避免引号和反斜杠改变已知密钥的形态。
@@ -51,6 +65,11 @@ export class SettingsService {
   }
   savePreferences(value: unknown) { const preferences = preferencesSchema.parse(value); this.store.savePreferences(preferences); return preferences; }
   saveLayout(value: unknown) { const layout = layoutSchema.parse(value); this.store.saveLayout(layout); return layout; }
+  saveUpdateUrl(value: unknown): string {
+    if (typeof value !== 'string') throw new Error('更新地址无效');
+    this.assertCleanText(value);
+    const { url } = updateFeed(value); this.store.saveUpdateUrl(url); return url;
+  }
   saveProfile(value: unknown): ProviderProfile {
     this.assertIdle();
     const input = modelProfileSchema.parse(value);
@@ -102,7 +121,7 @@ export class SettingsService {
     if (input.id && !current) throw new Error('开发要求不存在，不能覆盖其他资料');
     if (!current && this.store.listDocuments().length >= 100) throw new Error('资料最多 100 份，请先整理和删除');
     const name = /\.(?:md|txt|json)$/i.test(input.title) ? input.title : `${input.title}.md`;
-    const document: ManagedDocument = { id: current?.id ?? randomUUID(), kind: 'requirement', system: input.system, name, content: input.content, digest: createHash('sha256').update(input.content).digest('hex'), createdAt: current?.createdAt ?? new Date().toISOString(), enabled: current?.enabled ?? true };
+    const document: ManagedDocument = { id: current?.id ?? randomUUID(), kind: 'requirement', system: input.system, name, content: input.content, digest: createHash('sha256').update(input.content).digest('hex'), createdAt: current?.createdAt ?? new Date().toISOString(), enabled: current?.enabled ?? true, ...(current?.remote ? { remote: current.remote } : {}) };
     parsePolicy(document); this.store.saveDocument(document); return document;
   }
   saveMemory(value: unknown) {

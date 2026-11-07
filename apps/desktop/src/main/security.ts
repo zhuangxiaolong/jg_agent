@@ -6,14 +6,22 @@ export const profileIdSchema = z.union([idSchema, z.literal('legacy-default')]);
 export const httpsUrlSchema = z.string().url().max(2000).refine(value => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash; }, '地址必须为不含用户名、密码或查询参数的 HTTPS 地址');
 export const modelSchema = z.string().trim().min(1).max(160).regex(/^[a-zA-Z0-9._:/-]+$/);
 export const promptSchema = z.string().trim().min(1).max(50000);
+export const sessionSendSchema = z.object({ prompt: promptSchema, attachmentIds: z.array(idSchema).max(20).default([]) }).strict();
+export const clipboardTextSchema = z.string().max(2 * 1024 * 1024, '代码内容过长，请分段复制');
 export const providerSchema = z.object({
   baseUrl: httpsUrlSchema,
   model: modelSchema,
   apiKey: z.string().min(1).max(8192).optional()
 }).strict();
 export const modelProfileSchema = z.object({ id: profileIdSchema.optional(), name: z.string().trim().min(1).max(80), baseUrl: httpsUrlSchema, models: z.array(modelSchema).min(1).max(50).refine(values => new Set(values).size === values.length, '模型不能重复'), apiKey: z.string().min(1).max(8192).optional() }).strict();
-export const preferencesSchema = z.object({ theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']), style: z.enum(['jinggong', 'minimal']) }).strict();
-export const layoutSchema = z.object({ leftVisible: z.boolean(), rightVisible: z.boolean(), bottomVisible: z.boolean() }).strict();
+export const preferencesSchema = z.object({ theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']), style: z.enum(['jinggong', 'minimal']), completionSound: z.enum(['chime', 'bright', 'soft', 'off']).default('chime'), updateMode: z.enum(['automatic', 'manual']).default('automatic') }).strict();
+export const layoutSchema = z.object({
+  leftVisible: z.boolean(), rightVisible: z.boolean(), bottomVisible: z.boolean(),
+  leftWidth: z.number().int().min(180).max(520).optional(),
+  rightWidth: z.number().int().min(260).max(680).optional(),
+  bottomHeight: z.number().int().min(100).max(480).optional(),
+  composerHeight: z.number().int().min(80).max(400).optional()
+}).strict();
 export const projectNameSchema = z.string().trim().min(1, '请输入项目显示名称').max(100, '项目显示名称最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '项目显示名称不能包含换行或控制字符');
 export const sessionAliasSchema = z.string().trim().max(100, '会话别名最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '会话别名不能包含换行或控制字符');
 export const systemSchema = z.enum(['MES5', 'MES6', 'WMS', '通用']);
@@ -29,7 +37,8 @@ export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-
 export const requirementInputSchema = z.object({ id: idSchema.optional(), title: z.string().trim().min(1).max(160).refine(value => !/[\r\n\x00]/.test(value), '标题不能包含换行'), content: z.string().min(1).max(80000).refine(value => !!value.trim(), '请输入开发要求正文'), system: systemSchema }).strict();
 export const documentImportSchema = z.object({ kind: z.enum(['dictionary', 'requirement']), system: systemSchema }).strict();
 export const memorySchema = z.object({ title: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(12000) }).strict();
-export const commitSchema = z.object({ message: z.string().trim().min(1).max(2000), reviewedDocumentIds: z.array(idSchema).max(100), authorName: z.string().trim().min(1).max(100).optional(), authorEmail: z.email().max(320).optional() }).strict();
+export const commitSchema = z.object({ message: z.string().trim().min(1).max(4000), reviewedDocumentIds: z.array(idSchema).max(100), authorName: z.string().trim().min(1).max(100).optional(), authorEmail: z.email().max(320).optional() }).strict();
+export const gitFileSchema = z.string().min(1).max(1000).refine(value => !/[\x00-\x1f\x7f]/.test(value), '文件路径不能包含控制字符').refine(value => !value.includes('\\') && !value.startsWith('/') && !/^[A-Za-z]:/.test(value), '文件路径必须使用工作区内的相对路径');
 export function redact(text: string, secret?: string): string {
   let value = text;
   if (secret) value = value.split(secret).join('[已脱敏]');

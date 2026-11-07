@@ -1,4 +1,4 @@
-export interface RunTicket { readonly sessionId: string; cancelled: boolean }
+export interface RunTicket { readonly sessionId: string; readonly startedAt: number; cancelled: boolean }
 
 /** 异步启动的各阶段共享令牌，取消后旧请求不能继续启动工具或覆盖新任务。 */
 export class RunLifecycle {
@@ -8,7 +8,7 @@ export class RunLifecycle {
 
   begin(sessionId: string): RunTicket {
     if (this.active) throw new Error('当前有正在执行的任务，请等待或取消');
-    const ticket: RunTicket = { sessionId, cancelled: false };
+    const ticket: RunTicket = { sessionId, startedAt: Date.now(), cancelled: false };
     this.active = ticket;
     return ticket;
   }

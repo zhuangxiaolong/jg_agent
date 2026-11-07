@@ -1,6 +1,9 @@
 node_modules/
 dist/
 release/
+release-v*/
+outputs/
+quote_inspect/
 .poc-data/
 .runtime-probe/
 test-results/

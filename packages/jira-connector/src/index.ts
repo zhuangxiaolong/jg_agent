@@ -1,4 +1,4 @@
-import type { JiraAttachment, JiraConnectionResult, JiraIssue, JiraProject, JiraSearchInput, JiraSearchPage } from '../../domain/src';
+import type { JiraAssignee, JiraAttachment, JiraConnectionResult, JiraIssue, JiraProject, JiraSearchInput, JiraSearchPage, JiraTransition } from '../../domain/src';
 import { createHmac, randomBytes } from 'node:crypto';
 
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -108,7 +108,7 @@ export function normalizeJiraUrl(value: string): string { return parseJiraLocati
 function object(value: unknown): value is Record<string, any> { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function integer(value: unknown, maximum: number): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum; }
 
-/** 仅提供只读 REST GET；不执行 Jira 描述、附件或返回内容中的任何指令。 */
+/** Jira 查询及用户主动发起的任务流转，不执行业务资料中的指令。 */
 export class JiraConnector {
   private readonly baseUrl: string;
   private readonly projectKey: string;
@@ -133,14 +133,14 @@ export class JiraConnector {
     return value.split(this.options.password).join('[已脱敏]').split(this.authorization).join('[已脱敏]');
   }
 
-  private async get(endpoint: string, query?: URLSearchParams): Promise<any> {
+  private async get(endpoint: string, query?: URLSearchParams, mutation?: { method: 'POST' | 'PUT'; body: BodyInit; multipart?: boolean }): Promise<any> {
     const url = `${this.baseUrl}/rest/api/2/${endpoint}${query ? `?${query}` : ''}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     timer.unref();
     let response: Response | undefined;
     try {
-      try { response = await this.transport(url, { method: 'GET', headers: { Accept: 'application/json', Authorization: this.authorization }, redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
+      try { response = await this.transport(url, { method: mutation?.method ?? 'GET', headers: { Accept: 'application/json', Authorization: this.authorization, ...(mutation ? mutation.multipart ? { 'X-Atlassian-Token': 'no-check' } : { 'Content-Type': 'application/json' } : {}) }, ...(mutation ? { body: mutation.body } : {}), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
       catch { throw new Error(controller.signal.aborted ? 'Jira 请求超过 15 秒，请检查网络后重试' : '无法连接 Jira，请检查地址、网络、证书及是否发生登录重定向'); }
       if (/AUTHENTICATION_DENIED|CAPTCHA/i.test(response.headers.get('x-seraph-loginreason') ?? '')) throw new Error('Jira 已拒绝认证或要求验证码，请先在 Jira 网页完成登录验证后重试');
       if (response.status === 401) throw new Error('Jira 认证失败，请检查账号、密码或 Token');
@@ -148,7 +148,13 @@ export class JiraConnector {
       if (response.status === 404) throw new Error('Jira 地址、项目、字段或任务不存在，或当前账号无权查看');
       if (response.status === 429) throw new Error('Jira 请求过于频繁，请稍后重试');
       if (response.status >= 300 && response.status < 400) throw new Error('Jira 返回登录或地址重定向，请填写正确的 Jira Base URL；连接器不会转发认证信息');
-      if (!response.ok) throw new Error(response.status >= 500 ? 'Jira 服务暂时不可用，请稍后重试' : 'Jira 拒绝了查询，请检查项目、日期字段和查询权限');
+      if (!response.ok) {
+        if (!mutation) throw new Error(response.status >= 500 ? 'Jira 服务暂时不可用，请稍后重试' : 'Jira 拒绝了查询，请检查项目、日期字段和查询权限');
+        const errors = await response.text();
+        let detail = ''; try { const data = JSON.parse(errors); detail = [...(Array.isArray(data.errorMessages) ? data.errorMessages : []), ...Object.entries(data.errors ?? {}).map(([name, value]) => `${name}: ${value}`)].join('；'); } catch { /* 非 JSON 不作为业务详情显示。 */ }
+        throw new Error(this.text(`Jira ${response.status >= 500 ? '服务暂时不可用，' : ''}${mutation ? '操作' : '查询'}失败（HTTP ${response.status}）${detail ? '：' + detail.slice(0, 1200) : ''}`));
+      }
+      if (response.status === 204) return undefined;
       if (!/^application\/(?:[\w.-]+\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) throw new Error('Jira 未返回 JSON 数据，可能需要网页登录或 Base URL 不正确');
       const declared = response.headers.get('content-length');
       if (declared && Number(declared) > MAX_RESPONSE_BYTES) throw new Error('Jira 响应超过 8 MiB，请缩小查询范围');
@@ -174,6 +180,35 @@ export class JiraConnector {
       clearTimeout(timer);
       if (response?.body && !response.body.locked) await response.body.cancel().catch(() => undefined);
     }
+  }
+
+  async transitions(key: string): Promise<JiraTransition[]> {
+    if (!ISSUE_KEY.test(key)) throw new Error('Jira 任务编号无效');
+    const data = await this.get(`issue/${encodeURIComponent(key)}/transitions`);
+    if (!Array.isArray(data?.transitions)) throw new Error('Jira 流转状态格式无效');
+    return data.transitions.filter((item: any) => typeof item.id === 'string' && typeof item.name === 'string').map((item: any) => ({ id: this.text(item.id), name: this.text(item.name), status: this.text(item.to?.name || item.name) }));
+  }
+  async assignees(key: string, query = ''): Promise<JiraAssignee[]> {
+    if (!ISSUE_KEY.test(key) || query.length > 100) throw new Error('Jira 经办人查询无效');
+    const data = await this.get('user/assignable/search', new URLSearchParams({ issueKey: key, query, username: query, maxResults: '50' }));
+    if (!Array.isArray(data)) throw new Error('Jira 经办人格式无效');
+    return data.filter((item: any) => item.active !== false && (typeof item.accountId === 'string' || typeof item.name === 'string')).map((item: any) => ({ id: this.text(item.accountId || item.name), displayName: this.text(item.displayName || item.name), field: item.accountId ? 'accountId' : 'name' }));
+  }
+  async uploadTestImage(key: string, name: string, bytes: Uint8Array, mimeType: string): Promise<{ id: string; name: string }> {
+    if (!ISSUE_KEY.test(key) || !name || /[\r\n/\\]/.test(name)) throw new Error('Jira 附件参数无效');
+    validateJiraImage(bytes, mimeType);
+    const form = new FormData(); form.append('file', new Blob([Uint8Array.from(bytes)], { type: mimeType }), name);
+    const data = await this.get(`issue/${encodeURIComponent(key)}/attachments`, undefined, { method: 'POST', body: form, multipart: true });
+    if (!Array.isArray(data) || typeof data[0]?.id !== 'string' || typeof data[0]?.filename !== 'string') throw new Error('Jira 未返回已上传附件信息，请检查附件后再重试');
+    return { id: data[0].id, name: this.text(data[0].filename) };
+  }
+  async assign(key: string, assignee: JiraAssignee): Promise<void> {
+    if (!ISSUE_KEY.test(key) || !assignee.id || !['name', 'accountId'].includes(assignee.field)) throw new Error('Jira 经办人参数无效');
+    await this.get(`issue/${encodeURIComponent(key)}/assignee`, undefined, { method: 'PUT', body: JSON.stringify({ [assignee.field]: assignee.id }) });
+  }
+  async transition(key: string, transitionId: string, comment: string): Promise<void> {
+    if (!ISSUE_KEY.test(key) || !/^[a-zA-Z0-9_-]{1,100}$/.test(transitionId) || !comment.trim() || comment.length > 30000) throw new Error('请选择状态并填写不超过 30000 字的测试结果');
+    await this.get(`issue/${encodeURIComponent(key)}/transitions`, undefined, { method: 'POST', body: JSON.stringify({ transition: { id: transitionId }, update: { comment: [{ add: { body: comment } }] } }) });
   }
 
   private async metadata(): Promise<JiraConnectionResult> {

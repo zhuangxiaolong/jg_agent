@@ -4,7 +4,6 @@ import path from 'node:path';
 import { unzipSync } from 'fflate';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import type { ManagedDocument, ProductSystem } from '../../domain/src/index';
-import { assertNoPlaintextCredentials } from './security';
 import { assertDocumentTextSize, documentLimits, type DocumentLimits } from './limits';
 
 export { assertNoPlaintextCredentials } from './security';
@@ -24,7 +23,6 @@ function decodeUtf8(bytes: Uint8Array): string {
 function assertTextSize(content: string, kind: ManagedDocument['kind']): string {
   if (!content.trim()) throw new Error('文档未包含可导入的文本。');
   assertDocumentTextSize(content, kind);
-  assertNoPlaintextCredentials(content, { allowSchemaMetadata: kind === 'dictionary' });
   return content;
 }
 

@@ -20,7 +20,7 @@ nodeIntegration=false、contextIsolation=true、sandbox=true、webSecurity=true�
 
 SQLite WASM 在每次提交后原子导出快照，适合当前单进程小数据 PoC；大量 delta 事件会造成写放大，后续应批量写入或迁移原生 SQLite 并保留 schema。单实例锁避免同一用户并行写数据库。没有引入 Python 服务或监听端口。
 
-本机原生 Windows 沙箱 readiness 为 notConfigured，不能把 Worktree 或提示词当作系统安全隔离。当前 Runtime 禁用命令执行并拒绝工具权限升级，只提供分析会话；开发写入模式必须在完成沙箱越界测试后启用。这是尚未验收的需求，不是删除需求。
+本机原生 Windows 沙箱 readiness 可能为 `notConfigured`，不能把 Worktree 或提示词当作系统安全隔离。精工 Agent 当前默认使用 Codex Runtime 的 `danger-full-access` 与 `approvalPolicy=never`，支持代码读写、命令执行、网络/API 和数据库操作；Worktree、开发规范、凭据和提交检查提供业务级门禁。Electron 的 `sandbox:true` 仅隔离渲染器，不会把 Agent 执行策略降为只读。
 
 ## 核验来源
 

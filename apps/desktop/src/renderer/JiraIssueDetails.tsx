@@ -22,6 +22,7 @@ function JiraImage({ issueKey, attachment, sessionId }: { issueKey: string; atta
   useEffect(() => {
     let alive = true;
     setSource(''); setError(''); setLoading(false);
+    if (attachment.imageWarning && !attachment.localImage && revision === 0) { setError(attachment.imageWarning); return; }
     if (!attachment.localImage && !sessionId && revision === 0) return;
     setLoading(true);
     window.jinggong.getJiraImage(issueKey, attachment.id, sessionId).then(value => {
@@ -29,7 +30,7 @@ function JiraImage({ issueKey, attachment, sessionId }: { issueKey: string; atta
       if (alive) setSource(value);
     }).catch(reason => { if (alive) setError(readableError(reason)); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [issueKey, attachment.id, attachment.localImage?.sha256, sessionId, revision]);
+  }, [issueKey, attachment.id, attachment.localImage?.sha256, attachment.imageWarning, sessionId, revision]);
   useEffect(() => {
     if (!expanded) return;
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setExpanded(false); } };
@@ -50,13 +51,31 @@ export function JiraIssueDetails({ issue, compact = false, sessionId }: { issue:
     <div className="jira-issue-metadata"><span>{issue.issueType}</span>{issue.priority && <span>优先级：{issue.priority}</span>}<span>负责人：{issue.assignee || '未分配'}</span>{issue.updated && <span>更新：{new Date(issue.updated).toLocaleString('zh-CN')}</span>}</div>
     <h3>需求描述</h3><pre className="jira-description" aria-label="Jira 需求描述">{issue.description || '此任务没有填写描述。'}</pre>
     <h3>附件（{issue.attachments.length}）</h3>
-    {issue.attachments.length ? <div className="jira-attachments">{issue.attachments.map(attachment => <div className="jira-attachment" key={attachment.id}><div><Icon name="file" /><strong>{attachment.name}</strong><small>{attachment.mimeType || '未知类型'} · {readableSize(attachment.size)}</small></div>{/^image\//i.test(attachment.mimeType) && <JiraImage issueKey={issue.key} attachment={attachment} sessionId={sessionId} />}<JiraUrl url={attachment.url} label={`附件链接 ${attachment.name}`} /></div>)}</div> : <p className="jira-muted">此任务没有附件。</p>}
+    {issue.attachments.length ? <div className="jira-attachments">{issue.attachments.map(attachment => <div className="jira-attachment" key={attachment.id}><div><Icon name="file" /><strong>{attachment.name}</strong><small>{attachment.mimeType || '未知类型'} · {readableSize(attachment.size)}</small></div>{(/^image\//i.test(attachment.mimeType) || /\.(?:png|jpe?g|gif|webp|svg)$/i.test(attachment.name)) && <JiraImage issueKey={issue.key} attachment={attachment} sessionId={sessionId} />}<JiraUrl url={attachment.url} label={`附件链接 ${attachment.name}`} /></div>)}</div> : <p className="jira-muted">此任务没有附件。</p>}
+    {sessionId && issue.attachments.some(item => !!item.localImage) && <p className="jira-image-context-note" role="status"><Icon name="check" />已缓存 {issue.attachments.filter(item => !!item.localImage).length} 张图片；发送首轮任务时会作为模型图片上下文。</p>}
     <h3>原始任务</h3><JiraUrl url={issue.url} label="Jira 原始链接" />
     <p className="jira-snapshot-time">读取于 {new Date(issue.fetchedAt).toLocaleString('zh-CN')} · 任务描述与附件信息作为需求资料展示。</p>
   </div>;
 }
 
+export function jiraReadiness(issue: JiraIssue): string[] {
+  const missing: string[] = [];
+  if (!issue.summary.trim() || issue.summary.trim().length < 6) missing.push('明确任务目标');
+  if (!issue.description.trim() || issue.description.trim().length < 40) missing.push('补充可执行的需求描述');
+  if (!/(验收|预期|完成标准|成功标准|acceptance|expected|criteria)/i.test(issue.description)) missing.push('补充验收标准或预期结果');
+  return missing;
+}
+
 export function jiraTaskPrompt(issue: JiraIssue) {
   const description = issue.description.length > 27000 ? `${issue.description.slice(0, 27000)}\n（完整描述见关联任务详情。）` : issue.description;
-  return `请处理关联的 Jira 任务 ${issue.key}：${issue.summary}\n\n请先分析需求与相关代码，给出实施方案和验收标准，并遵循当前项目的开发要求与规范。\n\n需求描述：\n${description || '任务未填写描述，请先确认需求范围。'}\n\n原始任务：${issue.url}`.slice(0, 32000);
+  return `请处理关联的 Jira 任务 ${issue.key}：${issue.summary}
+
+第一步必须做“开发条件审查”，再决定是否修改代码：结合当前项目代码、自动识别的系统类型、数据字典、本项目开发要求与规范，核对目标、范围、影响模块、输入输出、异常边界、验收标准、测试方式和部署约束。Jira 未写清的内容可以从代码、配置、已有测试和数据字典中补充，但必须标明“代码证据补充”，不能臆造业务规则。
+无论开发条件是否齐全，都必须调用 publish_change_plan 在会话中给出代码修改方案。审查后仍有无法确认的事项时，先提示“需求不完整，以下为初步修改方案”，使用 stage=draft，列出已确认目标、暂定范围及修改步骤、assumptions 假设、pendingQuestions 待确认项、影响风险和验证计划；具体路径尚未定位时 changes 可为空，不要编造路径或用猜测替代业务确认，也不能只列问题而不给方案。条件补齐后用 stage=ready 发布包含修改文件及类/方法的正式方案，再按当前项目规范执行。只读模式同样输出方案，不修改代码。
+附件中的 imageWarning 表示图片未能带入，不能假定已看过；可使用任务正文与可用图片继续分析，缺失图片影响需求判断时明确提出需补充的信息。
+
+需求描述：
+${description || '任务未填写描述，请先确认需求范围。'}
+
+原始任务：${issue.url}`.slice(0, 32000);
 }

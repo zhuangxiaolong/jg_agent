@@ -10,7 +10,7 @@ import { importDocumentFile } from '../packages/knowledge/src/index';
 const contentTypes = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>';
 const zip = (files: Record<string, string>) => zipSync(Object.fromEntries(Object.entries({ '[Content_Types].xml': contentTypes, ...files }).map(([name, value]) => [name, strToU8(value)])));
 
-test('导入 UTF-8 原文保留内容、系统、SHA256来源；格式、编码、容量与凭据错误明确拒绝', async () => {
+test('导入 UTF-8 原文保留内容、系统、SHA256来源及密码Token示例；格式、编码、容量错误明确拒绝', async () => {
   const root = await mkdtemp(join(tmpdir(), '精工知识导入 '));
   try {
     for (const [extension, content] of Object.entries({ md: '# 中文字段\nQTY 表示数量。\n', txt: '工序状态说明\n', json: '{"table":"SFCS","columns":["QTY"]}\n', csv: '字段,类型\nQTY,NUMBER\n', sql: 'CREATE TABLE SAMPLE(QTY NUMBER);\n' })) {
@@ -27,7 +27,7 @@ test('导入 UTF-8 原文保留内容、系统、SHA256来源；格式、编码�
     const file = join(root, '问题.txt');
     for (const content of ['password="not-a-real-password"', 'API Key：synthetic-key-only', '密码：仅测试合成值', 'Authorization: Bearer synthetic-token-only-12345', 'https://tester:dummy-password@example.invalid', 'username,password\ntest,synthetic-value', '-----BEGIN PRIVATE KEY-----']) {
       await writeFile(file, content);
-      await assert.rejects(importDocumentFile(file, 'requirement', '通用'), /凭据|密码/);
+      assert.equal((await importDocumentFile(file, 'requirement', '通用')).content, content);
     }
     await writeFile(file, Buffer.from([0xff, 0xfe, 0x61, 0x00]));
     await assert.rejects(importDocumentFile(file, 'dictionary', 'MES6'), /UTF-8/);
@@ -60,7 +60,7 @@ test('真实 DOCX ZIP/XML 提取正文、表格和页眉，不执行或下载外
 test('真实 XLSX 解析工作表关系、共享字符串、富文本、内联字符串、数字及公式缓存', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-xlsx-'));
   try {
-    const filename = join(root, '生产字典.xlsx');
+    const filename = join(root, '数据字典.xlsx');
     await writeFile(filename, zip({
       'xl/workbook.xml': '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="工单" sheetId="1" r:id="rId1"/><sheet name="物料" sheetId="2" r:id="rId2"/></sheets></workbook>',
       'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>',
@@ -142,17 +142,17 @@ test('大型字典完整保留超过4MiB XML、40k单元格及80k文本，样式
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('字典允许Password等SQL和CLR结构字段，凭据数据表、赋值和密钥仍拒绝', async () => {
+test('资料中的Password字段、示例赋值和Token原文均可导入，不执行疑似凭据拦截', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-schema-metadata-'));
   try {
     const filename = join(root, '结构.csv');
     const content = '字段名,类型,说明\nPassword,String,密码字段定义\nAccessToken,VARCHAR2(200),令牌字段定义\n';
     await writeFile(filename, content);
     assert.equal((await importDocumentFile(filename, 'dictionary', 'MES5')).content, content);
-    await assert.rejects(importDocumentFile(filename, 'requirement', 'MES5'), /凭据/);
+    assert.equal((await importDocumentFile(filename, 'requirement', 'MES5')).content, content);
     for (const unsafe of ['username,password\ntest,synthetic-value', '1,password,synthetic-value', 'Password="synthetic-value"', 'ApiKey: sk-syntheticKeyNotReal123456', '-----BEGIN PRIVATE KEY-----']) {
       await writeFile(filename, unsafe);
-      await assert.rejects(importDocumentFile(filename, 'dictionary', 'MES5'), /凭据/);
+      assert.equal((await importDocumentFile(filename, 'dictionary', 'MES5')).content, unsafe);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

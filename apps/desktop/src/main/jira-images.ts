@@ -3,13 +3,19 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
+import { assertNoPlaintextCredentials } from '../../../../packages/knowledge/src/security';
 import { MAX_JIRA_IMAGE_BYTES, MAX_JIRA_IMAGES, MAX_JIRA_SESSION_IMAGE_BYTES, validateJiraImage, JiraConnector, type JiraImageMimeType } from '../../../../packages/jira-connector/src';
 
 const extensions: Record<JiraImageMimeType, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 type CachedImage = NonNullable<JiraAttachment['localImage']>;
+interface CacheOptions { allowPartial?: boolean; retryFailed?: boolean }
 function samePath(left: string, right: string): boolean { return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right; }
 function hash(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
 function isImage(attachment: JiraAttachment): boolean { return !!attachment.localImage || /^image\//i.test(attachment.mimeType) || /\.(?:png|jpe?g|gif|webp|svg)$/i.test(attachment.name); }
+function imageWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message.slice(0, 500) : '图片下载失败，请重试';
+  try { assertNoPlaintextCredentials(message); return message; } catch { return '图片下载失败，请检查连接后重试'; }
+}
 
 /** 路径只由可信数据根与内容哈希生成，不接收 Renderer 提供的本地路径。 */
 export class JiraImageStore {
@@ -97,31 +103,36 @@ export class JiraImageStore {
     } finally { await unlink(temporary).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }); }
   }
 
-  async cacheIssue(connector: Pick<JiraConnector, 'downloadImage'>, issue: JiraIssue): Promise<JiraIssue> {
+  async cacheIssue(connector: Pick<JiraConnector, 'downloadImage'>, issue: JiraIssue, options: CacheOptions = {}): Promise<JiraIssue> {
     if (!this.connectorIds.has(connector)) this.connectorIds.set(connector, randomUUID());
     const scope = connector instanceof JiraConnector ? connector.imageCacheScope : this.connectorIds.get(connector)!;
-    const key = `${scope}:${hash(Buffer.from(JSON.stringify(issue)))}`;
+    const key = `${scope}:${!!options.allowPartial}:${options.retryFailed !== false}:${hash(Buffer.from(JSON.stringify(issue)))}`;
     const pending = this.caching.get(key);
     if (pending) return pending;
-    const action = this.cacheIssueImages(connector, issue);
+    const action = this.cacheIssueImages(connector, issue, options);
     this.caching.set(key, action);
     try { return await action; } finally { if (this.caching.get(key) === action) this.caching.delete(key); }
   }
 
-  private async cacheIssueImages(connector: Pick<JiraConnector, 'downloadImage'>, issue: JiraIssue): Promise<JiraIssue> {
-    if (issue.attachments.filter(isImage).length > MAX_JIRA_IMAGES) throw new Error('Jira 任务图片超过 20 张，请拆分任务');
-    const attachments: JiraAttachment[] = []; let total = 0;
+  private async cacheIssueImages(connector: Pick<JiraConnector, 'downloadImage'>, issue: JiraIssue, options: CacheOptions): Promise<JiraIssue> {
+    if (!options.allowPartial && issue.attachments.filter(isImage).length > MAX_JIRA_IMAGES) throw new Error('Jira 任务图片超过 20 张，请拆分任务');
+    const attachments: JiraAttachment[] = []; let total = 0, count = 0;
     for (const attachment of issue.attachments) {
       if (!isImage(attachment)) { attachments.push({ ...attachment }); continue; }
-      let image: CachedImage;
-      if (attachment.localImage) { await this.readImage(attachment); image = this.metadata(attachment); }
-      else {
-        try { const downloaded = await connector.downloadImage(attachment); image = await this.save(downloaded.bytes, downloaded.mimeType); }
-        catch (error) { throw new Error(`Jira 图片未完整缓存，尚未创建会话：${error instanceof Error ? error.message : '图片下载失败'}`); }
+      if (options.allowPartial && options.retryFailed === false && attachment.imageWarning && !attachment.localImage) { attachments.push({ ...attachment }); continue; }
+      const { localImage: _previousImage, imageWarning: _previousWarning, ...source } = attachment;
+      try {
+        if (count++ >= MAX_JIRA_IMAGES) throw new Error('已达到每会话自动处理 20 张图片上限，此图片未带入');
+        let image: CachedImage;
+        if (attachment.localImage) { await this.readImage(attachment); image = this.metadata(attachment); }
+        else { const downloaded = await connector.downloadImage(attachment); image = await this.save(downloaded.bytes, downloaded.mimeType); }
+        if (total + image.size > MAX_JIRA_SESSION_IMAGE_BYTES) throw new Error('已达到会话图片总量 32 MiB 上限，此图片未带入');
+        total += image.size;
+        attachments.push({ ...source, localImage: { ...image } });
+      } catch (error) {
+        if (!options.allowPartial) throw error;
+        attachments.push({ ...source, imageWarning: imageWarning(error) });
       }
-      total += image.size;
-      if (total > MAX_JIRA_SESSION_IMAGE_BYTES) throw new Error('Jira 会话图片总量超过 32 MiB，请拆分任务');
-      attachments.push({ ...attachment, localImage: { ...image } });
     }
     return { ...issue, attachments };
   }
@@ -132,7 +143,7 @@ export class JiraImageStore {
   }
 
   async runtimePaths(issue: JiraIssue): Promise<string[]> {
-    const images = issue.attachments.filter(isImage);
+    const images = issue.attachments.filter(item => isImage(item) && !(item.imageWarning && !item.localImage));
     if (images.length > MAX_JIRA_IMAGES) throw new Error('Jira 任务图片超过 20 张，请拆分任务');
     const filenames: string[] = []; let total = 0;
     for (const image of images) {

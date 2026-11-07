@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { GitState, ManagedDocument, RequirementResult } from '../../../../packages/domain/src';
 import { Icon } from './ui';
 
-export function GitPanel({ sessionId, running, onChanged, documents }: { sessionId: string; running: boolean; onChanged: () => Promise<void>; documents: ManagedDocument[] }) {
+export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: { sessionId: string; running: boolean; onChanged: () => Promise<void>; documents: ManagedDocument[]; jiraUrl?: string }) {
   const api = window.jinggong;
   const [state, setState] = useState<GitState | null>(null);
   const [message, setMessage] = useState('');
@@ -52,6 +52,7 @@ export function GitPanel({ sessionId, running, onChanged, documents }: { session
     <div className="git-commit-section"><div className="git-section-label">提交工作区变更<span>{state ? state.dirty ? '有未提交变更' : '工作区干净' : '正在读取'}</span></div>
       <button className="secondary-button generate-message" disabled={disabled || !state?.dirty} onClick={() => act('generate', async () => { const value = await api.generateCommitMessage(sessionId); if (current.current === sessionId) setMessage(value); })}><Icon name="file" />{pending === 'generate' ? '正在分析真实 Diff…' : '根据 Diff 生成提交说明'}</button>
       <label htmlFor="commit-message">提交说明</label><textarea id="commit-message" aria-label="提交说明" value={message} onChange={e => setMessage(e.target.value)} rows={3} maxLength={4000} disabled={disabled} placeholder="输入或生成中文提交说明" />
+      {jiraUrl && <p className="git-hint">提交时自动附加 Jira 地址：{jiraUrl}</p>}
       <details className="author-settings"><summary>提交作者（可选）</summary><label htmlFor="commit-author-name">作者姓名</label><input id="commit-author-name" value={authorName} onChange={e => setAuthorName(e.target.value)} disabled={disabled} placeholder="留空使用 Git 配置" /><label htmlFor="commit-author-email">作者邮箱</label><input id="commit-author-email" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={disabled} placeholder="留空使用 Git 配置" /></details>
       <div className="requirement-heading"><strong>开发要求检查</strong><button className="text-button" disabled={disabled || !state?.dirty} onClick={() => act('check', async () => { const result = await api.checkRequirements(sessionId); if (current.current !== sessionId) return; setRequirements(result); setReviewed([]); setChecked(true); })}>{pending === 'check' ? '正在检查…' : checked ? '重新检查' : '检查开发要求'}</button></div>
       {!checked && <p className="git-hint">提交前执行机器规则检查，并逐份确认需要人工审核的开发要求。</p>}

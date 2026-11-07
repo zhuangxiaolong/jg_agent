@@ -40,7 +40,7 @@ async function launch() {
 }
 async function openDocuments() {
   await page.getByRole('button', { name: '打开模型设置', exact: true }).click();
-  await page.getByRole('button', { name: '生产字典', exact: true }).click();
+  await page.getByRole('button', { name: '数据字典', exact: true }).click();
 }
 async function selectFile(file) {
   await app.evaluate(({ dialog }, filename) => {

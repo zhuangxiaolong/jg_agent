@@ -1,0 +1,9 @@
+import { useEffect, useState } from 'react';
+import type { DesktopApi, RequirementsSync } from '../../../../packages/domain/src';
+export function RequirementsSyncPanel({ api, state, pending, act }: { api: DesktopApi; state?: RequirementsSync; pending: boolean; act: (work: () => Promise<unknown>, success?: string | (() => string)) => Promise<boolean> }) {
+  const current = state ?? { url: 'https://github.com/zhuangxiaolong/jg_agent', automatic: true };
+  const [url, setUrl] = useState(current.url), [automatic, setAutomatic] = useState(current.automatic);
+  useEffect(() => { setUrl(current.url); setAutomatic(current.automatic); }, [current.url, current.automatic]);
+  const changed = url !== current.url || automatic !== current.automatic;
+  return <div className="requirements-sync-panel"><h4>规范在线更新</h4><label>规范更新地址<input aria-label="规范更新地址" type="url" value={url} disabled={pending} onChange={event => setUrl(event.target.value)} /></label><label className="inline-check"><input aria-label="自动更新开发规范" type="checkbox" checked={automatic} disabled={pending} onChange={event => setAutomatic(event.target.checked)} />启动时自动更新</label><div className="settings-actions"><button className="secondary-button" disabled={pending || !changed} onClick={() => void act(() => api.saveRequirementsSync({ url, automatic }), '规范更新设置已保存。')}>保存规范更新设置</button><button className="secondary-button" disabled={pending || changed} onClick={() => void act(() => api.syncRequirements(), '开发规范更新完成。')}>立即更新规范</button></div><p className="field-hint">{current.version ? `当前规范版本：${current.version} · ` : ''}{current.lastChecked ? `检查时间：${new Date(current.lastChecked).toLocaleString('zh-CN')}` : '从 GitHub 仓库 standards/manifest.json 获取规范，与应用更新独立。'}</p>{current.error ? <p className="form-error" role="alert">{current.error}</p> : current.message && <p role="status">{current.message}</p>}</div>;
+}

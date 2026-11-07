@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact } from '../apps/desktop/src/main/security';
 test('模型地址禁止非 HTTPS、URL 凭据与查询参数', () => {
   for (const baseUrl of ['http://example.com', 'https://user:pass@example.com', 'file:///secret', 'https://example.com?token=abc', 'https://example.com/#secret']) assert.equal(providerSchema.safeParse({ baseUrl, model: 'model' }).success, false);
   assert.equal(providerSchema.safeParse({ baseUrl: 'https://example.com/v1', model: 'model-1' }).success, true);
@@ -9,6 +9,9 @@ test('IPC 拒绝非法 ID、空输入与超长输入', () => {
   assert.equal(idSchema.safeParse('../../secret').success, false);
   assert.equal(promptSchema.safeParse(' ').success, false);
   assert.equal(promptSchema.safeParse('a'.repeat(50001)).success, false);
+  assert.equal(clipboardTextSchema.parse('\t中文代码\n\n  '), '\t中文代码\n\n  ');
+  assert.equal(clipboardTextSchema.safeParse({ text: '错误参数' }).success, false);
+  assert.equal(clipboardTextSchema.safeParse('a'.repeat(2 * 1024 * 1024 + 1)).success, false);
 });
 test('错误与事件隐藏当前密钥和常见认证头', () => {
   const text = redact('failed sample-test-key Bearer abc123 sk-testkey123456', 'sample-test-key');

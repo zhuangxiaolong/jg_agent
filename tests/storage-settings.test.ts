@@ -46,7 +46,7 @@ test('v1 数据库真实升级 v2，保留项目/会话/事件，迁移旧 Provi
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('大型字典完整写入SQLite并重开，要求仍限80k且真凭据不能借结构字段放行', async () => {
+test('大型字典完整写入SQLite并重开，要求仍限80k且密码字段示例可正常保存', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-large-storage-'));
   const filename = join(root, 'dictionary.db');
   let store = await LocalStore.open(filename);
@@ -61,8 +61,10 @@ test('大型字典完整写入SQLite并重开，要求仍限80k且真凭据不�
     assert.equal(store.listDocuments()[0].enabled, false);
     assert.throws(() => store.saveDocument({ ...document, id: 'large-requirement', kind: 'requirement', content: '字'.repeat(80001) }), /80000/);
     assert.throws(() => store.saveDocument({ ...document, id: 'too-large', content: '字'.repeat(2000001) }), /2000000/);
-    assert.throws(() => store.saveDocument({ ...document, id: 'secret', content: '字段名,类型\nPassword,String\npassword="synthetic-value"' }), /凭据/);
-    assert.equal(store.listDocuments().length, 1);
+    const example = '字段名,类型\nPassword,String\npassword="synthetic-value"';
+    store.saveDocument({ ...document, id: 'secret', content: example });
+    assert.equal(store.listDocuments().find(item => item.id === 'secret')?.content, example);
+    assert.equal(store.listDocuments().length, 2);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -73,7 +75,7 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
   const secret = 'SYNTHETIC_SETTINGS_SECRET_MUST_NOT_PERSIST';
   const document: ManagedDocument = { id: 'doc-1', kind: 'dictionary', system: 'MES5', name: '字段说明.md', content: '# SFCS\n字段 QTY 表示数量。', digest: 'test-digest', enabled: true, createdAt: '2026-11-04T00:00:00Z' };
   try {
-    assert.deepEqual(store.getPreferences(), { theme: 'dark', style: 'jinggong' });
+    assert.deepEqual(store.getPreferences(), { theme: 'dark', style: 'jinggong', completionSound: 'chime', updateMode: 'automatic' });
     store.savePreferences({ theme: 'light', style: 'minimal', apiKey: secret } as never);
     store.saveModelProvider({ id: 'provider-1', name: '中转站', baseUrl: 'https://model.example.invalid', models: ['model-a', 'model-b'], hasKey: true, apiKey: secret } as never);
     store.saveJira({ baseUrl: 'https://jira.example.invalid', account: '研发账号', hasPassword: true, password: secret } as never);
@@ -81,14 +83,17 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
     store.setDocumentEnabled(document.id, false);
     store.saveMemory({ id: 'memory-1', title: '构建说明', content: '先运行构建，再执行测试。', createdAt: '2026-11-04T00:00:00Z', password: secret } as never);
     store.close(); store = await LocalStore.open(filename);
-    assert.deepEqual(store.getPreferences(), { theme: 'light', style: 'minimal' });
+    assert.deepEqual(store.getPreferences(), { theme: 'light', style: 'minimal', completionSound: 'chime', updateMode: 'automatic' });
     assert.deepEqual(store.listProviders()[0].models, ['model-a', 'model-b']);
     assert.equal(store.getJira().account, '研发账号');
     assert.equal(store.listDocuments()[0].enabled, false);
     assert.equal(store.listMemories()[0].content, '先运行构建，再执行测试。');
     assert.equal((await readFile(filename)).includes(Buffer.from(secret)), false);
-    assert.throws(() => store.saveDocument({ ...document, content: 'const apiKey = "should-not-persist";' }), /明文/);
-    assert.throws(() => store.saveMemory({ id: 'bad', title: '坏数据', content: 'password="should-not-persist"', createdAt: '' }), /明文/);
+    const example = 'const apiKey = "synthetic-business-example";\npassword="synthetic-business-example"';
+    store.saveDocument({ ...document, content: example });
+    store.saveMemory({ id: 'memory-1', title: '密码字段示例', content: example, createdAt: '' });
+    assert.equal(store.listDocuments()[0].content, example);
+    assert.equal(store.listMemories()[0].content, example);
     assert.equal(store.listDocuments().length, 1); assert.equal(store.listMemories().length, 1);
     store.deleteDocument(document.id); store.deleteMemory('memory-1'); store.deleteModelProvider('provider-1');
     assert.deepEqual(store.listDocuments(), []); assert.deepEqual(store.listMemories(), []); assert.deepEqual(store.listProviders(), []);
@@ -155,7 +160,7 @@ test('Jira会话任务快照重开保持原字段和概要，附件只存来源�
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('Jira快照有界完整保存100k正文和200附件，超限及正文授权凭据拒绝且不覆盖旧快照', async () => {
+test('Jira快照有界保存正文和附件，允许密码字段示例；超限及授权URL拒绝且不覆盖旧快照', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-jira-snapshot-limits-'));
   const filename = join(root, 'agent.db');
   let store = await LocalStore.open(filename);
@@ -170,7 +175,6 @@ test('Jira快照有界完整保存100k正文和200附件，超限及正文授权
     const invalidCases: [JiraIssue, RegExp][] = [
       [{ ...issue, description: '文'.repeat(100001) }, /100000/],
       [{ ...maximum, attachments: [...maximum.attachments, maximum.attachments[0]] }, /200/],
-      [{ ...issue, description: 'password="synthetic-credential-only"' }, /凭据/],
       [{ ...issue, url: 'https://jira.example.invalid/browse/T-1?token=synthetic-credential-only' }, /授权凭据/],
       [{ ...issue, attachments: [{ ...issue.attachments[0], size: -1 }] }, /附件大小/]
     ];
@@ -180,6 +184,9 @@ test('Jira快照有界完整保存100k正文和200附件，超限及正文授权
     }
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getSession(session.id)?.jiraIssue, maximum);
+    const sample = { ...issue, description: 'password="synthetic-credential-only"\nAuthorization: Bearer synthetic-business-token' };
+    store.saveSession({ ...session, jiraIssue: sample });
+    assert.deepEqual(store.getSession(session.id)?.jiraIssue, sample);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

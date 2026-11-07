@@ -59,8 +59,10 @@ test('Jira抓取记录与详情在真实SQLite重开恢复，按连接隔离、�
     assert.equal(store.listJiraQueries(scope).length, 50);
     assert.throws(() => store.saveJiraQuery('unsafe:%', input, page()), /范围/);
     assert.throws(() => store.saveJiraQuery(scope, { ...input, projectKey: 'CD" OR project=OTHER' }, page()), /条件/);
-    assert.throws(() => store.saveJiraIssue(scope, { ...issue(), description: 'api_key="synthetic-real-secret"' }), /凭据/);
-    assert.equal((await readFile(filename)).includes(Buffer.from('synthetic-real-secret')), false);
+    const example = 'api_key="synthetic-business-example"';
+    store.saveJiraIssue(scope, { ...issue(), description: example, fetchedAt: '2099-01-01T00:00:00Z' });
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.getCachedJiraIssue(scope, issue().key)?.description, example);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

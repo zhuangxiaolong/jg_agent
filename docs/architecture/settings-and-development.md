@@ -1,4 +1,4 @@
-# 设置与受控开发（V0.2）
+# 设置与受控开发（V0.6）
 
 依据：三份正式 V1.1 文档，以及本次用户提出的设置、多模型、可修改代码、Git 操作和精工 Logo 补充需求。本文件补充实现决策，不改写正式需求文档。
 
@@ -13,13 +13,13 @@
 
 ## 字典与开发要求
 
-资料按通用/MES5/MES6/WMS 分类，支持查看内容、启用/停用、删除。会话只加载通用及所选系统资料，避免把两代 MES 的表结构和实现方式混用。
+资料按通用/MES5/MES6/WMS 分类，支持查看内容、启用/停用、删除。会话按代码指纹自动识别 MES5/MES6/WMS 并只加载通用及匹配系统资料；无法识别时保持通用，不猜测加载，避免把两代 MES 的表结构和实现方式混用。
 
 支持 UTF-8 `.md/.txt/.json/.csv/.sql`，以及本地解析 `.docx/.xlsx`，无 Python、Office 或服务器依赖。Office 不执行宏、公式或外部链接；XLSX 保留单元格原始值/已有公式缓存，不进行 Excel 日期/样式格式化。每份文件不超过 8 MiB、提取文本不超过 80,000 字符；启用上下文总计不超过 180,000 字符，超过时拒绝开始任务，不静默裁剪开发要求。
 
 导入后记录原文件 SHA256、文件名、系统、提取文本和时间，数据存于 SQLite。当前不保存原始二进制附件，也不提供全量语义检索/版本审批。
 
-普通文字要求在每轮完整注入 developerInstructions。任意自然语言是否满足不能用简单文本匹配证明，因此提交前必须逐份人工确认。机器可判定要求可上传 JSON，例如：
+普通文字要求会在每轮完整注入 developerInstructions，并明确要求 Agent 遵守已启用规范，遇到冲突或无法核验时暂停说明。任意自然语言是否满足不能用简单文本匹配证明，因此提交前必须逐份人工确认。机器可判定要求可上传 JSON，例如：
 
 ```json
 {
@@ -38,13 +38,13 @@
 
 ## Runtime 写入与恢复
 
-采用固定 Codex 0.156.1 app-server，不另造 Agent 推理循环。当前 Windows 原生沙箱未完成配置，所以所有实际 turn 都带 `environments: []`，内置 Shell/apply_patch、插件和权限升级关闭。开发模式通过主进程拥有的受控文件工具完成真实修改：
+采用固定 Codex 0.156.1 app-server，不另造 Agent 推理循环。精工 Agent 默认使用 `sandbox=danger-full-access`、`approvalPolicy=never`，允许模型在当前会话 Worktree 内直接读取和修改代码、执行 Shell 命令、构建测试、访问网络/API，以及使用项目已有配置连接本地数据库。运行时没有配置 Windows 原生 OS 沙箱，因此 Worktree、开发规范和主进程校验是工程门禁，不应宣称为恶意进程的系统级安全隔离。
 
-- 新增 UTF-8 文本文件、读取后凭 SHA256 修改/删除，单文件上限 128 KiB；已有文件必须传最新 hash。
-- 路径限定在已登记会话的独立 Worktree，拒绝 Git 元数据、凭据文件、目录联接、符号链接和硬链接。
-- 开发要求在写入前校验；回调未绑定则拒绝写入。不会因启用开发模式而开放任意本机命令。
+- 主进程仍对动态项目文件工具、敏感路径、链接/硬链接、文件大小、SHA256、开发要求和提交范围执行校验。
+- 工作目录限定在已登记会话的独立 Worktree，源项目和主分支不直接作为 Agent 工作目录。
+- 完成、取消或切换配置后按协议关闭/恢复 Runtime；新配置会创建匹配能力的新线程，SQLite 历史消息保留。
 
-固定版本跨 Runtime 进程 `thread/resume` 可能返回默认环境的静态描述，但 resume 不执行任务。实际 `turn/start` 明确传空 environments 并更新该 turn 的环境；每轮都重新绑定空环境与 readOnly/no network。更换模式、模型或适用系统时新建 Runtime thread，SQLite 历史消息保留；同配置续聊恢复原 thread。实验性 API 的集成依据为 [OpenAI Docs App Server](https://learn.chatgpt.com/docs/app-server)，具体字段以固定 Runtime 的 generate-ts 和真实协议测试为准。
+固定版本跨 Runtime 进程 `thread/resume` 会重新传入完整开发策略；`turn/start` 每轮明确传入 `sandboxPolicy: { type: 'dangerFullAccess' }` 和 `approvalPolicy: 'never'`。适用系统、模型或能力版本变化时新建 Runtime thread，同配置续聊恢复原 thread。实验性 API 的集成依据为 [OpenAI Docs App Server](https://learn.chatgpt.com/docs/app-server)，具体字段以固定 Runtime 的 generate-ts 和真实协议测试为准。
 
 ## Git 操作
 
@@ -55,3 +55,7 @@
 ## 品牌资源
 
 原图来自用户提供的精工logo.png、精工logo2.png，原样保存在 `apps/desktop/resources/branding/`。界面使用标志图；窗口、EXE、安装与卸载程序使用按原标志缩放生成的多尺寸 ICO，未重新设计 Logo。
+
+## 在线更新
+
+桌面安装版使用 electron-updater 从公开 GitHub Release 检查更新并自动下载 NSIS 更新包，electron-updater 校验下载哈希并匹配 Windows Authenticode 发布者。用户确认“重启并更新”后，应用先收尾 Runtime 与 SQLite，再静默安装并重新启动；用户数据库与 DPAPI 凭据保留。缺少发布者配置时关闭更新检查和安装；开发版不访问更新源。仓库标签 `v*` 触发 `.github/workflows/release.yml`，发布 NSIS 安装程序及 `latest.yml` 更新元数据；Workflow 要求 `WINDOWS_CERTIFICATE_BASE64`、`WINDOWS_CERTIFICATE_PASSWORD`、`WINDOWS_CERTIFICATE_PUBLISHER` 三个 Secret。发布后才能验证客户端下载闭环；请先用隔离账户验证跨版本覆盖和用户数据保留。

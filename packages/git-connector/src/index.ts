@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, realpath, lstat, open, readdir } from 'node:fs/promises';
+import { mkdir, realpath, lstat, open, readdir, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { FileDiff, GitState, Project } from '../../domain/src/index';
 
@@ -74,7 +74,13 @@ export class GitConnector {
     return { id: createHash('sha256').update(identity).digest('hex').slice(0, 24), name: basename(canonical), path: canonical, branch };
   }
 
-  async createWorkspace(project: Project, sessionId: string): Promise<{ path: string; branch: string }> {
+  async listBranches(projectPath: string): Promise<string[]> {
+    const current = await this.register(projectPath);
+    const raw = (await this.run(current.path, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).text;
+    return raw.split(/\r?\n/).map(value => value.trim()).filter(value => value && value !== 'HEAD');
+  }
+
+  async createWorkspace(project: Project, sessionId: string, baseBranch?: string): Promise<{ path: string; branch: string; baseBranch?: string }> {
     if (!SAFE_ID.test(sessionId)) throw new Error('无效的工作区标识。');
     const current = await this.register(project.path);
     if (current.id !== project.id) throw new Error('仓库位置已变化，请重新选择。');
@@ -83,12 +89,32 @@ export class GitConnector {
     const path = resolve(root, sessionId);
     if (!inside(root, path)) throw new Error('工作区路径超出应用目录。');
     const branch = `agent/${sessionId}`;
-    const base = (await this.run(current.path, ['rev-parse', '--verify', 'HEAD^{commit}'])).text.trim();
+    const selectedBase = baseBranch?.trim() || current.branch;
+    let base: string;
+    if (!selectedBase || selectedBase === '(detached)') {
+      base = (await this.run(current.path, ['rev-parse', '--verify', 'HEAD^{commit}'])).text.trim();
+    } else {
+      // 先由 Git 校验分支名，再只解析本地 refs/heads，避免把远程或任意修订表达式当成基准。
+      await this.run(current.path, ['check-ref-format', '--branch', selectedBase]);
+      base = (await this.run(current.path, ['rev-parse', '--verify', `refs/heads/${selectedBase}^{commit}`])).text.trim();
+    }
     const hookDirectory = resolve(root, '.disabled-hooks');
     await mkdir(hookDirectory, { recursive: true });
     const overrides = ['-c', `core.hooksPath=${hookDirectory}`, ...await this.filterOverrides(current.path)];
     await this.run(current.path, [...overrides, 'worktree', 'add', '--no-track', '-b', branch, path, base]);
-    return { path: await realpath(path), branch };
+    return { path: await realpath(path), branch, ...(selectedBase && selectedBase !== '(detached)' ? { baseBranch: selectedBase } : {}) };
+  }
+
+  async switchWorkspaceBaseBranch(workspacePath: string, baseBranch: string): Promise<{ branch: string; baseBranch: string }> {
+    const workspace = await this.workspace(workspacePath);
+    const selectedBase = baseBranch.trim();
+    if (!selectedBase || selectedBase === '(detached)') throw new Error('请选择有效的本地基准分支。');
+    await this.run(workspace, ['check-ref-format', '--branch', selectedBase]);
+    const base = (await this.run(workspace, ['rev-parse', '--verify', `refs/heads/${selectedBase}^{commit}`])).text.trim();
+    const state = await this.state(workspace);
+    if (state.dirty) throw new Error('当前工作区有未提交变更，请先在 Git 面板处理后再切换分支。');
+    await this.run(workspace, ['reset', '--hard', base]);
+    return { branch: state.branch, baseBranch: selectedBase };
   }
 
   private async workspace(path: string): Promise<string> {
@@ -102,11 +128,15 @@ export class GitConnector {
       }
     }
     const root = await realpath(this.rootWorkspaces);
-    const canonical = await realpath(path);
+    // 受管目录中可能存在旧版本创建的 NTFS 工作目录链接；祖先链接已在上方
+    // 拒绝，这里保留用户传入的受管目录路径，避免 realpath 把它还原到旧缓存根。
+    const canonical = resolve(path);
     if (!inside(root, canonical) || !samePath(dirname(canonical), root) || !SAFE_ID.test(basename(canonical))) throw new Error('仅允许读取应用管理的隔离工作区。');
-    const top = (await this.run(canonical, ['rev-parse', '--show-toplevel'])).text.trim();
     const branch = (await this.run(canonical, ['symbolic-ref', '--quiet', '--short', 'HEAD'])).text.trim();
-    if (!samePath(await realpath(top), canonical) || branch !== `agent/${basename(canonical)}`) throw new Error('工作区身份已变化，请检查后重新创建会话。');
+    // 历史版本可能把同一份受管 Worktree 复制到新的应用目录，Git 的
+    // worktree 元数据仍记录旧路径；只要目录本身在受管根目录、分支身份
+    // 与会话 ID 一致，Git 的 diff/status 仍然针对当前工作目录读取。
+    if (branch !== `agent/${basename(canonical)}`) throw new Error('工作区身份已变化，请检查后重新创建会话。');
     return canonical;
   }
 
@@ -117,8 +147,8 @@ export class GitConnector {
     let ancestor = dirname(path);
     while (true) {
       try {
-        const actual = await realpath(ancestor);
-        if (!samePath(workspace, actual) && !inside(workspace, actual)) throw new Error('文件目录链接超出工作区。');
+        const stat = await lstat(ancestor);
+        if (stat.isSymbolicLink()) throw new Error('文件目录链接超出工作区。');
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -132,9 +162,10 @@ export class GitConnector {
     const workspace = await this.workspace(workspacePath);
     const overrides = await this.filterOverrides(workspace);
     const tracked = (await this.run(workspace, [...overrides, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-status', '-z', 'HEAD', '--'])).text.split('\0');
-    const files: { path: string; status: string; untracked: boolean }[] = [];
+    const staged = new Set((await this.run(workspace, [...overrides, 'diff', '--cached', '--name-only', '-z', '--'])).text.split('\0').filter(Boolean));
+    const files: { path: string; status: string; untracked: boolean; staged?: boolean }[] = [];
     for (let index = 0; index + 1 < tracked.length; index += 2) {
-      if (tracked[index] && tracked[index + 1]) files.push({ path: tracked[index + 1], status: tracked[index][0], untracked: false });
+      if (tracked[index] && tracked[index + 1]) files.push({ path: tracked[index + 1], status: tracked[index][0], untracked: false, staged: staged.has(tracked[index + 1]) });
     }
     const untracked = (await this.run(workspace, ['ls-files', '--others', '--exclude-standard', '-z', '--'])).text.split('\0').filter(Boolean);
     files.push(...untracked.map(path => ({ path, status: 'A', untracked: true })));
@@ -167,14 +198,71 @@ export class GitConnector {
         if (lines.at(-1) === '') lines.pop();
         const header = `diff --git a/${file.path} b/${file.path}\nnew file mode 100644\n--- /dev/null\n+++ b/${file.path}\n`;
         const body = lines.length ? `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => `+${line}`).join('\n')}\n${text.endsWith('\n') ? '' : '\\ No newline at end of file\n'}` : '';
-        result.push({ path: file.path, status: file.status, diff: header + body, truncated: info.size > MAX_DIFF_BYTES });
+        result.push({ path: file.path, status: file.status, diff: header + body, truncated: info.size > MAX_DIFF_BYTES, staged: false });
       } else {
         const patch = await this.run(workspace, [...overrides, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', 'HEAD', '--', file.path], { maxBytes: MAX_DIFF_BYTES, allowTruncate: true });
-        result.push({ path: file.path, status: file.status, diff: patch.text, binary: /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch.text), truncated: patch.truncated });
+        result.push({ path: file.path, status: file.status, diff: patch.text, binary: /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch.text), truncated: patch.truncated, staged: file.staged });
       }
     }
     if (files.length > MAX_FILES) result.push({ path: '（其余变更未展开）', status: '!', diff: `共有 ${files.length} 个变更文件，当前展示前 ${MAX_FILES} 个。`, truncated: true });
     return result;
+  }
+
+  private async changedFile(workspacePath: string, file: string): Promise<{ workspace: string; path: string; tracked: boolean; inHead: boolean }> {
+    const workspace = await this.workspace(workspacePath);
+    if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
+    const actual = (await this.diff(workspace)).find(item => item.path === file);
+    if (!actual) throw new Error('所选文件已不在当前变更中，请刷新 Git 状态');
+    const target = await this.safeFile(workspace, file);
+    const info = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+    if (info && (info.isSymbolicLink() || (info.isFile() && info.nlink > 1) || !info.isFile())) throw new Error('不能操作符号链接、目录联接、硬链接或特殊文件');
+    const tracked = (await this.run(workspace, ['ls-files', '--error-unmatch', '--', file], { allowMissing: true })).code === 0;
+    const inHead = (await this.run(workspace, ['ls-tree', '-r', '--name-only', 'HEAD', '--', file], { allowMissing: true })).text.trim() === file;
+    return { workspace, path: file, tracked, inHead };
+  }
+
+  /** 返回指定文件当前相对 HEAD 的完整 Diff，供右键“对比”使用。 */
+  async fileDiff(workspacePath: string, file: string): Promise<FileDiff> {
+    const target = await this.changedFile(workspacePath, file);
+    const result = (await this.diff(target.workspace)).find(item => item.path === target.path);
+    if (!result) throw new Error('所选文件已不在当前变更中，请刷新 Git 状态');
+    return result;
+  }
+
+  /** 返回当前变更文件的受控绝对路径，供主进程交给系统编辑器打开。 */
+  async filePath(workspacePath: string, file: string): Promise<string> {
+    const target = await this.changedFile(workspacePath, file);
+    return this.safeFile(target.workspace, target.path);
+  }
+
+  /** 将单个变更文件加入 Git 暂存区。 */
+  async stage(workspacePath: string, file: string): Promise<void> {
+    const target = await this.changedFile(workspacePath, file);
+    await this.validateCommitPath(target.workspace, target.path);
+    await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'add', '--', target.path]);
+  }
+
+  /** 从 Git 暂存区移除单个文件，但保留工作区内容。 */
+  async unstage(workspacePath: string, file: string): Promise<void> {
+    const target = await this.changedFile(workspacePath, file);
+    await this.validateCommitPath(target.workspace, target.path);
+    const staged = (await this.run(target.workspace, ['diff', '--cached', '--name-only', '-z', '--', target.path])).text.split('\0').filter(Boolean);
+    if (!staged.includes(target.path)) throw new Error('所选文件当前未暂存');
+    await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'restore', '--staged', '--', target.path]);
+  }
+
+  /** 丢弃单个文件相对 HEAD 的全部修改；未跟踪文件会被删除。 */
+  async discard(workspacePath: string, file: string): Promise<void> {
+    const target = await this.changedFile(workspacePath, file);
+    if (target.inHead) {
+      await this.validateCommitPath(target.workspace, target.path);
+      await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'restore', '--source=HEAD', '--staged', '--worktree', '--', target.path]);
+      return;
+    }
+    if (target.tracked) await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'reset', 'HEAD', '--', target.path]);
+    const info = await lstat(resolve(target.workspace, target.path));
+    if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1) || !info.isFile()) throw new Error('不能删除符号链接、目录联接、硬链接或特殊文件');
+    await unlink(resolve(target.workspace, target.path));
   }
 
   async state(workspacePath: string): Promise<GitState> {
@@ -190,6 +278,15 @@ export class GitConnector {
     const remotes = (await this.run(workspace, ['remote'])).text.split(/\r?\n/).filter(Boolean);
     const dirty = Boolean((await this.run(workspace, [...await this.filterOverrides(workspace), 'status', '--porcelain=v1', '-z', '--untracked-files=all'])).text);
     return { branch, commits, remotes, dirty };
+  }
+
+  async removeWorkspace(workspacePath: string): Promise<void> {
+    const workspace = await this.workspace(workspacePath);
+    const current = await this.state(workspace);
+    if (current.dirty) throw new Error('会话工作区有未提交改动，请先提交或导出后再删除会话');
+    const commonDirValue = (await this.run(workspace, ['rev-parse', '--git-common-dir'])).text.trim();
+    const commonDir = resolve(workspace, commonDirValue);
+    await this.run(dirname(commonDir), ['worktree', 'remove', workspace]);
   }
 
   async generateCommitMessage(workspacePath: string): Promise<string> {

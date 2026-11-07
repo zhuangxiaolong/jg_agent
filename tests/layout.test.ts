@@ -11,23 +11,25 @@ test('面板显示独立持久化，所有面板均可隐藏及恢复，拒绝�
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
   const secret = 'SYNTHETIC_LAYOUT_SECRET_NOT_PERSISTED';
   try {
-    assert.deepEqual(store.getLayout(), { leftVisible: true, rightVisible: true, bottomVisible: true });
-    store.savePreferences({ theme: 'purple', style: 'minimal' });
+    assert.deepEqual(store.getLayout(), { leftVisible: true, rightVisible: true, bottomVisible: true, leftWidth: 244, rightWidth: 420, bottomHeight: 180 });
+    store.savePreferences({ theme: 'purple', style: 'minimal', completionSound: 'chime' });
     for (const layout of [
-      { leftVisible: false, rightVisible: true, bottomVisible: true },
-      { leftVisible: false, rightVisible: false, bottomVisible: true },
-      { leftVisible: false, rightVisible: false, bottomVisible: false }
+      { leftVisible: false, rightVisible: true, bottomVisible: true, leftWidth: 200, rightWidth: 400, bottomHeight: 170 },
+      { leftVisible: false, rightVisible: false, bottomVisible: true, leftWidth: 200, rightWidth: 350, bottomHeight: 170 },
+      { leftVisible: false, rightVisible: false, bottomVisible: false, leftWidth: 200, rightWidth: 350, bottomHeight: 120 }
     ]) { store.saveLayout(layout); assert.deepEqual(store.getLayout(), layout); }
     store.close(); store = await LocalStore.open(filename);
-    assert.deepEqual(store.getLayout(), { leftVisible: false, rightVisible: false, bottomVisible: false });
-    assert.deepEqual(store.getPreferences(), { theme: 'purple', style: 'minimal' });
+    assert.deepEqual(store.getLayout(), { leftVisible: false, rightVisible: false, bottomVisible: false, leftWidth: 200, rightWidth: 350, bottomHeight: 120 });
+    assert.deepEqual(store.getPreferences(), { theme: 'purple', style: 'minimal', completionSound: 'chime', updateMode: 'automatic' });
     assert.throws(() => store.saveLayout({ leftVisible: 'false', rightVisible: false, bottomVisible: false } as never), /布尔/);
     assert.equal(layoutSchema.safeParse({ leftVisible: 'false', rightVisible: false, bottomVisible: false }).success, false);
     assert.equal(layoutSchema.safeParse({ leftVisible: false, rightVisible: false, bottomVisible: false, apiKey: secret }).success, false);
+    assert.equal(layoutSchema.safeParse({ leftVisible: true, rightVisible: true, bottomVisible: true, leftWidth: 179 }).success, false);
+    assert.equal(layoutSchema.safeParse({ leftVisible: true, rightVisible: true, bottomVisible: true, leftWidth: 300, rightWidth: 380, bottomHeight: 200 }).success, true);
     store.saveLayout({ leftVisible: true, rightVisible: true, bottomVisible: true, apiKey: secret } as never);
     assert.equal((await readFile(filename)).includes(Buffer.from(secret)), false);
     store.close(); store = await LocalStore.open(filename);
-    assert.deepEqual(store.getLayout(), { leftVisible: true, rightVisible: true, bottomVisible: true });
+    assert.deepEqual(store.getLayout(), { leftVisible: true, rightVisible: true, bottomVisible: true, leftWidth: 244, rightWidth: 420, bottomHeight: 180 });
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

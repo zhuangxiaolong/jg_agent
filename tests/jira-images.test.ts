@@ -122,10 +122,30 @@ test('并发图片加载共用整次任务下载与SHA写入，失败明确中�
   assert.deepEqual(await readdir(path.join(root, 'attachments/jira')), [`${sha256}.png`]);
   assert.equal((await store.runtimePaths(cached[0])).length, 2);
   const broken = issue([{ ...attachment(), id: '3', name: '失败图片.png' }]);
-  await assert.rejects(store.cacheIssue({ downloadImage: async () => { throw new Error('合成HTTP错误'); } }, broken), /未完整缓存.*尚未创建会话.*合成HTTP错误/);
+  await assert.rejects(store.cacheIssue({ downloadImage: async () => { throw new Error('合成HTTP错误'); } }, broken), /合成HTTP错误/);
   assert.equal(broken.attachments[0].localImage, undefined);
   await assert.rejects(store.runtimePaths(broken), /缓存元数据无效/);
   assert.equal((await store.cacheIssue(connector, broken)).attachments[0].localImage?.sha256, sha256);
+});
+
+test('图片失败按附件保留提示与来源，成功图片可供模型使用；发送不重复重试，手动重试成功清除提示', async () => {
+  const store = new JiraImageStore(await mkdtemp(path.join(tmpdir(), 'jinggong-image-partial-')));
+  const original = issue([{ ...attachment(), id: '1', name: '超时图片.png' }, { ...attachment(), id: '2', name: '成功图片.png' }]);
+  let calls = 0, working = false;
+  const connector = { downloadImage: async (item: JiraAttachment) => { calls++; if (item.id === '1' && !working) throw new Error('Jira 图片下载超过 15 秒，请重试'); return { bytes: png, mimeType: 'image/png' as const }; } };
+  const cached = await store.cacheIssue(connector, original, { allowPartial: true });
+  assert.equal(calls, 2); assert.equal(original.attachments[0].imageWarning, undefined);
+  assert.match(cached.attachments[0].imageWarning!, /超过 15 秒/); assert.equal(cached.attachments[0].url, original.attachments[0].url);
+  assert.equal(cached.attachments[0].localImage, undefined); assert.equal(cached.attachments[1].localImage?.sha256, sha256);
+  const prepared = await store.cacheIssue(connector, cached, { allowPartial: true, retryFailed: false });
+  assert.equal(calls, 2); assert.equal((await store.runtimePaths(prepared)).length, 1);
+  working = true;
+  const recovered = await store.cacheIssue(connector, prepared, { allowPartial: true });
+  assert.equal(calls, 3); assert.equal(recovered.attachments[0].imageWarning, undefined); assert.equal((await store.runtimePaths(recovered)).length, 2);
+  const missing = (await store.runtimePaths(recovered))[0]; await unlink(missing);
+  const unavailable = await store.cacheIssue(connector, recovered, { allowPartial: true, retryFailed: false });
+  assert.ok(unavailable.attachments.every(item => !item.localImage && /缓存缺失/.test(item.imageWarning!)));
+  assert.deepEqual(await store.runtimePaths(unavailable), []);
 });
 
 test('缓存拒绝根目录联接、文件硬链接、伪造哈希与目录替换，不读取外部文件', async () => {
@@ -178,9 +198,14 @@ test('任务图片20张与会话总32MiB均硬限制，非图片附件不伪造�
   const nonImage = { ...attachment(), name: '需求说明.md', mimeType: 'text/markdown' };
   assert.deepEqual(await store.runtimePaths(await store.cacheIssue(connector, issue([nonImage]))), []);
   assert.equal(calls, 0);
+  const partial = await store.cacheIssue(connector, issue(Array.from({ length: 21 }, (_, index) => ({ ...attachment(), id: String(index) }))), { allowPartial: true });
+  assert.equal(calls, 20); assert.equal((await store.runtimePaths(partial)).length, 20);
+  assert.match(partial.attachments[20].imageWarning!, /20 张/);
   // 保留原有效 PNG 的 IHDR/IDAT/IEND，仅追加有界合成附属块，用于真实文件容量回归。
   const payload = Buffer.alloc(7 * 1024 * 1024);
   const chunk = Buffer.alloc(payload.length + 12); chunk.writeUInt32BE(payload.length); chunk.write('npAD', 4); payload.copy(chunk, 8);
   const large = Buffer.concat([png.subarray(0, -12), chunk, png.subarray(-12)]);
   await assert.rejects(store.cacheIssue({ downloadImage: async () => ({ bytes: large, mimeType: 'image/png' as const }) }, issue(Array.from({ length: 5 }, (_, index) => ({ ...attachment(), id: String(index) })))), /32 MiB/);
+  const limited = await store.cacheIssue({ downloadImage: async () => ({ bytes: large, mimeType: 'image/png' as const }) }, issue(Array.from({ length: 5 }, (_, index) => ({ ...attachment(), id: String(index) }))), { allowPartial: true });
+  assert.equal((await store.runtimePaths(limited)).length, 4); assert.match(limited.attachments[4].imageWarning!, /32 MiB/);
 });

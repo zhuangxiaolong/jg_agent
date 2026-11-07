@@ -2,8 +2,7 @@ import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from 'sql.j
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, Preferences, Project, ProviderProfile, ProviderSettings, Session } from '../../domain/src/index';
-import { assertNoPlaintextCredentials } from '../../knowledge/src/security';
+import type { AgentEvent, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, Session } from '../../domain/src/index';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 
 const SCHEMA_VERSION = 2;
@@ -11,7 +10,6 @@ export const LEGACY_PROVIDER_ID = 'legacy-default';
 
 function jiraText(value: string, name: string, maximum: number): string {
   if (typeof value !== 'string' || value.length > maximum) throw new Error(`Jira ${name}不是文本或超过 ${maximum} 字符，未保存任务快照。`);
-  assertNoPlaintextCredentials(value);
   return value;
 }
 
@@ -43,6 +41,7 @@ export function jiraSnapshot(issue: JiraIssue): JiraIssue {
         if (!image || !/^[a-f0-9]{64}$/.test(image.sha256) || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(image.mimeType) || !Number.isSafeInteger(image.size) || image.size < 1 || image.size > 8 * 1024 * 1024) throw new Error('Jira 本地图片摘要或格式无效');
         value.localImage = { sha256: image.sha256, mimeType: image.mimeType, size: image.size };
       }
+      if (attachment.imageWarning !== undefined) value.imageWarning = jiraText(attachment.imageWarning, '图片提示', 500);
       return value;
     })
   };
@@ -76,7 +75,7 @@ export class LocalStore {
 
   private constructor(private db: Database, private readonly sql: SqlJsStatic, private readonly path: string) {}
 
-  static async open(path: string, wasmPath?: string): Promise<LocalStore> {
+  static async open(path: string, wasmPath?: string, options: { recoverUnfinished?: boolean } = {}): Promise<LocalStore> {
     const absolute = resolve(path);
     const sql = await initSqlJs(wasmPath ? { locateFile: () => wasmPath } : undefined);
     const bytes = existsSync(absolute) ? readFileSync(absolute) : undefined;
@@ -120,7 +119,7 @@ export class LocalStore {
           }
         });
       }
-      const unfinished = store.listSessions().filter(session => session.status === 'running' || session.status === 'waiting-approval');
+      const unfinished = options.recoverUnfinished === false ? [] : store.listSessions().filter(session => session.status === 'running' || session.status === 'waiting-approval');
       if (unfinished.length) {
         store.transaction(() => {
           for (const session of unfinished) {
@@ -173,6 +172,7 @@ export class LocalStore {
 
   saveProject(project: Project): void {
     const value: Project = { id: project.id, name: project.name, path: project.path, branch: project.branch };
+    if (typeof project.collapsed === 'boolean') value.collapsed = project.collapsed;
     this.transaction(() => this.db.run('INSERT INTO projects(id, path, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path=excluded.path, value=excluded.value', [value.id, value.path, JSON.stringify(value)]));
   }
 
@@ -181,7 +181,6 @@ export class LocalStore {
     const current = this.listProjects().find(item => item.id === id);
     if (!current) throw new Error('本地项目不存在');
     const updated = { ...current, name: name.trim() };
-    assertNoPlaintextCredentials(updated.name);
     this.transaction(() => {
       this.db.run('UPDATE projects SET value = ? WHERE id = ?', [JSON.stringify(updated), id]);
       for (const session of this.listSessions().filter(item => item.projectId === id)) {
@@ -194,15 +193,29 @@ export class LocalStore {
     return updated;
   }
 
+  setProjectCollapsed(id: string, collapsed: boolean): Project {
+    const current = this.listProjects().find(item => item.id === id);
+    if (!current) throw new Error('本地项目不存在');
+    if (typeof collapsed !== 'boolean') throw new Error('项目收放状态无效');
+    const next = { ...current, collapsed }; this.saveProject(next); return next;
+  }
+
+  deleteProject(id: string): void {
+    if (!this.listProjects().some(item => item.id === id)) throw new Error('本地项目不存在');
+    if (this.listSessions().some(item => item.projectId === id)) throw new Error('项目下仍有会话，请先删除会话后再删除项目');
+    this.transaction(() => this.db.run('DELETE FROM projects WHERE id = ?', [id]));
+  }
+
   listSessions(): Session[] { return this.rows<Session>('SELECT value FROM sessions ORDER BY created_at DESC, rowid DESC'); }
 
   getSession(id: string): Session | undefined { return this.rows<Session>('SELECT value FROM sessions WHERE id = ?', [id])[0]; }
 
   saveSession(session: Session): void {
     const value: Session = { id: session.id, projectId: session.projectId, title: session.title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
+    if (session.baseBranch !== undefined) value.baseBranch = session.baseBranch;
     if (session.alias !== undefined) {
       if (typeof session.alias !== 'string' || !session.alias.trim() || session.alias.trim().length > 100 || /[\x00-\x1f\x7f]/.test(session.alias)) throw new Error('会话别名必须为1至100字，且不能包含控制字符');
-      assertNoPlaintextCredentials(session.alias); value.alias = session.alias.trim();
+      value.alias = session.alias.trim();
     }
     if (session.reasoningEffort !== undefined) {
       if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(session.reasoningEffort)) throw new Error('无效模型推理强度');
@@ -214,6 +227,8 @@ export class LocalStore {
     if (session.mode !== undefined) value.mode = session.mode;
     if (session.system !== undefined) value.system = session.system;
     if (session.jiraIssue !== undefined) value.jiraIssue = jiraSnapshot(session.jiraIssue);
+    if (session.unreadCompletionId !== undefined) value.unreadCompletionId = session.unreadCompletionId;
+    if (session.imported) value.imported = true;
     this.transaction(() => this.db.run('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId, value.createdAt, JSON.stringify(value)]));
   }
 
@@ -224,6 +239,41 @@ export class LocalStore {
     const current = this.getSession(id); if (!current) throw new Error('会话不存在');
     const value = { ...current, alias: alias.trim() || undefined };
     this.saveSession(value); return value;
+  }
+
+  deleteSession(id: string): void {
+    if (!this.getSession(id)) throw new Error('会话不存在');
+    this.transaction(() => { this.db.run('DELETE FROM events WHERE session_id = ?', [id]); this.db.run('DELETE FROM sessions WHERE id = ?', [id]); });
+  }
+
+  markSessionRead(id: string, completionId: string): void {
+    const current = this.getSession(id);
+    if (current?.unreadCompletionId === completionId) this.saveSession({ ...current, unreadCompletionId: undefined });
+  }
+
+  getUpdateUrl(): string | undefined { return this.rows<{ url: string }>('SELECT value FROM settings WHERE key = ?', ['update-url'])[0]?.url; }
+  getRequirementsSync(): RequirementsSync {
+    return this.rows<RequirementsSync>('SELECT value FROM settings WHERE key = ?', ['requirements-sync'])[0] ?? { url: 'https://github.com/zhuangxiaolong/jg_agent', automatic: true };
+  }
+  saveRequirementsSync(value: RequirementsSync): void {
+    this.transaction(() => this.db.run('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['requirements-sync', JSON.stringify(value)]));
+  }
+  applyRequirementUpdate(documents: ManagedDocument[], state: RequirementsSync): void {
+    for (const document of documents) assertDocumentTextSize(document.content, 'requirement');
+    this.transaction(() => {
+      for (const document of documents) this.db.run('INSERT INTO documents(id,kind,created_at,value) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value', [document.id, document.kind, document.createdAt, JSON.stringify(document)]);
+      this.db.run('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['requirements-sync', JSON.stringify(state)]);
+    });
+  }
+  importSharedData(session: Session | undefined, events: AgentEvent[], memories: Memory[]): void {
+    this.transaction(() => {
+      if (session) this.db.run('INSERT INTO sessions(id,project_id,created_at,value) VALUES (?,?,?,?)', [session.id, session.projectId, session.createdAt, JSON.stringify(session)]);
+      for (const event of events) this.db.run('INSERT INTO events(id,session_id,value) VALUES (?,?,?)', [event.id, event.sessionId, JSON.stringify(event)]);
+      for (const memory of memories) this.db.run('INSERT INTO memories(id,created_at,value) VALUES (?,?,?)', [memory.id, memory.createdAt, JSON.stringify(memory)]);
+    });
+  }
+  saveUpdateUrl(url: string): void {
+    this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['update-url', JSON.stringify({ url })]));
   }
 
   appendEvent(event: AgentEvent): void {
@@ -249,22 +299,37 @@ export class LocalStore {
   }
 
   getPreferences(): Preferences {
-    return this.rows<Preferences>('SELECT value FROM settings WHERE key = ?', ['preferences'])[0] ?? { theme: 'dark', style: 'jinggong' };
+    const value = this.rows<Partial<Preferences>>('SELECT value FROM settings WHERE key = ?', ['preferences'])[0];
+    return { theme: value?.theme ?? 'dark', style: value?.style ?? 'jinggong', completionSound: value?.completionSound ?? 'chime', updateMode: value?.updateMode === 'manual' ? 'manual' : 'automatic' };
   }
 
   savePreferences(preferences: Preferences): void {
-    const value: Preferences = { theme: preferences.theme, style: preferences.style };
+    const value: Preferences = { theme: preferences.theme, style: preferences.style, completionSound: preferences.completionSound ?? 'chime', updateMode: preferences.updateMode === 'manual' ? 'manual' : 'automatic' };
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['preferences', JSON.stringify(value)]));
   }
 
   getLayout(): LayoutPreferences {
     const value = this.rows<LayoutPreferences>('SELECT value FROM settings WHERE key = ?', ['layout'])[0];
-    return { leftVisible: typeof value?.leftVisible === 'boolean' ? value.leftVisible : true, rightVisible: typeof value?.rightVisible === 'boolean' ? value.rightVisible : true, bottomVisible: typeof value?.bottomVisible === 'boolean' ? value.bottomVisible : true };
+    return {
+      leftVisible: typeof value?.leftVisible === 'boolean' ? value.leftVisible : true,
+      rightVisible: typeof value?.rightVisible === 'boolean' ? value.rightVisible : true,
+      bottomVisible: typeof value?.bottomVisible === 'boolean' ? value.bottomVisible : true,
+      leftWidth: Number.isInteger(value?.leftWidth) && value.leftWidth! >= 180 && value.leftWidth! <= 520 ? value.leftWidth : 244,
+      rightWidth: Number.isInteger(value?.rightWidth) && value.rightWidth! >= 260 && value.rightWidth! <= 680 ? value.rightWidth : 420,
+      bottomHeight: Number.isInteger(value?.bottomHeight) && value.bottomHeight! >= 100 && value.bottomHeight! <= 480 ? value.bottomHeight : 180,
+      ...(Number.isInteger(value?.composerHeight) && value.composerHeight! >= 80 && value.composerHeight! <= 400 ? { composerHeight: value.composerHeight } : {})
+    };
   }
 
   saveLayout(layout: LayoutPreferences): void {
     if (!layout || [layout.leftVisible, layout.rightVisible, layout.bottomVisible].some(value => typeof value !== 'boolean')) throw new Error('面板显示状态必须为布尔值');
-    const value: LayoutPreferences = { leftVisible: layout.leftVisible, rightVisible: layout.rightVisible, bottomVisible: layout.bottomVisible };
+    const leftWidth = layout.leftWidth ?? 244, rightWidth = layout.rightWidth ?? 420, bottomHeight = layout.bottomHeight ?? 180;
+    if (!Number.isInteger(leftWidth) || leftWidth < 180 || leftWidth > 520 || !Number.isInteger(rightWidth) || rightWidth < 260 || rightWidth > 680 || !Number.isInteger(bottomHeight) || bottomHeight < 100 || bottomHeight > 480) throw new Error('面板尺寸超出允许范围');
+    const value: LayoutPreferences = { leftVisible: layout.leftVisible, rightVisible: layout.rightVisible, bottomVisible: layout.bottomVisible, leftWidth, rightWidth, bottomHeight };
+    if (layout.composerHeight !== undefined) {
+      if (!Number.isInteger(layout.composerHeight) || layout.composerHeight < 80 || layout.composerHeight > 400) throw new Error('输入框尺寸超出允许范围');
+      value.composerHeight = layout.composerHeight;
+    }
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['layout', JSON.stringify(value)]));
   }
 
@@ -361,8 +426,8 @@ export class LocalStore {
 
   saveDocument(document: ManagedDocument): void {
     assertDocumentTextSize(document.content, document.kind);
-    assertNoPlaintextCredentials(document.content, { allowSchemaMetadata: document.kind === 'dictionary' });
     const value: ManagedDocument = { id: document.id, kind: document.kind, system: document.system, name: document.name, content: document.content, digest: document.digest, createdAt: document.createdAt, enabled: document.enabled };
+    if (document.remote) value.remote = { ...document.remote };
     this.transaction(() => this.db.run('INSERT INTO documents(id, kind, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, created_at=excluded.created_at, value=excluded.value', [value.id, value.kind, value.createdAt, JSON.stringify(value)]));
   }
 
@@ -377,8 +442,8 @@ export class LocalStore {
   listMemories(): Memory[] { return this.rows<Memory>('SELECT value FROM memories ORDER BY created_at DESC, rowid DESC'); }
 
   saveMemory(memory: Memory): void {
-    assertNoPlaintextCredentials(memory.title + '\n' + memory.content);
     const value: Memory = { id: memory.id, title: memory.title, content: memory.content, createdAt: memory.createdAt };
+    if (memory.source === 'session') { value.source = 'session'; value.sessionId = memory.sessionId; value.projectId = memory.projectId; value.sourceEventId = memory.sourceEventId; }
     this.transaction(() => this.db.run('INSERT INTO memories(id, created_at, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET created_at=excluded.created_at, value=excluded.value', [value.id, value.createdAt, JSON.stringify(value)]));
   }
 

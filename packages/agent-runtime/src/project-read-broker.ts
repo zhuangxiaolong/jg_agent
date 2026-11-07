@@ -2,8 +2,9 @@ import { link, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'nod
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-const MAX_FILE_BYTES = 128 * 1024;
-const MAX_OUTPUT_CHARS = 48000;
+const MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
+const MAX_WRITE_FILE_BYTES = 128 * 1024;
+const MAX_OUTPUT_CHARS = 12000;
 const MAX_SERIALIZED_CHARS = 24000;
 const IGNORED_DIRECTORIES = new Set(['.git', '.codex', '.ssh', '.aws', '.azure', '.gnupg', 'node_modules', 'bin', 'obj', 'dist', 'release', 'target', '.vs', '.idea']);
 const ALLOWED_EXTENSIONS = new Set(['.cs', '.csproj', '.sln', '.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.yaml', '.yml', '.xml', '.props', '.targets', '.html', '.css', '.scss', '.sql', '.ps1', '.cmd', '.bat', '.ini', '.toml', '.config', '.csv', '.h', '.cpp', '.c', '.rs', '.vue']);
@@ -11,7 +12,7 @@ const SAFE_EXTENSIONLESS = new Set(['dockerfile', 'makefile', 'license', 'notice
 
 export const PROJECT_READ_TOOLS = [
   { type: 'function', name: 'list_project_files', description: '只读列出本次项目中的代码文件（相对路径）。不会返回凭据文件、构建产物、Git元数据或链接。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对目录，根目录用 .' }, limit: { type: 'integer', minimum: 1, maximum: 500 } }, required: ['path'], additionalProperties: false } },
-  { type: 'function', name: 'read_project_file', description: '只读读取本次项目的单个 UTF-8 代码文件；禁止越界、链接、凭据文件和二进制。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对文件路径' } }, required: ['path'], additionalProperties: false } },
+  { type: 'function', name: 'read_project_file', description: '分页读取本次项目的 UTF-8 代码文件，支持最多 16 MiB 的大文件。offset 为从 0 开始的 UTF-16 字符偏移，默认 0；length 默认 8000。返回完整文件 hash、行号、totalCharacters 和 nextOffset。truncated=true 时须用 nextOffset 与本页 hash 作为 expectedHash 继续读取，直到 nextOffset=null；不能把片段当全文。禁止越界、链接、凭据文件和二进制。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对文件路径' }, offset: { type: 'integer', minimum: 0 }, length: { type: 'integer', minimum: 1, maximum: MAX_OUTPUT_CHARS }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$', description: '续读时传入首段返回的完整文件 hash，防止混用不同版本代码' } }, required: ['path'], additionalProperties: false } },
 ] as const;
 export const PROJECT_WRITE_TOOLS = [
   { type: 'function', name: 'write_project_file', description: '在已授权隔离工作区写入 UTF-8 代码文件。修改已有文件必须传入 read_project_file 返回的 hash；新文件可以省略 expectedHash。写入前执行项目强制规则。', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, required: ['path', 'content'], additionalProperties: false } },
@@ -49,14 +50,6 @@ async function verifyRootAncestors(directory: string): Promise<void> {
   }
 }
 
-function hasCredentialContent(content: string): boolean {
-  // 保守阻止常见明文凭据；不声称这能识别所有项目自定义秘密。
-  return /\b(?:sk-[A-Za-z0-9_-]{12,}|AKIA[A-Z0-9]{16})\b/.test(content)
-    || /-----BEGIN (?:[A-Z ]*PRIVATE KEY|OPENSSH PRIVATE KEY)-----/.test(content)
-    || /\bBearer\s+[A-Za-z0-9._~+\/-]{12,}/i.test(content)
-    || /["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|connectionstring)["']?\s*[:=]\s*["'][^"'\r\n]{4,}["']/i.test(content);
-}
-
 export class ProjectReadBroker {
   private readonly mutations = new Map<string, Promise<unknown>>();
   private constructor(private readonly root: string, private readonly requestedRoot: string, private readonly options: ProjectBrokerOptions, private readonly rootIdentity: { dev: number; ino: number }) {}
@@ -77,11 +70,11 @@ export class ProjectReadBroker {
   async call(tool: string, input: unknown): Promise<Record<string, unknown>> {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('只读工具参数必须为对象');
     const args = input as Record<string, unknown>;
-    const allowedKeys = tool === 'list_project_files' ? ['path', 'limit'] : tool === 'write_project_file' ? ['path', 'content', 'expectedHash'] : tool === 'delete_project_file' ? ['path', 'expectedHash'] : ['path'];
+    const allowedKeys = tool === 'list_project_files' ? ['path', 'limit'] : tool === 'read_project_file' ? ['path', 'offset', 'length', 'expectedHash'] : tool === 'write_project_file' ? ['path', 'content', 'expectedHash'] : tool === 'delete_project_file' ? ['path', 'expectedHash'] : ['path'];
     if (Object.keys(args).some((key) => !allowedKeys.includes(key))) throw new Error('只读工具包含未知参数');
     if (typeof args.path !== 'string') throw new Error('只读工具需要相对路径');
     if (tool === 'list_project_files') return this.listFiles(args.path, args.limit);
-    if (tool === 'read_project_file') return this.readFile(args.path);
+    if (tool === 'read_project_file') return this.readFile(args.path, args);
     if (tool === 'write_project_file' || tool === 'delete_project_file') {
       if (this.options.mode !== 'develop') throw new Error('当前会话为只读模式，禁止修改文件');
       if (!this.options.beforeWrite) throw new Error('尚未绑定强制开发规则，禁止修改文件');
@@ -140,42 +133,68 @@ export class ProjectReadBroker {
           const safePath = await this.checkedPath(path.relative(this.root, full));
           const stats = await lstat(safePath);
           if (stats.isDirectory()) await walk(safePath, depth + 1);
-          else if (stats.isFile() && stats.nlink <= 1 && readableName(entry.name) && stats.size <= MAX_FILE_BYTES) files.push(path.relative(this.root, safePath).replaceAll('\\', '/'));
+          else if (stats.isFile() && stats.nlink <= 1 && readableName(entry.name) && stats.size <= MAX_READ_FILE_BYTES) files.push(path.relative(this.root, safePath).replaceAll('\\', '/'));
         } catch { /* 扫描时忽略无权访问、变化中或不安全的条目。 */ }
       }
     };
     await walk(target, 0);
-    const result = { files, truncated, scannedEntries: scanned, limits: { maxFiles: limit, maxEntries: 5000, maxDepth: 12, maxFileBytes: MAX_FILE_BYTES, maxSerializedChars: MAX_SERIALIZED_CHARS } };
+    const result = { files, truncated, scannedEntries: scanned, limits: { maxFiles: limit, maxEntries: 5000, maxDepth: 12, maxFileBytes: MAX_READ_FILE_BYTES, maxSerializedChars: MAX_SERIALIZED_CHARS } };
     while (JSON.stringify(result).length > MAX_SERIALIZED_CHARS && result.files.length > 0) { result.files.pop(); result.truncated = true; }
     return result;
   }
 
-  private async readFile(relative: string): Promise<Record<string, unknown>> {
+  private async readFile(relative: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    const offset = args.offset === undefined ? 0 : args.offset;
+    const length = args.length === undefined ? 8000 : args.length;
+    if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > MAX_OUTPUT_CHARS) throw new Error('代码分页参数无效：offset 必须为非负整数，length 必须为 1–12000');
+    if (args.expectedHash !== undefined && (typeof args.expectedHash !== 'string' || !/^[a-f0-9]{64}$/.test(args.expectedHash))) throw new Error('续读需要有效的完整文件 SHA256');
+    if (offset > 0 && args.expectedHash === undefined) throw new Error('续读必须传入首段返回的 expectedHash，请先从 offset=0 读取');
     if (!readableName(path.basename(relative))) throw new Error('该文件类型或凭据文件不允许读取');
     const target = await this.checkedPath(relative);
     const before = await lstat(target);
-    if (!before.isFile() || before.nlink > 1 || before.size > MAX_FILE_BYTES) throw new Error('仅允许读取不超过 128 KiB 的普通单链接文件');
+    if (!before.isFile() || before.nlink > 1) throw new Error('仅允许读取普通单链接文件');
+    if (before.size > MAX_READ_FILE_BYTES) throw new Error('代码文件超过 16 MiB 的受控读取容量，请按模块拆分后读取');
     const handle = await open(target, 'r');
     try {
       const opened = await handle.stat();
-      if (!opened.isFile() || opened.nlink > 1 || opened.dev !== before.dev || opened.ino !== before.ino || opened.size > MAX_FILE_BYTES) throw new Error('文件在读取前发生变化，已拒绝');
-      const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > MAX_FILE_BYTES || buffer.subarray(0, bytesRead).includes(0)) throw new Error('文件过大或不是文本文件');
-      await this.checkedPath(relative);
-      const content = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, bytesRead));
-      if (hasCredentialContent(content) || this.options.protectedValues?.some((value) => value && content.includes(value))) throw new Error('文件疑似包含明文凭据，已拒绝传给模型');
-      const result = { path: path.relative(this.root, target).replaceAll('\\', '/'), content: content.slice(0, MAX_OUTPUT_CHARS), truncated: content.length > MAX_OUTPUT_CHARS, bytes: bytesRead, hash: createHash('sha256').update(buffer.subarray(0, bytesRead)).digest('hex') };
+      if (!opened.isFile() || opened.nlink > 1 || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.mtimeMs !== before.mtimeMs || opened.ctimeMs !== before.ctimeMs) throw new Error('文件在读取前发生变化，已拒绝');
+      const buffer = Buffer.alloc(opened.size + 1);
+      let bytesRead = 0;
+      while (bytesRead < buffer.length) {
+        const chunk = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+        if (chunk.bytesRead === 0) break;
+        bytesRead += chunk.bytesRead;
+      }
+      const after = await handle.stat();
+      const current = await lstat(await this.checkedPath(relative));
+      if (bytesRead !== opened.size || [after, current].some(stats => !stats.isFile() || stats.nlink > 1 || stats.dev !== opened.dev || stats.ino !== opened.ino || stats.size !== opened.size || stats.mtimeMs !== opened.mtimeMs || stats.ctimeMs !== opened.ctimeMs)) throw new Error('文件在读取期间发生变化，请重新从首段读取');
+      if (buffer.subarray(0, bytesRead).includes(0)) throw new Error('不是受支持的文本文件');
+      const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, bytesRead));
+      if (this.options.protectedValues?.some((value) => value && content.includes(value))) throw new Error('文件包含当前配置的连接凭据，请移除后重试');
+      const hash = createHash('sha256').update(buffer.subarray(0, bytesRead)).digest('hex');
+      if (args.expectedHash !== undefined && args.expectedHash !== hash) throw new Error('文件 SHA256 已变化，不能继续拼接旧片段，请重新从首段读取');
+      if (offset > content.length || (offset > 0 && /[\uD800-\uDBFF]/.test(content[offset - 1]) && /[\uDC00-\uDFFF]/.test(content[offset] ?? ''))) throw new Error('代码分页偏移超出文件或位于字符中间，请使用返回的 nextOffset');
+      const safeEnd = (end: number) => end > offset && /[\uD800-\uDBFF]/.test(content[end - 1]) && /[\uDC00-\uDFFF]/.test(content[end] ?? '') ? end === offset + 1 ? end + 1 : end - 1 : end;
+      const startLine = content.slice(0, offset).split('\n').length;
+      const result = { path: path.relative(this.root, target).replaceAll('\\', '/'), content: content.slice(offset, safeEnd(Math.min(content.length, offset + length))), truncated: false, bytes: bytesRead, hash, offset, endOffset: offset, totalCharacters: content.length, startLine, endLine: startLine, nextOffset: null as number | null };
+      const updateRange = () => {
+        result.endOffset = offset + result.content.length;
+        result.truncated = result.endOffset < content.length;
+        result.nextOffset = result.truncated ? result.endOffset : null;
+        result.endLine = startLine + result.content.split('\n').length - 1 - (result.content.endsWith('\n') ? 1 : 0);
+      };
+      updateRange();
       if (JSON.stringify(result).length > MAX_SERIALIZED_CHARS) {
-        result.truncated = true;
+        const page = result.content;
         let low = 0;
-        let high = result.content.length;
+        let high = page.length;
         while (low < high) {
           const middle = Math.ceil((low + high) / 2);
-          if (JSON.stringify({ ...result, content: result.content.slice(0, middle) }).length <= MAX_SERIALIZED_CHARS) low = middle;
+          result.content = page.slice(0, middle); updateRange();
+          if (JSON.stringify(result).length <= MAX_SERIALIZED_CHARS) low = middle;
           else high = middle - 1;
         }
-        result.content = result.content.slice(0, low);
+        result.content = content.slice(offset, safeEnd(offset + low)); updateRange();
       }
       return result;
     } finally { await handle.close(); }
@@ -194,7 +213,8 @@ export class ProjectReadBroker {
     if (existing && (typeof args.expectedHash !== 'string' || !/^[a-f0-9]{64}$/.test(args.expectedHash) || args.expectedHash !== previousHash)) throw new Error('文件 SHA256 已变化或未提供，请重新读取后再修改');
     if (!existing && args.expectedHash !== undefined) throw new Error('文件不存在，不能使用已有文件 hash');
     const content = deleting ? null : args.content;
-    if (content !== null && (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES || hasCredentialContent(content) || this.options.protectedValues?.some((value) => value && content.includes(value)))) throw new Error('写入内容不是受支持的 UTF-8 文本、超过 128 KiB 或包含疑似凭据');
+    if (content !== null && (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content, 'utf8') > MAX_WRITE_FILE_BYTES)) throw new Error('写入内容不是受支持的 UTF-8 文本或超过 128 KiB');
+    if (typeof content === 'string' && this.options.protectedValues?.some((value) => value && content.includes(value))) throw new Error('写入内容包含当前配置的连接凭据，请移除后重试');
     await this.options.beforeWrite!(normalized, content as string | null);
     await this.checkedPath(relative, true);
     if (existing && (await this.readFile(relative)).hash !== previousHash) throw new Error('规则检查期间文件已变化，请重新读取');

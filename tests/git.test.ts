@@ -64,6 +64,54 @@ test('真实 Git Worktree 隔离主分支，读取 staged、修改、删除、�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('会话可选择本地基准分支创建隔离 Worktree', async () => {
+  const { root, repo, connector } = await fixture();
+  try {
+    await git(repo, ['branch', 'feature/候选分支']);
+    const project = await connector.register(repo);
+    const branches = await connector.listBranches(repo);
+    assert.ok(branches.includes('main'));
+    assert.ok(branches.includes('feature/候选分支'));
+    const workspace = await connector.createWorkspace(project, 'base-branch', 'feature/候选分支');
+    assert.equal(workspace.baseBranch, 'feature/候选分支');
+    assert.equal((await connector.state(workspace.path)).branch, 'agent/base-branch');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('会话输入区切换基准分支时保留 agent 工作分支身份并拒绝脏工作区', async () => {
+  const { root, repo, connector } = await fixture();
+  try {
+    await git(repo, ['checkout', '-b', 'feature/切换目标']);
+    await writeFile(join(repo, 'src', '代码.txt'), 'feature 内容\n');
+    await git(repo, ['add', '.']);
+    await git(repo, ['commit', '-m', '准备切换分支']);
+    await git(repo, ['checkout', 'main']);
+    const project = await connector.register(repo);
+    const workspace = await connector.createWorkspace(project, 'switch-branch', 'main');
+    const switched = await connector.switchWorkspaceBaseBranch(workspace.path, 'feature/切换目标');
+    assert.equal(switched.branch, 'agent/switch-branch');
+    assert.equal(switched.baseBranch, 'feature/切换目标');
+    assert.equal((await connector.state(workspace.path)).branch, 'agent/switch-branch');
+    assert.equal(await readFile(join(workspace.path, 'src', '代码.txt'), 'utf8'), 'feature 内容\n');
+    await writeFile(join(workspace.path, '未提交切换.txt'), '阻断');
+    await assert.rejects(connector.switchWorkspaceBaseBranch(workspace.path, 'main'), /未提交变更/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('会话删除只允许干净隔离 Worktree，并从源仓库移除 agent Worktree', async () => {
+  const { root, repo, connector } = await fixture();
+  try {
+    const project = await connector.register(repo);
+    const workspace = await connector.createWorkspace(project, 'delete-test');
+    await writeFile(join(workspace.path, '未提交.txt'), '必须保留');
+    await assert.rejects(connector.removeWorkspace(workspace.path), /未提交改动/);
+    await rm(join(workspace.path, '未提交.txt'));
+    await connector.removeWorkspace(workspace.path);
+    await assert.rejects(connector.state(workspace.path));
+    assert.equal((await git(repo, ['worktree', 'list'])).stdout.split(/\r?\n/).filter(line => line.includes(workspace.path)).length, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('空仓库拒绝使用，Worktree 创建禁用 checkout hook 和 smudge filter', async () => {
   const { root, repo, connector } = await fixture();
   try {
@@ -137,6 +185,30 @@ test('真实 Git 历史、中文提交摘要与显式文件提交不修改主分
     await assert.rejects(connector.commit(repo, { message: '禁止修改主仓库' }), /仅允许/);
     await git(workspace.path, ['checkout', '-b', 'unmanaged-branch']);
     await assert.rejects(connector.commit(workspace.path, { message: '禁止任意分支' }), /身份/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('单文件 Git 操作支持对比、暂存、取消暂存和撤销', async () => {
+  const { root, repo, connector } = await fixture();
+  try {
+    const workspace = await connector.createWorkspace(await connector.register(repo), 'file-operations');
+    await writeFile(join(workspace.path, 'src', '代码.txt'), '单文件修改\n');
+    await writeFile(join(workspace.path, '新增.txt'), '未跟踪内容\n');
+    const trackedDiff = await connector.fileDiff(workspace.path, 'src/代码.txt');
+    assert.match(trackedDiff.diff, /单文件修改/);
+    await connector.stage(workspace.path, 'src/代码.txt');
+    assert.match((await git(workspace.path, ['-c', 'core.quotepath=false', 'diff', '--cached', '--name-only'])).stdout, /src[\\/]代码\.txt/);
+    await connector.unstage(workspace.path, 'src/代码.txt');
+    assert.equal((await git(workspace.path, ['-c', 'core.quotepath=false', 'diff', '--cached', '--name-only'])).stdout.trim(), '');
+    await connector.discard(workspace.path, 'src/代码.txt');
+    assert.equal(await readFile(join(workspace.path, 'src', '代码.txt'), 'utf8'), '原始内容\n');
+    const untrackedDiff = await connector.fileDiff(workspace.path, '新增.txt');
+    assert.match(untrackedDiff.diff, /未跟踪内容/);
+    await connector.stage(workspace.path, '新增.txt');
+    await connector.discard(workspace.path, '新增.txt');
+    await assert.rejects(readFile(join(workspace.path, '新增.txt')), { code: 'ENOENT' });
+    assert.equal((await connector.state(workspace.path)).dirty, false);
+    await assert.rejects(connector.fileDiff(workspace.path, 'src/代码.txt'), /不在当前变更/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
