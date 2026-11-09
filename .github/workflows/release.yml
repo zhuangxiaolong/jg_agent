@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - name: 安装依赖
         run: npm ci
+      - name: 准备 Electron 运行时
+        run: node node_modules/electron/install.js
       - name: 构建应用资源
         run: npm run build
       - name: 准备运行时资源
