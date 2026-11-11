@@ -14,7 +14,7 @@ export interface RequirementAdmissionPanelProps {
 
 type DraftAction = 'confirm' | 'provide_info' | 'not_applicable' | 'accept_risk' | 'reject_assumption';
 const statusLabels: Record<RequirementAdmission['status'], string> = {
-  ready: '可以进入开发', needs_confirmation: '需要确认', blocked: '暂不具备开发条件', stale: '需求已变化，需重新检查', not_checked: '尚未检查', error: '检查失败',
+  ready: '检查完成', needs_confirmation: '有待确认项', blocked: '存在未决事项', stale: '需求已变化', not_checked: '尚未检查', error: '检查失败',
 };
 const itemStatusLabels: Record<RequirementCheckItem['status'], string> = {
   confirmed: '已确认', missing: '缺少信息', ambiguous: '存在歧义', assumption: '待确认假设', not_applicable: '不适用',
@@ -29,33 +29,35 @@ export function RequirementAdmissionPanel({ admission, historyHint, onRefresh, r
   const allowResolve = resolveAvailable !== false && !disabled && (!admission || !blockedStatuses.includes(admission.status as typeof blockedStatuses[number]));
   const refreshButton = onRefresh && <button type="button" className="secondary-button ra-refresh" disabled={disabled || refreshing} onClick={() => void onRefresh()}>{refreshing ? '刷新检查中…' : admission ? '重新检查' : '开始需求检查'}</button>;
   if (!admission) return <section className="requirement-admission" aria-label="需求准入检查">
-    <header className="ra-heading"><div><h3>需求准入检查</h3><p>{historyHint || '历史任务/未执行准入检查'}</p></div><div className="ra-heading-actions"><span className="ra-status ra-status-not_checked">尚未检查</span>{refreshButton}</div></header>
-    <p className="ra-muted">当前会话没有准入记录，不会根据历史内容补造检查结论。</p>
+    <div className="ra-compact"><details><summary><strong>需求准入</strong><span className="ra-status ra-status-not_checked">尚未检查</span><span className="ra-compact-note">仅作需求提示，不阻断开发</span></summary><div className="ra-expanded"><p className="ra-muted">{historyHint || '当前会话没有准入记录'}。不会根据历史内容补造检查结论，开发仍可继续。</p></div></details>{refreshButton}</div>
   </section>;
 
+  const unresolvedCount = admission.items.filter(unresolved).length;
   const grouped = [
-    { title: '必须先明确', items: admission.items.filter(item => unresolved(item) && (item.blockingStage === 'design' || item.blockingStage === 'implementation')) },
-    { title: '开发可继续，但测试/验收或发布受阻', items: admission.items.filter(item => unresolved(item) && (item.blockingStage === 'testing' || item.blockingStage === 'release')) },
+    { title: '设计或实施待确认', items: admission.items.filter(item => unresolved(item) && (item.blockingStage === 'design' || item.blockingStage === 'implementation')) },
+    { title: '测试、验收或发布提醒', items: admission.items.filter(item => unresolved(item) && (item.blockingStage === 'testing' || item.blockingStage === 'release')) },
     { title: '其他检查项', items: admission.items.filter(item => !unresolved(item) || item.blockingStage === 'none') },
   ].filter(group => group.items.length > 0);
 
   return <section className="requirement-admission" aria-label="需求准入检查">
-    <header className="ra-heading"><div><h3>需求准入检查</h3><p>本地规则预检 · {generationLabel(admission.projectGeneration)} · {taskTypeLabel(admission.taskType)} · 检查于 {formatDate(admission.checkedAt)}</p></div><div className="ra-heading-actions"><span className={`ra-status ra-status-${admission.status}`}>{statusLabels[admission.status]}</span>{refreshButton}</div></header>
-    <div className="ra-summary" aria-label="准入摘要">
-      <span>已确认 {admission.items.filter(item => item.status === 'confirmed').length}</span>
-      <span>待处理 {admission.items.filter(unresolved).length}</span>
-      <span>验收标准 {admission.acceptanceCriteria.length}</span>
-      <strong>{admission.implementationAllowed ? '允许进入代码修改' : '代码修改未放行'}</strong>
-    </div>
-    {!!admission.stageBlockers.length && <div className="ra-stage-blockers" role="status"><strong>阶段阻塞：</strong>{admission.stageBlockers.map(stage => stageLabels[stage]).join('、')}</div>}
-    {admission.status === 'stale' && <p className="ra-callout">Jira 需求快照已变化。请刷新并重新检查后再使用旧结论。</p>}
-    {admission.status === 'error' && <p className="ra-callout">检查未成功完成，不能将此结果视为准入通过。</p>}
-    {!allowResolve && admission.items.some(unresolved) && <p className="ra-callout">当前准入记录不可用于人工决策。请重新检查或等待检查完成后再操作。</p>}
-    {admission.items.length ? <div className="ra-groups">{grouped.map(group => <section className="ra-group" key={group.title}><h4>{group.title}<span>{group.items.length}</span></h4><div className="ra-items">{group.items.map(item => <AdmissionItem key={item.id} item={item} admission={admission} onResolve={onResolve} resolveAvailable={allowResolve} />)}</div></section>)}</div> : <p className="ra-muted">本次检查没有生成检查项。</p>}
-    <section className="ra-criteria"><h4>验收标准与测试追溯<span>{admission.acceptanceCriteria.length}</span></h4>
-      {admission.acceptanceCriteria.length ? <div className="ra-criteria-list">{admission.acceptanceCriteria.map(criterion => <article className="ra-criterion" key={criterion.id}><div><strong>{criterion.criterionKey}</strong><span className={`ra-criterion-status ra-criterion-${criterion.status}`}>{criterion.status === 'confirmed' ? '已确认' : criterion.status === 'not_applicable' ? '不适用' : '待确认'}</span></div><p>{criterion.statement}</p><EvidenceList evidence={criterion.source} /></article>)}</div> : <p className="ra-muted">尚未提取验收标准。测试状态不能据此显示为已通过。</p>}
-    </section>
-    <footer className="ra-footer">模板 {admission.templateVersion} · 规则 {admission.ruleVersion} · 快照 {admission.snapshotHash.slice(0, 12)}</footer>
+    <div className="ra-compact"><details><summary><strong>需求准入</strong><span className={`ra-status ra-status-${admission.status}`}>{statusLabels[admission.status]}</span><span className="ra-compact-note">{unresolvedCount ? `待确认 ${unresolvedCount} 项` : '无待确认项'} · 仅作提示，不阻断开发</span></summary><div className="ra-expanded">
+      <header className="ra-heading"><div><h3>需求准入检查</h3><p>本地规则预检 · {generationLabel(admission.projectGeneration)} · {taskTypeLabel(admission.taskType)} · 检查于 {formatDate(admission.checkedAt)}</p></div></header>
+      <div className="ra-summary" aria-label="准入摘要">
+        <span>已确认 {admission.items.filter(item => item.status === 'confirmed').length}</span>
+        <span>待处理 {unresolvedCount}</span>
+        <span>验收标准 {admission.acceptanceCriteria.length}</span>
+        <strong>{admission.implementationAllowed ? '检查项已满足' : '仍有检查项待处理'}</strong>
+      </div>
+      {!!admission.stageBlockers.length && <div className="ra-stage-blockers" role="status"><strong>阶段提醒：</strong>{admission.stageBlockers.map(stage => stageLabels[stage]).join('、')}</div>}
+      {admission.status === 'stale' && <p className="ra-callout">Jira 需求快照已变化。刷新检查以更新需求提示。</p>}
+      {admission.status === 'error' && <p className="ra-callout">检查未成功完成；开发仍可继续，需求检查结果暂不可用。</p>}
+      {!allowResolve && admission.items.some(unresolved) && <p className="ra-callout">当前准入记录不可用于人工决策。请重新检查或等待检查完成后再操作。</p>}
+      {admission.items.length ? <div className="ra-groups">{grouped.map(group => <section className="ra-group" key={group.title}><h4>{group.title}<span>{group.items.length}</span></h4><div className="ra-items">{group.items.map(item => <AdmissionItem key={item.id} item={item} admission={admission} onResolve={onResolve} resolveAvailable={allowResolve} />)}</div></section>)}</div> : <p className="ra-muted">本次检查没有生成检查项。</p>}
+      <section className="ra-criteria"><h4>验收标准与测试追溯<span>{admission.acceptanceCriteria.length}</span></h4>
+        {admission.acceptanceCriteria.length ? <div className="ra-criteria-list">{admission.acceptanceCriteria.map(criterion => <article className="ra-criterion" key={criterion.id}><div><strong>{criterion.criterionKey}</strong><span className={`ra-criterion-status ra-criterion-${criterion.status}`}>{criterion.status === 'confirmed' ? '已确认' : criterion.status === 'not_applicable' ? '不适用' : '待确认'}</span></div><p>{criterion.statement}</p><EvidenceList evidence={criterion.source} /></article>)}</div> : <p className="ra-muted">尚未提取验收标准。测试状态不能据此显示为已通过。</p>}
+      </section>
+      <footer className="ra-footer">模板 {admission.templateVersion} · 规则 {admission.ruleVersion} · 快照 {admission.snapshotHash.slice(0, 12)}</footer>
+    </div></details>{refreshButton}</div>
   </section>;
 }
 
@@ -74,9 +76,9 @@ function AdmissionItem({ item, admission, onResolve, resolveAvailable }: { item:
   }
   function startDraft(action: DraftAction) { setValueText(''); setReason(''); setDraftAction(action); }
   return <article className={`ra-item${hardBlock ? ' ra-item-hard-block' : ''}`}>
-    <div className="ra-item-heading"><div><span className={`ra-item-status ra-item-${effectiveStatus}`}>{itemStatusLabels[effectiveStatus]}</span><strong>{item.title}</strong></div><span className="ra-item-meta">{riskLabels[item.riskLevel]}风险 · {stageLabels[item.blockingStage]}阻塞</span></div>
+    <div className="ra-item-heading"><div><span className={`ra-item-status ra-item-${effectiveStatus}`}>{itemStatusLabels[effectiveStatus]}</span><strong>{item.title}</strong></div><span className="ra-item-meta">{riskLabels[item.riskLevel]}风险 · {stageLabels[item.blockingStage]}提醒</span></div>
     <p className="ra-finding">{item.finding}</p>{item.question && <p className="ra-question"><strong>待确认：</strong>{item.question}</p>}
-    {hardBlock && <p className="ra-hard-block-note">不可覆盖的实施阻塞。此项没有风险放行操作。</p>}
+    {hardBlock && <p className="ra-hard-block-note">此项不能通过接受风险标记为已解决；可继续实施并保留此提醒。</p>}
     <EvidenceList evidence={item.evidence} />
     {latest && <div className="ra-resolution"><strong>最近人工决策：{resolutionLabel(latest.action)}</strong>{latest.valueText && <p>{latest.valueText}</p>}{latest.reason && <p>理由：{latest.reason}</p>}<small>{latest.actorLabel} · {formatDate(latest.createdAt)}</small></div>}
     <div className="ra-actions">

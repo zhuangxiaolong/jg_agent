@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 import type { RuntimeKind, TaskBudgetPolicy, TaskContract, TaskPermission } from '../../domain/src';
 import { taskContentHash } from './engineering';
 
@@ -19,7 +17,7 @@ export function runtimeCapabilityMatrix(kind: RuntimeKind): RuntimeGovernanceCap
     session_recovery: capability('partial', 'adapter', claude ? '依赖已持久化 native session ID 及 SDK resume；不恢复在途工具执行。' : '支持 thread/resume 恢复会话上下文；不恢复在途工具执行。'),
     token_usage: capability(false, 'none', '当前适配器未归一化并持久化权威 token usage；缺失值保持 unknown。'),
     cost_usage: capability(false, 'none', '当前未采集可审计实际费用；不依据 token 或固定单价伪造费用。'),
-    tool_permission_interception: capability('partial', 'platform', claude ? 'SDK canUseTool 有权限回调，但尚未接入逐工具契约网关；无法声明全部原生工具已受控。' : '平台动态工具网关及原生 command/fileChange 审批可控制部分路径；不覆盖全部原生工具。'),
+    tool_permission_interception: capability('partial', 'platform', claude ? 'SDK 普通工具自动执行，尚未接入逐工具契约网关；无法声明全部原生工具已受控。' : '平台动态工具网关及原生 command/fileChange 请求校验覆盖部分路径；不覆盖全部原生工具。'),
     worktree_support: capability(true, 'platform', '隔离 Git worktree 由平台创建和绑定；不是 Runtime 原生隔离声明。'),
     event_stream: capability(true, 'adapter', '适配器提供消息、工具摘要和终态事件；摘要不是权威工具调用计数。'),
     structured_result: capability('partial', 'adapter', '目前仅有终态及平台结果封装，不保证模型输出符合业务结构化 Schema。'),
@@ -127,9 +125,6 @@ export class TaskCircuitBreaker {
   snapshot() { return Object.freeze({ state: this.openedAt === undefined ? 'closed' : this.probe ? 'half_open' : 'open', failures: this.failures, ...(this.openedAt === undefined ? {} : { openedAt: this.openedAt }) }); }
 }
 
-export interface TaskApprovalScope { readonly taskId: string; readonly sessionId: string; readonly projectId?: string; readonly runtimeKind: RuntimeKind; readonly workspacePath: string; readonly toolName: string; readonly contractVersion: number }
-export interface OneShotTaskApproval extends TaskApprovalScope { readonly id: string; readonly argumentsHash: string; readonly expiresAt: number }
-function workspaceIdentity(value: string): string { const windows = /^[A-Za-z]:[\\/]|^\\\\/.test(value); return windows ? path.win32.resolve(value).replace(/\\+$/, '').toLowerCase() : path.resolve(value); }
 export function canonicalTaskArgumentsHash(value: unknown): string {
   const seen = new Set<object>();
   const check = (item: unknown, depth: number) => {
@@ -140,29 +135,9 @@ export function canonicalTaskArgumentsHash(value: unknown): string {
   };
   check(value, 0); return taskContentHash(value);
 }
-function normalizedScope(scope: TaskApprovalScope): TaskApprovalScope { return { taskId: scope.taskId, sessionId: scope.sessionId, projectId: scope.projectId, runtimeKind: scope.runtimeKind, workspacePath: workspaceIdentity(scope.workspacePath), toolName: scope.toolName, contractVersion: scope.contractVersion }; }
-export class OneShotTaskApprovalBroker {
-  private readonly grants = new Map<string, OneShotTaskApproval>();
-  constructor(private readonly now: () => number = Date.now) {}
-  grant(scope: TaskApprovalScope, args: unknown, expiresAt: number): OneShotTaskApproval {
-    if (!Number.isFinite(expiresAt) || expiresAt <= this.now() || !Number.isSafeInteger(scope.contractVersion) || scope.contractVersion < 1) throw new GovernanceError('invalid_approval');
-    const approval = Object.freeze({ ...normalizedScope(scope), id: randomUUID(), argumentsHash: canonicalTaskArgumentsHash(args), expiresAt });
-    this.grants.set(approval.id, approval); return approval;
-  }
-  consume(id: string, scope: TaskApprovalScope, args: unknown): OneShotTaskApproval {
-    const approval = this.grants.get(id);
-    if (!approval) throw new GovernanceError('approval_missing_or_consumed');
-    this.grants.delete(id);
-    if (approval.expiresAt <= this.now() || approval.argumentsHash !== canonicalTaskArgumentsHash(args) || taskContentHash(normalizedScope(scope)) !== taskContentHash(normalizedScope(approval))) throw new GovernanceError('approval_scope_mismatch_or_expired');
-    return approval;
-  }
-  revoke(id: string): boolean { return this.grants.delete(id); }
-  revokeTask(taskId: string): void { for (const [id, approval] of this.grants) if (approval.taskId === taskId) this.grants.delete(id); }
-}
-
-export type TaskGovernanceAuditType = 'tool.started' | 'tool.completed' | 'tool.failed' | 'tool.denied' | 'tool.unknown_outcome' | 'approval.consumed' | 'budget.exceeded';
-export interface TaskGovernanceAuditEvent { readonly eventType: TaskGovernanceAuditType; readonly payload: Readonly<{ callId: string; toolName: string; argumentsHash: string; idempotencyKeyHash: string; resultHash?: string; outcome?: string; reason?: string; approvalId?: string }> }
-export interface GovernedToolInvocation { callId: string; toolName: string; arguments: unknown; requiredPermission: TaskPermission; paths?: readonly string[]; approvalId?: string; idempotencyKey?: string }
+export type TaskGovernanceAuditType = 'tool.started' | 'tool.completed' | 'tool.failed' | 'tool.denied' | 'tool.unknown_outcome' | 'budget.exceeded';
+export interface TaskGovernanceAuditEvent { readonly eventType: TaskGovernanceAuditType; readonly payload: Readonly<{ callId: string; toolName: string; argumentsHash: string; idempotencyKeyHash: string; resultHash?: string; outcome?: string; reason?: string }> }
+export interface GovernedToolInvocation { callId: string; toolName: string; arguments: unknown; requiredPermission: TaskPermission; paths?: readonly string[]; idempotencyKey?: string }
 export interface RecoveredToolCall { readonly callId: string; readonly argumentsHash: string; readonly toolName: string; readonly idempotencyKeyHash?: string; readonly outcome: 'completed' | 'failed' | 'unknown_outcome' | 'started' }
 export function normalizeTaskRelativePath(value: string): string {
   if (typeof value !== 'string' || !value || /^[\\/]/.test(value) || /[:\x00-\x1f]/.test(value)) throw new GovernanceError('invalid_relative_path');
@@ -180,7 +155,7 @@ export function assertTaskPathAllowed(contract: Pick<TaskContract, 'allowedPaths
 }
 export class GovernedToolGateway {
   private readonly calls = new Map<string, { identity: string; promise?: Promise<unknown>; recovered?: boolean }>();
-  constructor(private readonly options: { contract: TaskContract; workspacePath: string; budget: TaskBudgetGuard; approvals?: OneShotTaskApprovalBroker; audit?: (event: TaskGovernanceAuditEvent) => void | Promise<void>; initialCalls?: readonly RecoveredToolCall[] }) {
+  constructor(private readonly options: { contract: TaskContract; workspacePath: string; budget: TaskBudgetGuard; audit?: (event: TaskGovernanceAuditEvent) => void | Promise<void>; initialCalls?: readonly RecoveredToolCall[] }) {
     for (const call of options.initialCalls ?? []) { const recovered = { identity: '', recovered: true }; this.calls.set(call.callId, recovered); if (call.idempotencyKeyHash) this.calls.set(`key:${call.idempotencyKeyHash}`, recovered); }
   }
   async execute<T>(input: GovernedToolInvocation, operation: () => Promise<T>): Promise<T> {
@@ -201,11 +176,6 @@ export class GovernedToolGateway {
         if (!contract.allowedTools.includes(input.toolName) && !contract.allowedTools.includes(input.requiredPermission)) throw new GovernanceError('tool_not_allowed');
         if (!contract.permissions.includes(input.requiredPermission)) throw new GovernanceError('permission_denied');
         for (const raw of input.paths ?? []) assertTaskPathAllowed(contract, raw);
-        if (input.requiredPermission !== 'read_project') {
-          if (!input.approvalId || !this.options.approvals) throw new GovernanceError('approval_required');
-          this.options.approvals.consume(input.approvalId, { taskId: contract.taskId, sessionId: contract.sessionId, projectId: contract.projectId, runtimeKind: contract.runtimeKind, workspacePath: this.options.workspacePath, toolName: input.toolName, contractVersion: contract.contractVersion }, input.arguments);
-          await audit('approval.consumed', { approvalId: input.approvalId });
-        }
         this.options.budget.reserveToolCall();
       } catch (error) { await audit(error instanceof GovernanceError && error.code.startsWith('budget_') ? 'budget.exceeded' : 'tool.denied', { reason: error instanceof GovernanceError ? error.code : 'policy_check_failed' }); throw error; }
       await audit('tool.started');

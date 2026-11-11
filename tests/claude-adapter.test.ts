@@ -3,20 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ClaudeAgentSdkRuntimeAdapter, CLAUDE_AGENT_SDK_RUNTIME_VERSION, claudeReadOnlyNetworkInstruction, claudeRelayBaseUrl, isClaudeReadOnlyTool, normalizeClaudeSdkMessage, type ClaudeSdkModule, type ClaudeSdkQueryOptions } from '../packages/agent-runtime/src/claude-adapter';
+import { ClaudeAgentSdkRuntimeAdapter, CLAUDE_AGENT_SDK_RUNTIME_VERSION, claudeRelayBaseUrl, normalizeClaudeSdkMessage, type ClaudeSdkModule, type ClaudeSdkQueryOptions } from '../packages/agent-runtime/src/claude-adapter';
 
 test('Claude 复用通用中转站时避免重复追加 /v1，保留自定义前缀', () => {
   assert.equal(claudeRelayBaseUrl('https://relay.example.invalid/v1'), 'https://relay.example.invalid');
   assert.equal(claudeRelayBaseUrl('https://relay.example.invalid/anthropic/v1/'), 'https://relay.example.invalid/anthropic');
   assert.equal(claudeRelayBaseUrl('https://relay.example.invalid/anthropic'), 'https://relay.example.invalid/anthropic');
-});
-test('Claude 只读提示允许公开网页查询且只限制交互式浏览器', () => {
-  const instruction = claudeReadOnlyNetworkInstruction();
-  assert.match(instruction, /WebSearch/);
-  assert.match(instruction, /WebFetch/);
-  assert.match(instruction, /browser_action/);
-  assert.match(instruction, /登录态/);
-  assert.doesNotMatch(instruction, /不可调用浏览器工具/);
 });
 
 test('Claude SDK 消息归一化只输出可展示文本并脱敏', () => {
@@ -50,20 +42,21 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
     await adapter.testConnection(cwd);
     assert.equal(optionsSeen[1].env?.ANTHROPIC_BASE_URL, 'https://relay.example.invalid/anthropic');
     assert.equal(optionsSeen[1].env?.ANTHROPIC_API_KEY, 'sk-test-secret');
+    assert.deepEqual(optionsSeen[1].tools, [], '连接测试不启用工具');
+    assert.deepEqual(await optionsSeen[1].canUseTool!('Bash', {}, { toolName: 'Bash', input: {}, signal: new AbortController().signal }), { behavior: 'deny', message: '连接测试期间已禁用工具调用' });
   } finally {
     await adapter.close();
     await rm(cwd, { recursive: true, force: true });
   }
 });
 
-test('Claude Adapter 使用 query、固定 settingSources/default permission，并支持流式事件和 native session', async () => {
+test('Claude Adapter 使用 query、固定 settingSources/bypass permission，并支持流式事件和 native session', async () => {
   const cwd = join(tmpdir(), `claude-adapter-${Date.now()}`);
   const extra = join(cwd, 'other-repo');
   await mkdir(extra, { recursive: true });
   const executablePath = join(cwd, 'claude.exe');
   await writeFile(executablePath, 'fixture');
   const optionsSeen: ClaudeSdkQueryOptions[] = [];
-  let approvalCalled = false;
   let persistedNativeSessionId = '';
   const sdk: ClaudeSdkModule = {
     query({ options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
@@ -80,7 +73,7 @@ test('Claude Adapter 使用 query、固定 settingSources/default permission，�
       };
     },
   };
-  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, additionalDirectories: [extra], sdkLoader: async () => sdk, onNativeSessionId: (_platformId, nativeId) => { persistedNativeSessionId = nativeId; }, onApprovalRequest: async () => { approvalCalled = true; return 'accept'; } });
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, additionalDirectories: [extra], sdkLoader: async () => sdk, onNativeSessionId: (_platformId, nativeId) => { persistedNativeSessionId = nativeId; } });
   const events: string[] = [];
   adapter.onEvent(event => events.push(`${event.type}:${event.text}`));
   try {
@@ -92,10 +85,10 @@ test('Claude Adapter 使用 query、固定 settingSources/default permission，�
     assert.equal(persistedNativeSessionId, 'native-1');
     assert.equal(optionsSeen.length, 1);
     assert.deepEqual(optionsSeen[0].settingSources, []);
-    assert.equal(optionsSeen[0].permissionMode, 'default');
+    assert.equal(optionsSeen[0].permissionMode, 'bypassPermissions');
+    assert.equal(optionsSeen[0].allowDangerouslySkipPermissions, true);
     assert.deepEqual(optionsSeen[0].additionalDirectories, [await realpath(extra)]);
     assert.equal(optionsSeen[0].env?.ANTHROPIC_API_KEY, 'sk-test-secret');
-    assert.equal(approvalCalled, false, '没有权限请求时不应伪造审批');
     await adapter.close();
     const resumedAdapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, sdkLoader: async () => sdk });
     await resumedAdapter.resumeSession(thread, cwd, persistedNativeSessionId);
@@ -108,8 +101,8 @@ test('Claude Adapter 使用 query、固定 settingSources/default permission，�
   }
 });
 
-test('Claude 只读准入允许网页检索，并拒绝命令执行和文件写入', async () => {
-  const cwd = join(tmpdir(), `claude-adapter-read-only-${Date.now()}`);
+test('Claude Runtime 自动继续普通工具请求', async () => {
+  const cwd = join(tmpdir(), `claude-adapter-auto-tools-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
   const executablePath = join(cwd, 'claude.exe');
   await writeFile(executablePath, 'fixture');
@@ -122,31 +115,18 @@ test('Claude 只读准入允许网页检索，并拒绝命令执行和文件写�
       return { async *[Symbol.asyncIterator]() { yield { type: 'result', subtype: 'success' }; } };
     },
   };
-  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, readOnly: true, additionalSystemPrompt: claudeReadOnlyNetworkInstruction(), sdkLoader: async () => sdk, onApprovalRequest: async request => isClaudeReadOnlyTool(request.toolName) ? 'accept' : 'decline' });
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, sdkLoader: async () => sdk });
   try {
     const thread = await adapter.startSession(cwd);
-    await adapter.sendTurn(thread, '只读分析', cwd);
-    assert.deepEqual(seen?.tools, ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch']);
-    assert.match(seen?.appendSystemPrompt ?? '', /WebSearch/);
-    assert.match(seen?.appendSystemPrompt ?? '', /公开网页/);
-    assert.equal(isClaudeReadOnlyTool('Read'), true);
-    assert.equal(isClaudeReadOnlyTool('Glob'), true);
-    assert.equal(isClaudeReadOnlyTool('Grep'), true);
-    assert.equal(isClaudeReadOnlyTool('WebSearch'), true);
-    assert.equal(isClaudeReadOnlyTool('WebFetch'), true);
-    assert.equal(isClaudeReadOnlyTool('Write'), false);
-    assert.equal(isClaudeReadOnlyTool('Bash'), false);
+    await adapter.sendTurn(thread, '执行开发任务', cwd);
+    assert.equal(seen?.tools, undefined, '保留 SDK 完整工具集');
+    assert.equal(seen?.permissionMode, 'bypassPermissions');
+    assert.equal(seen?.allowDangerouslySkipPermissions, true);
     assert.ok(canUseTool);
-    const denied = await canUseTool!('Write', {}, { toolName: 'Write', input: {}, signal: new AbortController().signal });
-    assert.deepEqual(denied, { behavior: 'deny', message: '当前会话受只读准入门禁保护，已拒绝写入或执行工具' });
-    const allowed = await canUseTool!('Read', {}, { toolName: 'Read', input: {}, signal: new AbortController().signal });
-    assert.deepEqual(allowed, { behavior: 'allow' });
-    const webSearch = await canUseTool!('WebSearch', { query: '佛山天气' }, { toolName: 'WebSearch', input: { query: '佛山天气' }, signal: new AbortController().signal });
-    assert.deepEqual(webSearch, { behavior: 'allow' });
-    const webFetch = await canUseTool!('WebFetch', { url: 'https://weather.example.invalid' }, { toolName: 'WebFetch', input: { url: 'https://weather.example.invalid' }, signal: new AbortController().signal });
-    assert.deepEqual(webFetch, { behavior: 'allow' });
-    const deniedBash = await canUseTool!('Bash', {}, { toolName: 'Bash', input: {}, signal: new AbortController().signal });
-    assert.deepEqual(deniedBash, { behavior: 'deny', message: '当前会话受只读准入门禁保护，已拒绝写入或执行工具' });
+    for (const toolName of ['Read', 'Write', 'Edit', 'Bash', 'WebSearch']) {
+      const result = await canUseTool!(toolName, {}, { toolName, input: {}, signal: new AbortController().signal });
+      assert.deepEqual(result, { behavior: 'allow' }, `${toolName} 自动继续`);
+    }
   } finally {
     await adapter.close();
     await rm(cwd, { recursive: true, force: true });

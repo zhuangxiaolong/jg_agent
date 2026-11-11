@@ -12,6 +12,13 @@ const SCHEMA_VERSION = 10;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 
+function normalizeSession(session: Session): Session {
+  const value = { ...session } as Session & { mode?: unknown };
+  delete value.mode;
+  value.title = value.title.replace(/ · (?:只读分析|代码开发|隔离开发)$/, ' · 会话');
+  return value;
+}
+
 const PLUGIN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const PLUGIN_HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const PLUGIN_SECRET_KEY_PATTERN = /(?:secret|password|passwd|token|api[_-]?key|authorization|cookie|webhook(?:url)?|private[_-]?key|client[_-]?secret|\benv\b|headers?)/i;
@@ -524,6 +531,10 @@ export class LocalStore {
           }
         });
       }
+      const legacySessions = store.rows<Session>('SELECT value FROM sessions').filter(session => Object.hasOwn(session, 'mode') || / · (?:只读分析|代码开发|隔离开发)$/.test(session.title));
+      if (legacySessions.length) store.transaction(() => {
+        for (const session of legacySessions) store.db.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify(normalizeSession(session)), session.id]);
+      });
       const unfinished = options.recoverUnfinished === false ? [] : store.listSessions().filter(session => session.status === 'running' || session.status === 'waiting-approval');
       if (unfinished.length) {
         store.transaction(() => {
@@ -590,8 +601,9 @@ export class LocalStore {
       this.db.run('UPDATE projects SET value = ? WHERE id = ?', [JSON.stringify(updated), id]);
       for (const session of this.listSessions().filter(item => item.projectId === id)) {
         const prefix = `${session.jiraIssue ? session.jiraIssue.key + ' · ' : ''}${current.name} · `;
-        if (session.title === prefix + '只读分析' || session.title === prefix + '代码开发' || session.title === prefix + '隔离开发') {
-          this.db.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify({ ...session, title: `${session.jiraIssue ? session.jiraIssue.key + ' · ' : ''}${updated.name} · ${session.mode === 'develop' ? '隔离开发' : '只读分析'}` }), session.id]);
+        const suffix = session.title.startsWith(prefix) ? session.title.slice(prefix.length) : '';
+        if (suffix === '会话' || /^会话 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/.test(suffix)) {
+          this.db.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify({ ...session, title: `${session.jiraIssue ? session.jiraIssue.key + ' · ' : ''}${updated.name} · ${suffix}` }), session.id]);
         }
       }
     });
@@ -611,7 +623,7 @@ export class LocalStore {
     this.transaction(() => this.db.run('DELETE FROM projects WHERE id = ?', [id]));
   }
 
-  listSessions(): Session[] { return this.rows<Session>('SELECT value FROM sessions ORDER BY created_at DESC, rowid DESC'); }
+  listSessions(): Session[] { return this.rows<Session>('SELECT value FROM sessions ORDER BY created_at DESC, rowid DESC').map(normalizeSession); }
 
   listAgentTasks(sessionId?: string): AgentTask[] {
     return sessionId === undefined
@@ -866,14 +878,14 @@ export class LocalStore {
     });
   }
 
-  getSession(id: string): Session | undefined { return this.rows<Session>('SELECT value FROM sessions WHERE id = ?', [id])[0]; }
+  getSession(id: string): Session | undefined { const session = this.rows<Session>('SELECT value FROM sessions WHERE id = ?', [id])[0]; return session ? normalizeSession(session) : undefined; }
 
   saveSession(session: Session): void {
     const current = this.getSession(session.id);
     if (current && current.projectId !== session.projectId && this.listAgentTasks(session.id).length) throw new Error('会话已有子 Agent 任务，不能更改项目绑定');
     const nextRuntime = session.runtimeKind ?? current?.runtimeKind ?? 'codex';
     if (nextRuntime !== 'jinggong' && nextRuntime !== 'codex' && nextRuntime !== 'claude_agent_sdk') throw new Error('会话 Runtime 类型无效');
-    const value: Session = { id: session.id, projectId: session.projectId, title: session.title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
+    const value: Session = { id: session.id, projectId: session.projectId, title: normalizeSession(session).title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
     if (session.workspaceId !== undefined) {
       if (!this.getWorkspace(session.workspaceId)) throw new Error('会话关联的工作区不存在');
       value.workspaceId = session.workspaceId;
@@ -893,7 +905,6 @@ export class LocalStore {
     value.runtimeKind = nextRuntime;
     if (session.runtimeVersion !== undefined) value.runtimeVersion = session.runtimeVersion;
     if (session.providerId !== undefined) value.providerId = session.providerId;
-    if (session.mode !== undefined) value.mode = session.mode;
     if (session.system !== undefined) value.system = session.system;
     if (session.jiraProjectKey !== undefined) value.jiraProjectKey = session.jiraProjectKey;
     if (session.jiraIssue !== undefined) value.jiraIssue = jiraSnapshot(session.jiraIssue);
@@ -939,7 +950,7 @@ export class LocalStore {
   }
   importSharedData(session: Session | undefined, events: AgentEvent[], memories: Memory[]): void {
     this.transaction(() => {
-      if (session) this.db.run('INSERT INTO sessions(id,project_id,created_at,value) VALUES (?,?,?,?)', [session.id, session.projectId ?? null, session.createdAt, JSON.stringify(session)]);
+      if (session) this.db.run('INSERT INTO sessions(id,project_id,created_at,value) VALUES (?,?,?,?)', [session.id, session.projectId ?? null, session.createdAt, JSON.stringify(normalizeSession(session))]);
       for (const event of events) this.db.run('INSERT INTO events(id,session_id,value) VALUES (?,?,?)', [event.id, event.sessionId, JSON.stringify(event)]);
       for (const memory of memories) this.db.run('INSERT INTO memories(id,created_at,value) VALUES (?,?,?)', [memory.id, memory.createdAt, JSON.stringify(memory)]);
     });
@@ -1013,8 +1024,8 @@ export class LocalStore {
     return {
       leftVisible: typeof value?.leftVisible === 'boolean' ? value.leftVisible : true,
       rightVisible: typeof value?.rightVisible === 'boolean' ? value.rightVisible : true,
-      bottomVisible: typeof value?.bottomVisible === 'boolean' ? value.bottomVisible : true,
-      leftWidth: Number.isInteger(value?.leftWidth) && value.leftWidth! >= 180 && value.leftWidth! <= 520 ? value.leftWidth : 244,
+      bottomVisible: typeof value?.bottomVisible === 'boolean' ? value.bottomVisible : false,
+      leftWidth: Number.isInteger(value?.leftWidth) && value.leftWidth! >= 180 && value.leftWidth! <= 520 ? value.leftWidth : 220,
       rightWidth: Number.isInteger(value?.rightWidth) && value.rightWidth! >= 260 && value.rightWidth! <= 680 ? value.rightWidth : 420,
       bottomHeight: Number.isInteger(value?.bottomHeight) && value.bottomHeight! >= 100 && value.bottomHeight! <= 480 ? value.bottomHeight : 180,
       ...(Number.isInteger(value?.composerHeight) && value.composerHeight! >= 80 && value.composerHeight! <= 400 ? { composerHeight: value.composerHeight } : {})
@@ -1023,7 +1034,7 @@ export class LocalStore {
 
   saveLayout(layout: LayoutPreferences): void {
     if (!layout || [layout.leftVisible, layout.rightVisible, layout.bottomVisible].some(value => typeof value !== 'boolean')) throw new Error('面板显示状态必须为布尔值');
-    const leftWidth = layout.leftWidth ?? 244, rightWidth = layout.rightWidth ?? 420, bottomHeight = layout.bottomHeight ?? 180;
+    const leftWidth = layout.leftWidth ?? 220, rightWidth = layout.rightWidth ?? 420, bottomHeight = layout.bottomHeight ?? 180;
     if (!Number.isInteger(leftWidth) || leftWidth < 180 || leftWidth > 520 || !Number.isInteger(rightWidth) || rightWidth < 260 || rightWidth > 680 || !Number.isInteger(bottomHeight) || bottomHeight < 100 || bottomHeight > 480) throw new Error('面板尺寸超出允许范围');
     const value: LayoutPreferences = { leftVisible: layout.leftVisible, rightVisible: layout.rightVisible, bottomVisible: layout.bottomVisible, leftWidth, rightWidth, bottomHeight };
     if (layout.composerHeight !== undefined) {

@@ -17,10 +17,10 @@ export function TaskWorkspacePanel({ api, task, onChange, onError }: { api: Task
     finally { setBusy(false); }
   }
   const target = { sessionId: task.sessionId, taskId: task.id, expectedStateVersion: task.stateVersion ?? 0 };
-  return <details className="task-workspace-panel"><summary>任务隔离工作区与人工集成</summary>
-    <p>工作区和代码成果默认保留。预检读取真实 Git 状态，实际集成需要人工检查并操作。</p>
-    {!value && <p>正在核对持久工作区映射…</p>}
-    {value && !value.workspace && !task.workspacePath && <button type="button" disabled={busy || !api.createWorkspace || task.status === 'RUNNING'} onClick={() => { if (api.createWorkspace) void act(() => api.createWorkspace!(target)); }}>创建独立 Worktree</button>}
+  return <details className="task-workspace-panel"><summary>任务隔离目录与人工集成</summary>
+    <p>任务目录和代码成果默认保留。预检读取真实 Git 状态，实际集成需要人工检查并操作。</p>
+    {!value && <p>正在核对持久目录映射…</p>}
+    {value && !value.workspace && !task.workspacePath && <button type="button" disabled={busy || !api.createWorkspace || task.status === 'RUNNING'} onClick={() => { if (api.createWorkspace) void act(() => api.createWorkspace!(target)); }}>创建独立目录</button>}
     {value?.workspace && <><small>目录：{value.workspace.path}<br />分支：{value.workspace.branch}<br />冻结基准：{value.workspace.baseCommit}<br />成果保留：是 · 检查时状态：{value.stable ? '稳定' : '发生变化，请重新检查'}</small>
       <button type="button" disabled={busy} onClick={() => { void act(() => api.workspace!(task.sessionId, task.id)); }}>刷新任务变更</button>
       <button type="button" disabled={busy || !api.prepareIntegration || task.status === 'RUNNING'} onClick={() => { if (api.prepareIntegration) void act(() => api.prepareIntegration!(target)); }}>生成人工集成预检</button>

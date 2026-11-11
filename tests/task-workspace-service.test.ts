@@ -27,7 +27,7 @@ async function fixture(t: TestContext, cleanText?: (text: string) => string) {
   const sessionId = randomUUID(); const parent = await connector.createWorkspace(project, sessionId);
   await writeFile(join(parent.path, 'parent.txt'), '仅父会话拥有的基线内容\n'); const base = await commit(parent.path, '建立父会话基线');
   const database = join(root, 'local.db'); let store = await LocalStore.open(database);
-  store.saveProject(project); store.saveSession({ id: sessionId, projectId: project.id, title: '父开发会话', workspacePath: parent.path, branch: parent.branch, mode: 'develop', status: 'idle', createdAt: new Date().toISOString(), model: 'test', runtimeKind: 'codex' });
+  store.saveProject(project); store.saveSession({ id: sessionId, projectId: project.id, title: '父开发会话', workspacePath: parent.path, branch: parent.branch, status: 'idle', createdAt: new Date().toISOString(), model: 'test', runtimeKind: 'codex' });
   let service = new TaskWorkspaceService(store, connector, cleanText);
   t.after(async () => { store.close(); await rm(root, { recursive: true, force: true }); });
   const current = (taskId = 'task') => store.listAgentTasks(sessionId).find(item => item.id === taskId)!;
@@ -64,7 +64,7 @@ test('工作区服务拒绝只读任务、跨会话范围、过期CAS和任意�
   const f = await fixture(t); f.createTask('read-task', 'read');
   await assert.rejects(f.service.create(f.target('read-task')), /隔离开发任务/);
   const otherSession = randomUUID();
-  f.store.saveSession({ id: otherSession, projectId: f.project.id, title: '另一个会话', workspacePath: f.parent.path, branch: f.parent.branch, mode: 'develop', status: 'idle', createdAt: new Date().toISOString(), model: 'test' });
+  f.store.saveSession({ id: otherSession, projectId: f.project.id, title: '另一个会话', workspacePath: f.parent.path, branch: f.parent.branch, status: 'idle', createdAt: new Date().toISOString(), model: 'test' });
   await assert.rejects(f.service.create({ ...f.target(), sessionId: otherSession }), /不存在|不属于/);
   await assert.rejects(f.service.create({ ...f.target(), expectedStateVersion: 0 }), /状态已变化/);
   await assert.rejects(f.service.create({ ...f.target(), workspacePath: f.repo }));

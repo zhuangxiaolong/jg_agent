@@ -1,4 +1,13 @@
-.requirement-admission { display: flex; flex-direction: column; gap: 11px; padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); color: var(--text-secondary); font-size: 11px; }
+.requirement-admission { display: flex; flex-direction: column; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-1); color: var(--text-secondary); font-size: 11px; }
+.ra-compact { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.ra-compact details { flex: 1 1 auto; min-width: 0; }
+.ra-compact summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; cursor: pointer; list-style: none; color: var(--text-secondary); }
+.ra-compact summary::-webkit-details-marker { display: none; }
+.ra-compact summary::before { content: '›'; display: inline-flex; width: 13px; height: 13px; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; transition: transform .15s ease; }
+.ra-compact details[open] summary::before { transform: rotate(90deg); }
+.ra-compact summary strong { color: var(--text); font-size: 10px; font-weight: 600; }
+.ra-compact-note { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.ra-expanded { display: flex; flex-direction: column; gap: 11px; padding: 9px 0 2px 19px; }
 .ra-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .ra-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .ra-refresh { min-height: 25px; padding: 4px 7px; font-size: 9px; white-space: nowrap; }

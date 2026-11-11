@@ -35,8 +35,7 @@ async function launch() {
   if (process.env.JINGGONG_TEST_NO_NODE) env.PATH = `${process.env.SystemRoot}\\System32;C:\\Program Files\\Git\\cmd`;
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow();
-  // 三个 Runtime 都必须随构建交付并通过清单校验。
-  await page.locator('.runtime-summary').waitFor({ timeout: 30000 });
+  await expect(page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true })).toBeEnabled({ timeout: 30000 });
   return page;
 }
 try {
@@ -59,26 +58,22 @@ try {
   checks.push('其他 BrowserWindow 即使加载相同 preload 和页面也被主进程来源校验拒绝');
   await page.screenshot({ path: 'test-results/desktop-welcome.png' });
   await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
-  const createDialog = page.getByRole('dialog');
-  await expect(createDialog.getByLabel('新建会话项目', { exact: true })).toHaveValue('');
-  await expect(createDialog.getByLabel('新建会话模式', { exact: true })).toHaveValue('read');
-  await expect(createDialog.getByLabel('新建会话模式', { exact: true }).locator('option[value="develop"]')).toBeDisabled();
-  await createDialog.getByRole('button', { name: '创建会话', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('textbox', { name: '输入任务' }).waitFor();
   const standaloneSession = (await page.evaluate(() => window.jinggong.bootstrap())).sessions[0];
-  assert.equal(standaloneSession.projectId, undefined); assert.equal(standaloneSession.branch, undefined); assert.equal(standaloneSession.mode, 'read');
+  assert.equal(standaloneSession.projectId, undefined); assert.equal(standaloneSession.branch, undefined); assert.equal(Object.hasOwn(standaloneSession, 'mode'), false);
   assert.ok(standaloneSession.workspacePath);
   await expect(page.getByRole('region', { name: '独立会话', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Git', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: /代码变更/ })).toBeDisabled();
   await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
-  checks.push('无项目会话可直接创建，默认只读且有独立工作区；独立会话列表显示，开发/Git/差异/分支入口禁用');
+  checks.push('无项目会话直接创建且无弹框或 mode 字段；独立会话列表显示，Git/差异/分支入口在关联项目后启用');
   await assert.rejects(page.evaluate(id => window.jinggong.sendTurn(id, '独立会话分享验收，未配置模型时不得请求外部服务'), standaloneSession.id), /配置/);
   const standaloneEvents = await page.evaluate(id => window.jinggong.getEvents(id), standaloneSession.id);
   assert.ok(standaloneEvents.length > 0);
   const standaloneShare = path.join(root, '独立会话分享.json');
   await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, standaloneShare);
-  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
+  await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('button', { name: '会话与数据', exact: true }).click();
   await page.getByLabel('选择要导出的会话', { exact: true }).selectOption(standaloneSession.id);
   await page.getByRole('button', { name: '导出所选会话', exact: true }).click();
@@ -93,14 +88,14 @@ try {
   assert.ok(standaloneImported);
   assert.equal(standaloneImported.projectId, undefined);
   assert.equal(standaloneImported.workspaceId, undefined);
-  assert.equal(standaloneImported.mode, 'read');
+  assert.equal(Object.hasOwn(standaloneImported, 'mode'), false);
   assert.notEqual(standaloneImported.workspacePath, standaloneSession.workspacePath);
   const standaloneImportedEvents = await page.evaluate(id => window.jinggong.getEvents(id), standaloneImported.id);
   assert.deepEqual(standaloneImportedEvents.map(({ type, text, createdAt }) => ({ type, text, createdAt })), standaloneEvents.map(({ type, text, createdAt }) => ({ type, text, createdAt })));
   assert.ok(standaloneImportedEvents.every(event => event.sessionId === standaloneImported.id));
   await page.getByRole('button', { name: '关闭设置', exact: true }).click();
   await page.evaluate(id => window.jinggong.deleteSession(id), standaloneImported.id);
-  checks.push('设置内独立会话真实导出和无项目导入往返，工作区/项目保持未关联、只读模式不变，消息和时间完整保留且重新生成会话ID');
+  checks.push('设置内独立会话真实导出和无项目导入往返，项目保持未关联且无 mode 字段，消息和时间完整保留且重新生成会话ID');
   const standaloneUpload = path.join(root, '独立会话附件.md');
   await writeFile(standaloneUpload, '独立会话附件清理验收\n');
   await app.evaluate(({ dialog }, filename) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] }); }, standaloneUpload);
@@ -111,20 +106,23 @@ try {
   await page.evaluate(id => window.jinggong.deleteSession(id), standaloneSession.id);
   await assert.rejects(readdir(standaloneAttachmentDirectory), error => error.code === 'ENOENT');
   await page.reload();
-  await page.locator('.runtime-summary').waitFor();
+  await expect(page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true })).toBeEnabled({ timeout: 30000 });
   await app.evaluate(({ dialog }, repo) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] }); }, repo);
   await page.getByRole('button', { name: '添加项目目录', exact: true }).click();
   await page.locator('.project-item').waitFor();
   await expect(page.locator('.project-item')).toHaveAttribute('aria-expanded', 'false');
-  await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
-  await page.getByRole('dialog').getByLabel('新建会话项目', { exact: true }).selectOption({ label: '样本项目 空格' });
-  await page.getByRole('dialog').getByLabel('新建会话 Runtime', { exact: true }).selectOption('codex');
-  await page.getByRole('dialog').getByRole('button', { name: '创建会话', exact: true }).click();
+  const projectGroup = page.getByRole('region', { name: '项目 样本项目 空格', exact: true });
+  await projectGroup.locator('.project-item').click();
+  await projectGroup.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.getByRole('textbox', { name: '输入任务' }).waitFor();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByLabel('当前会话运行时', { exact: true })).toBeEnabled();
+  await page.getByLabel('当前会话运行时', { exact: true }).selectOption('codex');
   const boot = await page.evaluate(() => window.jinggong.bootstrap());
   assert.equal(boot.projects.length, 1); assert.equal(boot.sessions.length, 1);
   const session = boot.sessions[0];
-  assert.equal(session.runtimeKind, 'codex', '新会话应绑定创建窗口显式选择的 Codex Runtime');
+  assert.equal(session.runtimeKind, 'codex', '会话应使用会话运行时入口显式选择的 Codex Runtime');
+  assert.equal(Object.hasOwn(session, 'mode'), false);
   const sessionDisplay = boot.projects[0].name;
   assert.equal(session.system, 'MES5');
   const uploadImage = path.join(root, '会话图片.png');
@@ -229,6 +227,7 @@ try {
   await dragPanel('调整项目和会话栏宽度', 45, 0);
   await page.waitForFunction(() => document.body.dataset.resizing === undefined);
   await dragPanel('调整右侧面板宽度', -35, 0);
+  await page.getByRole('button', { name: '显示底部面板', exact: true }).click();
   await dragPanel('调整会话输出栏高度', 0, -25);
   await dragPanel('调整输入框高度', 0, -40);
   await page.waitForFunction(async () => (await window.jinggong.bootstrap()).layout.composerHeight === 150);
@@ -380,7 +379,7 @@ try {
   const events = await page.evaluate(id => window.jinggong.getEvents(id), session.id);
   assert.ok(events.some(event => event.type === 'error'));
   checks.push('未配置凭据明确失败并写入本地会话，未伪造模型响应');
-  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
+  await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('button', { name: '更新', exact: true }).click();
   await expect(page.getByRole('heading', { name: '应用更新', exact: true })).toBeVisible();
   const expectedVersion = await app.evaluate(({ app }) => app.getVersion());
@@ -415,7 +414,7 @@ try {
   await expect(page.locator('.runtime-health.ready')).toHaveCount(3);
   await page.screenshot({ path: 'test-results/desktop-runtime-settings.png' });
   assert.equal(runtimeBootstrap.sessions.find(item => item.id === session.id)?.runtimeKind, 'codex');
-  checks.push('Runtime 设置仅保留组件检查，没有全局选择；三种随包引擎均通过清单校验，新会话绑定创建窗口显式选择的 Runtime');
+  checks.push('Runtime 设置仅保留组件检查，没有全局选择；三种随包引擎均通过清单校验，当前会话使用显式选择的 Runtime');
   await page.getByRole('button', { name: '模型中转站', exact: true }).click();
   await page.locator('#provider-url').fill('https://gateway.example.invalid/v1');
   await page.locator('#provider-model').fill('test-model');
@@ -442,7 +441,7 @@ try {
   await assert.rejects(page.evaluate(input => window.jinggong.sendTurn(input.id, `检查任务 ${input.key}`), { id: session.id, key: sentinel }), /凭据/);
   await assert.rejects(page.evaluate(input => window.jinggong.commitChanges(input.id, { message: input.key, reviewedDocumentIds: [] }), { id: session.id, key: sentinel }), /凭据/);
   checks.push('已知凭据误粘贴到任务、记忆标题或提交说明时，在Runtime持久化前拒绝');
-  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
+  await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '浅色', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
@@ -480,7 +479,7 @@ try {
   const second = await page.evaluate(() => window.jinggong.saveModelProvider({ name: '第二中转站', baseUrl: 'https://second.example.invalid/v1', models: ['model-a', 'model-b'], apiKey: 'second-provider-test-key' }));
   assert.equal((await page.evaluate(() => window.jinggong.getSettings())).providers.length, 2);
   assert.equal(second.models.length, 2);
-  await page.evaluate(input => window.jinggong.configureSession(input.id, { providerId: input.providerId, model: 'test-model', mode: 'develop', system: 'MES5' }), { id: session.id, providerId: profile.id });
+  await page.evaluate(input => window.jinggong.configureSession(input.id, { providerId: input.providerId, model: 'test-model', system: 'MES5' }), { id: session.id, providerId: profile.id });
   for (const system of ['MES5', 'MES6', 'WMS']) {
     const filename = path.join(root, `${system}-数据字典.sql`);
     await writeFile(filename, `CREATE TABLE ${system}_TEST (ID NUMBER);\n`);
@@ -569,7 +568,7 @@ try {
   await assert.rejects(page.evaluate(id => window.jinggong.sendTurn(id, '验证损坏凭据不会卡住会话'), session.id));
   await page.evaluate(profile => window.jinggong.saveModelProvider({ id: profile.id, name: profile.name, baseUrl: profile.baseUrl, models: profile.models, apiKey: 'replacement-test-only-key' }), profile);
   checks.push('凭据损坏明确失败且任务锁释放，允许重新配置；更换网关不能沿用旧密钥');
-  const dirtyDeleteSession = await page.evaluate(id => window.jinggong.createSession({ projectId: id, mode: 'develop' }), session.projectId);
+  const dirtyDeleteSession = await page.evaluate(id => window.jinggong.createSession({ projectId: id }), session.projectId);
   dirtyDeleteSession.alias = '有未提交代码的会话删除验收';
   await page.evaluate(item => window.jinggong.renameSession(item.id, item.alias), dirtyDeleteSession);
   const preservedFile = path.join(dirtyDeleteSession.workspacePath, '删除会话仍保留代码.txt');

@@ -28,7 +28,7 @@ async function fixture(t: TestContext) {
   const projectId = 'a'.repeat(24);
   const sessionId = randomUUID();
   store.saveProject({ id: projectId, path: workspace, name: '临时工程样本', branch: 'main' });
-  store.saveSession({ id: sessionId, projectId, title: '临时工程证据链', workspacePath: workspace, branch: 'main', status: 'idle', createdAt: new Date().toISOString(), model: 'sample-model', runtimeKind: 'codex', mode: 'read' });
+  store.saveSession({ id: sessionId, projectId, title: '临时工程证据链', workspacePath: workspace, branch: 'main', status: 'idle', createdAt: new Date().toISOString(), model: 'sample-model', runtimeKind: 'codex' });
   const evidenceRoot = path.join(root, 'evidence');
   const service = new TaskEngineeringService(store, evidenceRoot);
   const taskId = 'sample-task';

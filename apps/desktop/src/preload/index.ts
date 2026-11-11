@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ApprovalRequest, DesktopApi, IpcResult } from '../../../../packages/domain/src';
+import type { DesktopApi, IpcResult } from '../../../../packages/domain/src';
 import { createIpcError } from '../../../../packages/domain/src/ipc';
 async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   const result: IpcResult<unknown> = await ipcRenderer.invoke(channel, ...args);
@@ -51,7 +51,7 @@ const api: DesktopApi = {
   setProjectCollapsed: (id, collapsed) => invoke('project:collapse', id, collapsed),
   deleteProject: id => invoke('project:delete', id),
   createSession: (input, jiraIssueKey, jiraProjectKey, baseBranch) => invoke('session:create', typeof input === 'string'
-    ? { projectId: input, jiraIssueKey, jiraProjectKey, baseBranch, mode: 'develop' }
+    ? { projectId: input, jiraIssueKey, jiraProjectKey, baseBranch }
     : input),
   listProjectBranches: id => invoke('project:branches', id),
   switchSessionBranch: (id, baseBranch) => invoke('session:branch', id, baseBranch),
@@ -79,7 +79,6 @@ const api: DesktopApi = {
   resolveRequirementItem: (id, itemId, action, valueText, reason) => invoke('session:requirement-resolve', id, { itemId, action, valueText, reason }),
   pickAttachments: id => invoke('session:pick-attachments', id),
   cancelRun: id => invoke('session:cancel', id),
-  resolveApproval: (token, decision) => invoke('session:approval', token, decision),
   getDiff: id => invoke('session:diff', id),
   getFileDiff: (id, file) => invoke('session:file-diff', id, file),
   configureSession: (id, input) => invoke('session:configure', id, input),
@@ -147,7 +146,5 @@ const api: DesktopApi = {
   backup: () => invoke('app:backup'),
   onEvent: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('agent:event', callback); return () => { ipcRenderer.removeListener('agent:event', callback); }; },
   onAgentTaskEvent: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('agent-task:event', callback); return () => { ipcRenderer.removeListener('agent-task:event', callback); }; },
-  onApprovalRequest: listener => { const callback = (_event: unknown, value: ApprovalRequest) => listener(value); ipcRenderer.on('approval:request', callback); return () => { ipcRenderer.removeListener('approval:request', callback); }; },
-  onApprovalResolved: listener => { const callback = (_event: unknown, token: string) => listener(token); ipcRenderer.on('approval:resolved', callback); return () => { ipcRenderer.removeListener('approval:resolved', callback); }; }
 };
 contextBridge.exposeInMainWorld('jinggong', Object.freeze(api));

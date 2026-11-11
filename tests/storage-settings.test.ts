@@ -33,10 +33,10 @@ test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，�
     assert.deepEqual(store.getSession(session.id), session);
     assert.deepEqual(store.events(session.id), [event]);
     assert.deepEqual(store.listProviders(), [{ id: LEGACY_PROVIDER_ID, name: '原有模型服务', baseUrl: 'https://old.example.invalid/v1', models: ['old-model'], hasKey: true }]);
-    store.saveSession({ ...session, providerId: LEGACY_PROVIDER_ID, mode: 'develop', system: 'MES6', runtimeCapabilitiesVersion: 2 });
+    store.saveSession({ ...session, providerId: LEGACY_PROVIDER_ID, system: 'MES6', runtimeCapabilitiesVersion: 2 });
     store.close(); store = await LocalStore.open(filename);
     assert.equal(store.listProviders().length, 1);
-    assert.equal(store.getSession(session.id)?.mode, 'develop');
+    assert.equal(Object.hasOwn(store.getSession(session.id)!, 'mode'), false);
     assert.equal(store.getSession(session.id)?.providerId, LEGACY_PROVIDER_ID);
     assert.equal(store.getSession(session.id)?.system, 'MES6');
     assert.equal(store.getSession(session.id)?.runtimeCapabilitiesVersion, 2);
@@ -47,7 +47,52 @@ test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，�
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('v4 升级到 v5 后可持久化无项目只读会话与事件，外键保持完整', async () => {
+test('历史会话模式归一化为普通会话，保留关联、别名和消息且不再落盘模式', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-session-mode-compat-'));
+  const filename = join(root, 'agent.db');
+  let store = await LocalStore.open(filename);
+  try {
+    const project = { id: 'project', name: '旧项目', path: root, branch: 'main' };
+    store.saveProject(project);
+    const base: Session = { id: 'read', projectId: project.id, title: '旧项目 · 会话', alias: '保留别名', workspacePath: join(root, 'session'), branch: 'agent/session', baseBranch: 'main', status: 'completed', createdAt: '2026-11-10T00:00:00Z', model: 'test', runtimeKind: 'codex' };
+    const historical = [
+      { ...base, id: 'read', title: '旧项目 · 只读分析', mode: 'read' },
+      { ...base, id: 'develop', title: '旧项目 · 隔离开发', mode: 'develop' },
+      { ...base, id: 'legacy', title: '旧项目 · 代码开发', mode: 'develop' },
+      { ...base, id: 'custom', title: '保留自定义标题', mode: 'read' },
+    ];
+    for (const session of historical) store.saveSession({ ...base, id: session.id });
+    const event = { id: 'message', sessionId: 'read', type: 'message' as const, text: '保留历史消息', createdAt: base.createdAt };
+    store.appendEvent(event);
+    store.close();
+
+    const sql = await initSqlJs();
+    const legacy = new sql.Database(await readFile(filename));
+    for (const session of historical) legacy.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify(session), session.id]);
+    await writeFile(filename, legacy.export()); legacy.close();
+
+    store = await LocalStore.open(filename);
+    for (const session of historical) {
+      const expected = { ...base, id: session.id, title: session.id === 'custom' ? session.title : '旧项目 · 会话' };
+      assert.deepEqual(store.getSession(session.id), expected);
+    }
+    assert.equal(store.listSessions().some(session => Object.hasOwn(session, 'mode')), false);
+    assert.deepEqual(store.events('read'), [event]);
+    const normalized = new sql.Database(await readFile(filename));
+    for (const [json] of normalized.exec('SELECT value FROM sessions')[0].values) assert.equal(Object.hasOwn(JSON.parse(String(json)), 'mode'), false);
+    normalized.close();
+    store.saveSession(historical[0]);
+    assert.equal(Object.hasOwn(store.getSession('read')!, 'mode'), false);
+    store.renameProject(project.id, '新项目');
+    assert.equal(store.getSession('read')?.title, '新项目 · 会话');
+    assert.equal(store.getSession('read')?.alias, base.alias);
+    assert.equal(store.getSession('custom')?.title, '保留自定义标题');
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(Object.hasOwn(store.getSession('read')!, 'mode'), false);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('v4 升级到 v5 后可持久化无项目会话与事件，外键保持完整', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-v5-no-project-session-'));
   const filename = join(root, 'v4.db');
   let store: LocalStore | undefined;
@@ -69,17 +114,17 @@ test('v4 升级到 v5 后可持久化无项目只读会话与事件，外键保�
 
     store = await LocalStore.open(filename);
     const noProjectSession = {
-      id: 'standalone-read-session', projectId: undefined, title: '独立分析',
-      workspacePath: root, branch: '', mode: 'read' as const,
+      id: 'standalone-session', projectId: undefined, title: '独立会话',
+      workspacePath: root, branch: '',
       status: 'completed' as const, createdAt: '2026-11-10T00:00:00Z', model: 'analysis-model',
-    } as unknown as Session;
+    } satisfies Session;
     store.saveSession(noProjectSession);
     const event = { id: 'standalone-event', sessionId: noProjectSession.id, type: 'message' as const, text: '分析结果已保存', createdAt: '2026-11-10T00:00:01Z' };
     store.appendEvent(event);
     store.close(); store = await LocalStore.open(filename);
 
     assert.equal(store.getSession(noProjectSession.id)?.projectId, undefined);
-    assert.equal(store.getSession(noProjectSession.id)?.mode, 'read');
+    assert.equal(Object.hasOwn(store.getSession(noProjectSession.id)!, 'mode'), false);
     assert.equal(store.getSession(noProjectSession.id)?.workspacePath, root);
     assert.deepEqual(store.events(noProjectSession.id), [event]);
     assert.deepEqual(store.events(oldSession.id).map(item => item.id), ['legacy-event']);
@@ -88,7 +133,7 @@ test('v4 升级到 v5 后可持久化无项目只读会话与事件，外键保�
     const upgraded = new sql.Database(await readFile(filename));
     assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 10);
     assert.deepEqual(upgraded.exec('PRAGMA foreign_key_check'), []);
-    const nullProject = upgraded.exec('SELECT project_id FROM sessions WHERE id = \'standalone-read-session\'');
+    const nullProject = upgraded.exec('SELECT project_id FROM sessions WHERE id = \'standalone-session\'');
     assert.equal(nullProject[0].values[0][0], null);
     upgraded.close();
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
@@ -188,7 +233,7 @@ test('Jira会话任务快照重开保持原字段和概要，附件只存来源�
   let store = await LocalStore.open(filename);
   const secret = 'SYNTHETIC_JIRA_AUTHORIZATION_MUST_NOT_PERSIST';
   const issue = jiraIssue();
-  const session: Session = { id: 'jira-session', projectId: 'jira-project', title: issue.summary, workspacePath: 'D:\\workspaces\\jira', branch: 'agent/jira-session', status: 'running', createdAt: '2026-11-04T03:00:00Z', model: 'test-model', providerId: 'provider-1', mode: 'read', system: 'MES5', runtimeThreadId: 'runtime-thread', runtimeCapabilitiesVersion: 1, jiraIssue: issue };
+  const session: Session = { id: 'jira-session', projectId: 'jira-project', title: issue.summary, workspacePath: 'D:\\workspaces\\jira', branch: 'agent/jira-session', status: 'running', createdAt: '2026-11-04T03:00:00Z', model: 'test-model', providerId: 'provider-1', system: 'MES5', runtimeThreadId: 'runtime-thread', runtimeCapabilitiesVersion: 1, jiraIssue: issue };
   try {
     store.saveProject({ id: session.projectId!, path: 'D:\\项目 中文', name: 'MES5测试项目', branch: 'main' });
     store.saveSession({ ...session, password: secret, jiraIssue: { ...issue, password: secret, authorization: secret, attachments: issue.attachments.map(attachment => ({ ...attachment, password: secret, headers: { Authorization: `Bearer ${secret}` }, content: secret })) } } as never);

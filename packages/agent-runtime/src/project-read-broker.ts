@@ -11,14 +11,14 @@ const ALLOWED_EXTENSIONS = new Set(['.cs', '.csproj', '.sln', '.md', '.txt', '.t
 const SAFE_EXTENSIONLESS = new Set(['dockerfile', 'makefile', 'license', 'notice']);
 
 export const PROJECT_READ_TOOLS = [
-  { type: 'function', name: 'list_project_files', description: '只读列出本次项目中的代码文件（相对路径）。不会返回凭据文件、构建产物、Git元数据或链接。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对目录，根目录用 .' }, limit: { type: 'integer', minimum: 1, maximum: 500 } }, required: ['path'], additionalProperties: false } },
+  { type: 'function', name: 'list_project_files', description: '列出本次项目中的代码文件（相对路径）。不会返回凭据文件、构建产物、Git元数据或链接。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对目录，根目录用 .' }, limit: { type: 'integer', minimum: 1, maximum: 500 } }, required: ['path'], additionalProperties: false } },
   { type: 'function', name: 'read_project_file', description: '分页读取本次项目的 UTF-8 代码文件，支持最多 16 MiB 的大文件。offset 为从 0 开始的 UTF-16 字符偏移，默认 0；length 默认 8000。返回完整文件 hash、行号、totalCharacters 和 nextOffset。truncated=true 时须用 nextOffset 与本页 hash 作为 expectedHash 继续读取，直到 nextOffset=null；不能把片段当全文。禁止越界、链接、凭据文件和二进制。', inputSchema: { type: 'object', properties: { path: { type: 'string', description: '项目内相对文件路径' }, offset: { type: 'integer', minimum: 0 }, length: { type: 'integer', minimum: 1, maximum: MAX_OUTPUT_CHARS }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$', description: '续读时传入首段返回的完整文件 hash，防止混用不同版本代码' } }, required: ['path'], additionalProperties: false } },
 ] as const;
 export const PROJECT_WRITE_TOOLS = [
   { type: 'function', name: 'write_project_file', description: '在已授权隔离工作区写入 UTF-8 代码文件。修改已有文件必须传入 read_project_file 返回的 hash；新文件可以省略 expectedHash。写入前执行项目强制规则。', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, required: ['path', 'content'], additionalProperties: false } },
   { type: 'function', name: 'delete_project_file', description: '删除已授权隔离工作区中的普通代码文件，必须传入读取到的最新 SHA256 hash；删除前执行项目规则。', inputSchema: { type: 'object', properties: { path: { type: 'string' }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, required: ['path', 'expectedHash'], additionalProperties: false } },
 ] as const;
-export interface ProjectBrokerOptions { mode?: 'read' | 'develop'; beforeWrite?: (relativePath: string, content: string | null) => Promise<void>; protectedValues?: readonly string[] }
+export interface ProjectBrokerOptions { beforeWrite?: (relativePath: string, content: string | null) => Promise<void>; protectedValues?: readonly string[] }
 
 function forbiddenName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -59,24 +59,19 @@ export class ProjectReadBroker {
     if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error('项目目录无效');
     await verifyRootAncestors(requestedRoot);
     const root = await realpath(requestedRoot);
-    if (options.mode === 'develop') {
-      const marker = await lstat(path.join(root, '.git')).catch(() => null);
-      if (!marker?.isFile() || marker.isSymbolicLink() || marker.nlink > 1) throw new Error('开发模式必须使用隔离 Git Worktree');
-    }
     const identity = await lstat(root);
     return new ProjectReadBroker(root, requestedRoot, options, { dev: identity.dev, ino: identity.ino });
   }
 
   async call(tool: string, input: unknown): Promise<Record<string, unknown>> {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('只读工具参数必须为对象');
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('项目文件工具参数必须为对象');
     const args = input as Record<string, unknown>;
     const allowedKeys = tool === 'list_project_files' ? ['path', 'limit'] : tool === 'read_project_file' ? ['path', 'offset', 'length', 'expectedHash'] : tool === 'write_project_file' ? ['path', 'content', 'expectedHash'] : tool === 'delete_project_file' ? ['path', 'expectedHash'] : ['path'];
-    if (Object.keys(args).some((key) => !allowedKeys.includes(key))) throw new Error('只读工具包含未知参数');
-    if (typeof args.path !== 'string') throw new Error('只读工具需要相对路径');
+    if (Object.keys(args).some((key) => !allowedKeys.includes(key))) throw new Error('项目文件工具包含未知参数');
+    if (typeof args.path !== 'string') throw new Error('项目文件工具需要相对路径');
     if (tool === 'list_project_files') return this.listFiles(args.path, args.limit);
     if (tool === 'read_project_file') return this.readFile(args.path, args);
     if (tool === 'write_project_file' || tool === 'delete_project_file') {
-      if (this.options.mode !== 'develop') throw new Error('当前会话为只读模式，禁止修改文件');
       if (!this.options.beforeWrite) throw new Error('尚未绑定强制开发规则，禁止修改文件');
       const target = await this.checkedPath(args.path, true);
       const normalized = path.relative(this.root, target).replaceAll('\\', '/');
@@ -86,7 +81,7 @@ export class ProjectReadBroker {
       this.mutations.set(key, mutation);
       try { return await mutation; } finally { if (this.mutations.get(key) === mutation) this.mutations.delete(key); }
     }
-    throw new Error('未授权的只读工具');
+    throw new Error('未授权的项目文件工具');
   }
 
   private async checkedPath(relative: string, allowMissing = false): Promise<string> {

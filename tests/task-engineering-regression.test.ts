@@ -23,7 +23,7 @@ async function fixture(t: TestContext) {
   t.after(async () => { store.close(); await rm(root, { recursive: true, force: true }); });
   const projectId = 'b'.repeat(24); const sessionId = randomUUID(); const evidenceRoot = path.join(root, 'evidence');
   store.saveProject({ id: projectId, name: '工程回归样本', path: workspace, branch: 'main' });
-  store.saveSession({ id: sessionId, projectId, title: '工程回归样本', workspacePath: workspace, mode: 'read', status: 'idle', createdAt: new Date().toISOString(), model: 'sample', runtimeKind: 'codex' });
+  store.saveSession({ id: sessionId, projectId, title: '工程回归样本', workspacePath: workspace, status: 'idle', createdAt: new Date().toISOString(), model: 'sample', runtimeKind: 'codex' });
   const service = new TaskEngineeringService(store, evidenceRoot);
   const current = (taskId = 'first') => service.detail(sessionId, taskId).task;
   const target = (taskId = 'first') => ({ sessionId, taskId, expectedStateVersion: current(taskId).stateVersion! });

@@ -25,17 +25,20 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ args: ['.'], env });
   const page = await app.firstWindow();
-  await expect(page.locator('.runtime-summary')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true })).toBeEnabled({ timeout: 30000 });
   await app.evaluate(({ dialog }, projectPath) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [projectPath] });
   }, repo);
   await page.getByRole('button', { name: '添加项目目录', exact: true }).click();
   await expect(page.locator('.project-item')).toBeVisible();
   await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('新建会话项目', { exact: true }).selectOption({ label: '样本项目' });
-  await dialog.getByRole('button', { name: '创建会话', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: '输入任务' })).toBeVisible();
+  await page.getByLabel('当前会话本地项目', { exact: true }).selectOption({ label: '样本项目' });
+  await expect(page.getByLabel('当前会话基准分支', { exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '绑定项目', exact: true }).click();
+  await expect(page.getByRole('button', { name: '绑定项目', exact: true })).toHaveCount(0, { timeout: 30000 });
+  await expect(page.getByLabel('当前会话本地项目', { exact: true })).toBeEnabled();
 
   for (const [width, height] of [[1600, 900], [1366, 768]]) {
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(...size), [width, height]);

@@ -5,20 +5,11 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { RuntimeHealth, RuntimeKind } from '../../domain/src/index';
 import type { RuntimeAdapter } from './manager';
-import type { RuntimeApprovalDecision, RuntimeEvent } from './index';
+import type { RuntimeEvent } from './index';
 
 /** 当前 PoC 锁定的官方 SDK 版本。正式打包时必须与 native binary 一起锁定。 */
 export const CLAUDE_AGENT_SDK_RUNTIME_VERSION = '0.3.319';
 export const CLAUDE_AGENT_SDK_RUNTIME_KIND = 'claude_agent_sdk' as RuntimeKind;
-// 只读分析允许通过 Claude 内置网页工具查询公开信息，但仍禁止命令执行和文件修改。
-const CLAUDE_READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch']);
-export function isClaudeReadOnlyTool(toolName: string): boolean { return CLAUDE_READ_ONLY_TOOLS.has(toolName); }
-
-/** 只读会话禁止交互式浏览器与登录态操作，但可以查询公开网页。 */
-export function claudeReadOnlyNetworkInstruction(): string {
-  return '\n当前会话处于只读准入状态，禁止调用交互式 browser_action 或依赖登录态的浏览器操作；可以使用 Claude 内置 WebSearch 和 WebFetch 查询公开网页信息。';
-}
-
 export interface ClaudePermissionRequest {
   toolName: string;
   input: Record<string, unknown>;
@@ -35,7 +26,9 @@ export interface ClaudeSdkQueryOptions {
   model: string;
   abortController: AbortController;
   settingSources: [];
-  permissionMode: 'default';
+  permissionMode: 'default' | 'bypassPermissions';
+  /** SDK 只有在显式声明时才允许 bypassPermissions，普通开发会话固定开启。 */
+  allowDangerouslySkipPermissions?: true;
   includePartialMessages: true;
   tools?: string[];
   appendSystemPrompt?: string;
@@ -61,14 +54,11 @@ export interface ClaudeRuntimeOptions {
   /** 当前会话选择的通用中转站 URL，用于实际模型调用。 */
   relayBaseUrl?: string;
   executablePath: string;
-  /** 需求准入未通过时启用，限制 Claude 只能进行只读分析。 */
-  readOnly?: boolean;
   /** 仅传递平台必须的安全/联网提示，避免把未筛选业务资料当成系统指令。 */
   additionalSystemPrompt?: string;
   additionalDirectories?: string[];
   sdkLoader?: ClaudeSdkLoader;
   env?: Record<string, string | undefined>;
-  onApprovalRequest?: (request: ClaudePermissionRequest & { threadId: string }) => Promise<RuntimeApprovalDecision>;
   onNativeSessionId?: (platformSessionId: string, nativeSessionId: string) => void;
 }
 
@@ -290,19 +280,14 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
         model: this.options.model,
         abortController: controller,
         settingSources: [],
-        permissionMode: 'default',
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
-        ...(this.options.readOnly ? { tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'] } : {}),
         ...(this.options.additionalSystemPrompt ? { appendSystemPrompt: this.options.additionalSystemPrompt } : {}),
         pathToClaudeCodeExecutable: this.options.executablePath,
         env: buildClaudeEnvironment(this.options.apiKey, { ...this.options.env, ...(this.options.relayBaseUrl ? { ANTHROPIC_BASE_URL: claudeRelayBaseUrl(this.options.relayBaseUrl) } : {}) }),
         ...(session.nativeSessionId ? { resume: session.nativeSessionId } : {}),
-        canUseTool: async (toolName, input, request) => {
-          if (this.options.readOnly && !isClaudeReadOnlyTool(toolName)) return { behavior: 'deny', message: '当前会话受只读准入门禁保护，已拒绝写入或执行工具' };
-          if (!this.options.onApprovalRequest) return { behavior: 'deny', message: '平台未配置统一权限审批，已拒绝工具调用' };
-          const decision = await this.options.onApprovalRequest({ ...request, toolName, input, threadId });
-          return decision === 'accept' ? { behavior: 'allow' } : { behavior: 'deny', message: '用户拒绝了该工具调用' };
-        },
+        canUseTool: async (_toolName, _input, _request) => ({ behavior: 'allow' }),
       } });
       session.query = query;
       this.emit({ threadId, type: 'status', text: 'running' });

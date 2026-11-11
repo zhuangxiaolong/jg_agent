@@ -178,7 +178,7 @@ test('续读拒绝失效 hash 和非法偏移，整文件凭据与二进制检�
 test('开发 broker 在真实 Worktree 创建、乐观校验修改及删除，主分支不变', async () => {
   const { source, workspace } = await developFixture();
   const rules: string[] = [];
-  const broker = await ProjectReadBroker.create(workspace, { mode: 'develop', beforeWrite: async (file, content) => { rules.push(`${file}:${content === null ? 'delete' : 'write'}`); if (file === 'blocked.ts') throw new Error('强制规则阻止此文件'); } });
+  const broker = await ProjectReadBroker.create(workspace, { beforeWrite: async (file, content) => { rules.push(`${file}:${content === null ? 'delete' : 'write'}`); if (file === 'blocked.ts') throw new Error('强制规则阻止此文件'); } });
   const read = await broker.call('read_project_file', { path: 'sample.ts' });
   assert.match(read.hash as string, /^[a-f0-9]{64}$/);
   await assert.rejects(broker.call('write_project_file', { path: 'sample.ts', content: 'changed' }), /SHA256/);
@@ -197,18 +197,18 @@ test('开发 broker 在真实 Worktree 创建、乐观校验修改及删除，�
   assert.equal(await readFile(path.join(source, 'sample.ts'), 'utf8'), 'export const quantity = 1;\n');
   assert.ok(rules.includes('sample.ts:write'));
   assert.ok(rules.includes('new/folder/新增.ts:delete'));
-  const deletionBroker = await ProjectReadBroker.create(workspace, { mode: 'develop', beforeWrite: async (file, content) => { if (file === 'sample.ts' && content === null) throw new Error('禁止删除必需文件'); } });
+  const deletionBroker = await ProjectReadBroker.create(workspace, { beforeWrite: async (file, content) => { if (file === 'sample.ts' && content === null) throw new Error('禁止删除必需文件'); } });
   await assert.rejects(deletionBroker.call('delete_project_file', { path: './sample.ts', expectedHash: written.hash }), /禁止删除必需文件/);
 });
 
-test('开发 broker 仍拒绝只读模式、无规则、敏感路径、链接与规则检查期间并发改动', async () => {
+test('项目文件工具直接支持普通目录写入，仍校验敏感路径和并发改动', async () => {
   const { source, workspace } = await developFixture();
-  await assert.rejects(ProjectReadBroker.create(source, { mode: 'develop' }), /Worktree/);
-  const readonly = await ProjectReadBroker.create(workspace);
-  await assert.rejects(readonly.call('write_project_file', { path: 'new.ts', content: 'no' }), /只读模式/);
-  const noRules = await ProjectReadBroker.create(workspace, { mode: 'develop' });
+  const sourceBroker = await ProjectReadBroker.create(source, { beforeWrite: async () => undefined });
+  await sourceBroker.call('write_project_file', { path: 'new.ts', content: '普通项目目录也可写入\n' });
+  assert.equal(await readFile(path.join(source, 'new.ts'), 'utf8'), '普通项目目录也可写入\n');
+  const noRules = await ProjectReadBroker.create(workspace);
   await assert.rejects(noRules.call('write_project_file', { path: 'new.ts', content: 'no' }), /强制开发规则/);
-  const broker = await ProjectReadBroker.create(workspace, { mode: 'develop', beforeWrite: async (file) => { if (file === 'sample.ts') await writeFile(path.join(workspace, file), '人工并发编辑\n'); } });
+  const broker = await ProjectReadBroker.create(workspace, { beforeWrite: async (file) => { if (file === 'sample.ts') await writeFile(path.join(workspace, file), '人工并发编辑\n'); } });
   const current = await broker.call('read_project_file', { path: 'sample.ts' });
   await assert.rejects(broker.call('write_project_file', { path: 'sample.ts', content: 'Agent内容', expectedHash: current.hash }), /文件已变化/);
   assert.equal(await readFile(path.join(workspace, 'sample.ts'), 'utf8'), '人工并发编辑\n');
@@ -216,7 +216,7 @@ test('开发 broker 仍拒绝只读模式、无规则、敏感路径、链接与
   const sample = 'const password = "test-only-secret";\nconst access_token = "synthetic-business-value";';
   await broker.call('write_project_file', { path: 'example.ts', content: sample });
   assert.equal((await broker.call('read_project_file', { path: 'example.ts' })).content, sample);
-  const protectedBroker = await ProjectReadBroker.create(workspace, { mode: 'develop', beforeWrite: async () => undefined, protectedValues: ['sentinel-unit-only-value'] });
+  const protectedBroker = await ProjectReadBroker.create(workspace, { beforeWrite: async () => undefined, protectedValues: ['sentinel-unit-only-value'] });
   await assert.rejects(protectedBroker.call('write_project_file', { path: 'settings.ts', content: 'const value = "sentinel-unit-only-value";' }), /凭据/);
   await writeFile(path.join(workspace, 'config.ts'), 'const value = "sentinel-unit-only-value";');
   await assert.rejects(protectedBroker.call('read_project_file', { path: 'config.ts' }), /凭据/);
@@ -236,7 +236,7 @@ test('Windows 8.3 短名归一到实际文件和父目录，规则不能绕过�
   const shortName = await getShortName(target);
   if (!shortName.includes('~')) return t.skip('测试卷未生成 8.3 短文件名');
   const seen: string[] = [];
-  const broker = await ProjectReadBroker.create(workspace, { mode: 'develop', beforeWrite: async (file, content) => {
+  const broker = await ProjectReadBroker.create(workspace, { beforeWrite: async (file, content) => {
     seen.push(file);
     if (file === name && content?.includes('forbidden')) throw new Error('长文件名规则拒绝');
     if (file === 'LongProjectFolderName/new.ts') throw new Error('长目录名规则拒绝');

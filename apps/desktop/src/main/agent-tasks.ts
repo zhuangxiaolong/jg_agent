@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, classifyRetryFailure, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type OneShotTaskApprovalBroker, type RetryFailure, type ResolvedTaskBudget } from '../../../../packages/agent-orchestrator/src';
+import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, classifyRetryFailure, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type RetryFailure, type ResolvedTaskBudget } from '../../../../packages/agent-orchestrator/src';
 import { createCodexRuntimeAdapter, createJinggongRuntimeAdapter, type RuntimeAdapter } from '../../../../packages/agent-runtime/src';
 import type { RuntimeEvent, RuntimeOptions } from '../../../../packages/agent-runtime/src';
 import type { AgentTask, AgentTaskEvent, AgentTaskStatus, RuntimeKind, Session, TaskBudgetPolicy, TaskContract } from '../../../../packages/domain/src';
@@ -12,12 +12,12 @@ import type { SettingsService } from './settings';
 import type { LocalStore } from '../../../../packages/storage/src';
 
 const MAX_CONCURRENCY = 3;
-const READ_ONLY_ROLES: Record<AgentTask['role'], string> = {
+const ANALYSIS_ROLES: Record<AgentTask['role'], string> = {
   requirement: '需求分析', architecture: '架构分析', developer: '代码分析', review: '代码审查',
   testing: '测试分析', documentation: '文档整理', custom: '自定义分析',
 };
 
-/** 自动规划只创建只读分析任务；真正的写入、提交和发布仍必须由主 Agent 按会话权限执行。 */
+/** 自动规划创建分工分析任务，由主 Agent 汇总分析结果并负责实现、提交和发布。 */
 export const AUTOMATIC_AGENT_TASK_PREFIX = '自动子Agent';
 export interface AutomaticAgentTaskPlan {
   role: AgentTask['role'];
@@ -36,9 +36,9 @@ export function inferAutomaticAgentTaskPlan(prompt: string): AutomaticAgentTaskP
     // 同一角色可以覆盖多个工作面（例如前端与后端），按任务名去重以便并行拆分。
     if (plans.some(item => item.name === name)) return;
     plans.push({
-      role, name, description: `围绕以下会话需求进行${focus}，只读检查当前项目工作区并给出证据：\n${value}`,
+      role, name, description: `围绕以下会话需求进行${focus}，检查当前项目代码与现状并给出证据：\n${value}`,
       outputExpectations: outputs,
-      acceptanceCriteria: ['结论必须引用实际工作区文件或现状证据', '明确列出未覆盖项和风险，不修改任何文件'],
+      acceptanceCriteria: ['结论必须引用实际工作区文件或现状证据', '交付分析结论、未覆盖项和风险，由主 Agent 汇总实施'],
     });
   };
   if (/(前端|页面|界面|交互|组件|react|vue|css|html|renderer|UI)/i.test(value)) add('developer', '前端工作面分析', '前端工作面分析', ['列出相关页面、组件和样式文件', '给出实现影响面与兼容风险']);
@@ -84,7 +84,7 @@ interface ActiveTask {
 }
 
 /** 工具权限由平台固定路由决定；不能由模型参数指定 requiredPermission 或跳过路径检查。 */
-export function createAgentTaskToolGateway(options: { store: LocalStore; task: AgentTask; workspacePath: string; budget: TaskBudgetGuard; approvals?: OneShotTaskApprovalBroker; assertActive?: () => void }): NonNullable<RuntimeOptions['toolGateway']> {
+export function createAgentTaskToolGateway(options: { store: LocalStore; task: AgentTask; workspacePath: string; budget: TaskBudgetGuard; assertActive?: () => void }): NonNullable<RuntimeOptions['toolGateway']> {
   const contract = options.store.getAgentTaskContractVersions(options.task.sessionId, options.task.id).at(-1)?.contract;
   if (!contract || contract.contractVersion !== options.task.contractVersion) throw new GovernanceError('contract_changed');
   let expectedVersion = options.store.listAgentTasks(options.task.sessionId).find(task => task.id === options.task.id)?.stateVersion;
@@ -96,7 +96,7 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
   };
   const snapshot = options.store.getTaskAuditSnapshot(options.task.sessionId, options.task.id);
   const calls = snapshot.toolEvents.filter(event => event.eventType === 'tool.started').map(event => ({ callId: String(event.payload.callId ?? event.correlationId), toolName: String(event.payload.toolName), argumentsHash: String(event.payload.argumentsHash), idempotencyKeyHash: typeof event.payload.idempotencyKeyHash === 'string' ? event.payload.idempotencyKeyHash : undefined, outcome: 'unknown_outcome' as const }));
-  const gateway = new GovernedToolGateway({ contract, workspacePath: options.workspacePath, budget: options.budget, approvals: options.approvals, initialCalls: calls, audit: event => {
+  const gateway = new GovernedToolGateway({ contract, workspacePath: options.workspacePath, budget: options.budget, initialCalls: calls, audit: event => {
     assertCurrent();
     const persisted = options.store.appendTaskAuditEvent(options.task.sessionId, options.task.id, { eventType: event.eventType, actor: 'platform-runner', payload: { ...event.payload }, correlationId: event.payload.callId });
     expectedVersion = persisted.aggregateVersion;
@@ -334,13 +334,13 @@ export class AgentTaskRunner {
   private buildRuntime(task: AgentTask, session: Session, active: ActiveTask): RuntimeAdapter {
     if (task.workspaceMode === 'worktree') throw new GovernanceError('worktree_execution_not_supported');
     const kind = task.runtimeKind ?? session.runtimeKind ?? 'codex';
-    if (kind !== 'codex' && kind !== 'jinggong') throw new Error('只读子 Agent 当前仅支持 Codex Runtime 或 Jinggong Runtime');
+    if (kind !== 'codex' && kind !== 'jinggong') throw new Error('分析子 Agent 当前仅支持 Codex Runtime 或 Jinggong Runtime');
     const executable = kind === 'jinggong' ? this.options.jinggongExecutable : this.options.codexExecutable;
     if (!existsSync(executable)) throw new Error(`${kind === 'jinggong' ? 'Jinggong' : 'Codex'} Runtime 尚未部署`);
     const provider = this.options.settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? this.options.settings.profiles()[0] : undefined);
-    if (!provider || !provider.models.includes(task.model ?? session.model)) throw new Error('会话模型配置无效，无法启动只读子 Agent');
+    if (!provider || !provider.models.includes(task.model ?? session.model)) throw new Error('会话模型配置无效，无法启动分析子 Agent');
     const apiKey = this.options.settings.credential(provider.id).read(provider.baseUrl);
-    if (!apiKey) throw new Error('会话模型 API Key 未配置，无法启动只读子 Agent');
+    if (!apiKey) throw new Error('会话模型 API Key 未配置，无法启动分析子 Agent');
     const contract = task.contractVersion ? this.options.store.getAgentTaskContractVersions(task.sessionId, task.id).at(-1)?.contract : undefined;
     const documents = contract
       ? contract.inputRefs.filter(ref => ref.type === 'document').map(ref => {
@@ -351,10 +351,10 @@ export class AgentTaskRunner {
       : applicableDocuments(this.options.store.listDocuments(), session);
     for (const document of documents) this.options.settings.assertCleanText(document.name + '\n' + document.content);
     const context = contract ? documents.map(document => `【开发规范：${document.name}；${document.digest}】\n${document.content}`).join('\n\n') : buildDeveloperContext(documents, sessionMemories(this.options.store.listMemories(), session.projectId));
-    const developerInstructions = `${context}\n【子 Agent 任务约束】本任务由精工Agent调度，角色为${READ_ONLY_ROLES[task.role]}。只允许读取当前会话工作区并输出分析结论；禁止修改、删除、提交或推送任何项目文件，不得执行网络访问或要求扩大权限。任务完成时请给出结论、证据文件和未解决项。${contract ? `\n契约版本：${contract.contractVersion}\n目标：${contract.goal}\n期望交付：${contract.outputExpectations.join('；')}\n验收标准：${contract.acceptanceCriteria.join('；')}\n仅使用当前契约与显式引用的上下文，不继承父任务聊天历史或无关记忆。` : ''}`;
+    const developerInstructions = `${context}\n【子 Agent 任务职责】本任务由精工Agent调度，角色为${ANALYSIS_ROLES[task.role]}。负责检查当前会话项目代码与现状证据，输出分析结论、证据文件和未解决项，供主 Agent 汇总实施。任务分析与具体交付按下述契约分工完成。${contract ? `\n契约版本：${contract.contractVersion}\n目标：${contract.goal}\n期望交付：${contract.outputExpectations.join('；')}\n验收标准：${contract.acceptanceCriteria.join('；')}\n使用当前契约与显式引用的上下文，不继承父任务聊天历史或无关记忆。` : ''}`;
     this.options.settings.assertCleanText(developerInstructions);
     let gateway: RuntimeOptions['toolGateway'];
-    const runtimeOptions: RuntimeOptions = { executable, home: path.join(this.options.dataRoot, 'runtime', 'agent-tasks', task.id), baseUrl: provider.baseUrl, model: task.model ?? session.model, apiKey, mode: 'read' as const, readOnly: true, shellToolEnabled: false, reasoningEffort: session.reasoningEffort, developerInstructions, dictionaries: documents.filter(item => item.kind === 'dictionary'), ...(contract && active.budget ? { toolGateway: async (request, execute) => {
+    const runtimeOptions: RuntimeOptions = { executable, home: path.join(this.options.dataRoot, 'runtime', 'agent-tasks', task.id), baseUrl: provider.baseUrl, model: task.model ?? session.model, apiKey, shellToolEnabled: false, reasoningEffort: session.reasoningEffort, developerInstructions, dictionaries: documents.filter(item => item.kind === 'dictionary'), ...(contract && active.budget ? { toolGateway: async (request, execute) => {
       gateway ??= createAgentTaskToolGateway({ store: this.options.store, task, workspacePath: task.workspacePath ?? session.workspacePath, budget: active.budget!, assertActive: () => { if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive'); } });
       return gateway(request, execute);
     } } : {}) };
@@ -400,7 +400,7 @@ export class AgentTaskRunner {
       const workspacePath = running.workspacePath ?? session.workspacePath;
       active.threadId = await active.adapter.startSession(workspacePath);
       if (active.cancelled || active.finished) { await this.finish(active, 'CANCELLED', '任务在创建会话期间被取消'); return; }
-      const prompt = `任务名称：${running.name}\n任务角色：${READ_ONLY_ROLES[running.role]}\n任务描述：${running.description}${running.input ? `\n补充输入：\n${running.input}` : ''}\n\n请在只读权限内完成分析并直接输出结果。`;
+      const prompt = `任务名称：${running.name}\n任务角色：${ANALYSIS_ROLES[running.role]}\n任务描述：${running.description}${running.input ? `\n补充输入：\n${running.input}` : ''}\n\n请按分析职责完成任务，直接输出结论与证据，供主 Agent 汇总实施。`;
       this.options.settings.assertCleanText(prompt);
       this.record(running, 'user', prompt);
       if (active.budget) {

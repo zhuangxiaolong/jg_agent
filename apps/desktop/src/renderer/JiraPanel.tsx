@@ -10,11 +10,10 @@ import './jira-dock.css';
 
 function today() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 interface QuerySelection { date: string; onlyMine: boolean; scope: 'daily' | 'recent'; projectKey: string; projectLabel: string }
-export function JiraPanel({ api, settings, projects, projectId, onProjectChange, onAddProject, onConfigure, onCreateIssue, onExecuteIssue, creating, compact = false }: {
+export function JiraPanel({ api, settings, projects, projectId, onProjectChange, onConfigure, onCreateIssue, creating, compact = false }: {
   api: DesktopApi; settings: JiraSettings; projects: Project[]; projectId: string;
-  onProjectChange: (id: string) => void; onAddProject: () => void; onConfigure: () => void;
+  onProjectChange: (id: string) => void; onConfigure: () => void;
   onCreateIssue: (key: string, jiraProjectKey: string) => Promise<unknown>; creating: boolean; compact?: boolean;
-  onExecuteIssue?: (key: string, jiraProjectKey: string) => Promise<boolean>;
 }) {
   const configured = !!settings.baseUrl && !!settings.account && settings.hasPassword;
   const [date, setDate] = useState(today);
@@ -40,8 +39,6 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
   const [issue, setIssue] = useState<JiraIssue | null>(null);
   const [error, setError] = useState('');
   const [detailError, setDetailError] = useState('');
-  const [executingIssue, setExecutingIssue] = useState('');
-  const [startedIssue, setStartedIssue] = useState('');
   const [autoStatus, setAutoStatus] = useState('正在准备今日任务');
   const [autoFailed, setAutoFailed] = useState(false);
   const [automatic, setAutomatic] = useState(true);
@@ -238,7 +235,7 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
   }
   function submit(event: FormEvent) { event.preventDefault(); void search(); }
   return <section className={`jira-page${compact ? ' jira-dock' : ''}`} aria-label={compact ? 'Jira 任务面板' : 'Jira 任务工作台'}>
-    <div className="jira-page-header"><div><span className="jira-eyebrow">需求进入研发工作区</span><h1>Jira 任务</h1><p>抓取项目任务，核对需求后关联本地项目。</p></div><button className="secondary-button" onClick={onConfigure}><Icon name="settings" />Jira 连接设置</button></div>
+    <div className="jira-page-header"><div><span className="jira-eyebrow">需求进入研发流程</span><h1>Jira 任务</h1><p>抓取项目任务，核对需求后关联本地项目。</p></div><button className="secondary-button" onClick={onConfigure}><Icon name="settings" />Jira 连接设置</button></div>
     {!configured && <div className="jira-setup-notice"><Icon name="settings" /><span>请先配置 Jira 地址、账号和密码，保存后将自动读取今日分配给您的任务。</span><button className="text-button" onClick={onConfigure}>配置 Jira 连接</button></div>}
     {configured && <>
     <div className={`jira-auto-status${autoFailed ? ' failed' : ''}`} aria-label="Jira 自动抓取状态" role="status"><span><Icon name={autoFailed ? 'alert' : 'refresh'} />{autoStatus}</span>{(!automatic || autoFailed) && <button className="secondary-button" disabled={loading || timeZoneLoading} onClick={() => void resumeAutomatic()}>{autoFailed && automatic ? '重试自动抓取' : '恢复今日自动抓取'}</button>}</div>
@@ -268,7 +265,7 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
         {result && <div className="jira-pagination"><button className="secondary-button" aria-label="Jira 任务上一页" disabled={loading || changed || result.startAt <= 0} onClick={() => search(Math.max(0, result.startAt - result.maxResults))}>上一页</button><span>每页 {result.maxResults} 项</span><button className="secondary-button" aria-label="Jira 任务下一页" disabled={loading || changed || result.isLast || result.startAt + result.issues.length >= result.total} onClick={() => search(result.startAt + result.maxResults)}>下一页</button></div>}
       </section>
       <section className="jira-detail-panel" aria-label="任务详情与本地项目">
-        {detailLoading ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在读取 {selected}</strong><p>获取任务描述与附件元数据。</p></div> : detailError ? <div className="jira-detail-error"><div className="form-error" role="alert"><Icon name="alert" />{detailError}</div><button className="secondary-button" disabled={changed || loading} onClick={() => read(selected)}>重试任务详情</button></div> : issue ? <><JiraIssueDetails issue={issue} compact={compact} /><div className="jira-create-session"><label>关联本地项目<select aria-label="Jira 关联本地项目" value={projectId} onChange={event => onProjectChange(event.target.value)} disabled={creating}><option value="">请选择本地 Git 项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="secondary-button" onClick={onAddProject} disabled={creating}><Icon name="folder" />添加本地项目</button><button className="primary-button" onClick={() => { if (searched && !changed) void onCreateIssue(issue.key, searched.projectKey); }} disabled={isJiraCreateSessionDisabled({ projectId, creating, changed, loading, hasSearch: !!searched })}><Icon name="plus" />{creating ? '正在创建会话…' : '从此任务创建会话'}</button>{onExecuteIssue && <button className="secondary-button" onClick={() => { if (!searched || changed || executingIssue) return; setExecutingIssue(issue.key); setStartedIssue(''); void onExecuteIssue(issue.key, searched.projectKey).then(started => { if (started) setStartedIssue(issue.key); }).finally(() => setExecutingIssue('')); }} disabled={isJiraCreateSessionDisabled({ projectId, creating: creating || !!executingIssue, changed, loading, hasSearch: !!searched })}><Icon name="terminal" />{executingIssue === issue.key ? '正在执行任务…' : startedIssue === issue.key ? '再次执行任务' : '一键执行任务'}</button>}<p>{onExecuteIssue ? startedIssue === issue.key ? '任务已启动。执行过程中如有需求理解偏差，可直接在会话中补充说明。' : '请先选择本地项目；一键创建开发会话、读取 Jira 任务并执行，理解有偏差时可在会话中补充说明。' : '创建时重新读取 Jira 任务并保存真实快照，准备任务内容后由您点击发送。'}</p></div><JiraWorkflow key={issue.key} issue={issue} projectKey={searched?.projectKey} onUpdated={updated => setIssue(updated)} /></> : <div className="jira-empty"><Icon name="chat" /><strong>选择一项任务查看详情</strong><p>描述、附件与原始链接会显示在这里。</p></div>}
+        {detailLoading ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在读取 {selected}</strong><p>获取任务描述与附件元数据。</p></div> : detailError ? <div className="jira-detail-error"><div className="form-error" role="alert"><Icon name="alert" />{detailError}</div><button className="secondary-button" disabled={changed || loading} onClick={() => read(selected)}>重试任务详情</button></div> : issue ? <><JiraIssueDetails issue={issue} compact={compact} /><div className="jira-create-session"><label>关联本地项目<select aria-label="Jira 关联本地项目" value={projectId} onChange={event => onProjectChange(event.target.value)} disabled={creating}><option value="">请选择本地 Git 项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button" onClick={() => { if (searched && !changed) void onCreateIssue(issue.key, searched.projectKey); }} disabled={isJiraCreateSessionDisabled({ projectId, creating, changed, loading, hasSearch: !!searched })}><Icon name="plus" />{creating ? '正在创建会话…' : '从此任务创建会话'}</button><p>创建时重新读取 Jira 任务并保存真实快照，准备任务内容后由您点击发送。</p></div><JiraWorkflow key={issue.key} issue={issue} projectKey={searched?.projectKey} onUpdated={updated => setIssue(updated)} /></> : <div className="jira-empty"><Icon name="chat" /><strong>选择一项任务查看详情</strong><p>描述、附件与原始链接会显示在这里。</p></div>}
       </section>
     </div>
     {result && <details className="jira-query-details"><summary>查看本次查询信息</summary><code>{result.jql}</code><span>读取于 {new Date(result.fetchedAt).toLocaleString('zh-CN')}</span></details>}

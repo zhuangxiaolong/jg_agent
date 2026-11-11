@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import type { CompletionSound, DesktopApi, DesktopWorkspace, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
+import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
 import { Icon } from './ui';
 import { DictionaryPreview } from './DictionaryPreview';
 import { readableError } from './dictionary-index';
@@ -8,11 +8,11 @@ import { RequirementsSyncPanel } from './RequirementsSyncPanel';
 import { PluginManagerPanel } from './PluginManagerPanel';
 import { SessionDataSettings } from './SessionDataSettings';
 
-export type SettingsTab = 'providers' | 'appearance' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'workspaces' | 'plugins' | 'sessions';
+export type SettingsTab = 'providers' | 'appearance' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions';
 type Tab = SettingsTab;
 const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' | 'chat' | 'shield' | 'refresh' | 'terminal' }[] = [
   { id: 'providers', name: '模型中转站', icon: 'box' }, { id: 'appearance', name: '外观', icon: 'layers' },
-  { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'workspaces', name: '多仓库工作区', icon: 'branch' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
+  { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
 ];
 const failure = readableError;
 type SuccessNotice = string | (() => string);
@@ -65,7 +65,6 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'runtime' && <RuntimeSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
-         {tab === 'workspaces' && <Workspaces pending={pending} act={act} api={api} />}
          {tab === 'sessions' && <SessionDataSettings sessions={sessions} projects={projects} currentProjectId={currentProjectId} onImportCompleted={onImportCompleted} pending={pending} act={act} api={api} />}
         {tab === 'wecom' && <WeComSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'updates' && <Updates snapshot={snapshot} pending={pending} act={act} api={api} />}
@@ -178,7 +177,6 @@ function WeComSettings({ snapshot, api, act, pending }: Operations & { snapshot:
       <label htmlFor="wecom-webhook">群机器人 Webhook{current?.hasCredential && <span className="saved-secret"><Icon name="check" />已安全保存</span>}</label><input id="wecom-webhook" type="password" autoComplete="new-password" value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} disabled={pending} required={!current?.hasCredential} placeholder={current?.hasCredential ? '留空保留，输入新 Webhook 以替换' : 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…'} />
       <label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} disabled={pending} />启用该通知目标</label>
       {purpose === 'team_group' && <><label htmlFor="wecom-users">@成员 UserID（每行或逗号分隔）</label><textarea id="wecom-users" rows={3} value={users} onChange={event => setUsers(event.target.value)} disabled={pending} placeholder="企业微信内部 UserID" /><label htmlFor="wecom-mobiles">@成员手机号（可选）</label><textarea id="wecom-mobiles" rows={2} value={mobiles} onChange={event => setMobiles(event.target.value)} disabled={pending} placeholder="仅填写用户主动提供且属于目标群的手机号" /></>}
-      <fieldset className="settings-form"><legend>适用项目/工作区（全不选表示全部）</legend>{(snapshot.notificationWorkspaces ?? []).map(workspace => <label className="checkbox-row" key={workspace.id}><input type="checkbox" checked={workspaceIds.includes(workspace.id)} onChange={event => setWorkspaceIds(values => event.target.checked ? [...values, workspace.id] : values.filter(id => id !== workspace.id))} disabled={pending} />{workspace.name}</label>)}{!(snapshot.notificationWorkspaces ?? []).length && <p className="field-hint">尚无已配置项目；当前空范围表示全部。</p>}</fieldset>
       <fieldset className="settings-form"><legend>适用 Runtime（全不选表示全部）</legend>{([['codex', 'Codex'], ['jinggong', 'Jinggong'], ['claude_agent_sdk', 'Claude Agent SDK']] as const).map(([kind, label]) => <label className="checkbox-row" key={kind}><input type="checkbox" checked={runtimeKinds.includes(kind)} onChange={event => setRuntimeKinds(values => event.target.checked ? [...values, kind] : values.filter(value => value !== kind))} disabled={pending} />{label}</label>)}</fieldset>
       <fieldset className="settings-form"><legend>默认通知事件</legend>{([['onCompleted', '会话完成'], ['onFailed', '会话失败'], ['onError', '会话异常'], ['onInterrupted', '会话中断'], ['onCancelled', '用户取消']] as const).map(([key, label]) => <label className="checkbox-row" key={key}><input type="checkbox" checked={policy[key]} onChange={event => setPolicy(value => ({ ...value, [key]: event.target.checked }))} disabled={pending} />{label}</label>)}</fieldset>
       <div className="settings-actions">{current && <><button className="secondary-button" type="button" disabled={pending || !current.enabled || !current.hasCredential} onClick={() => void act(async () => { const result = await api.testWeComTarget(current.id); if (result.status !== 'sent') throw new Error(result.errorSummary || '测试消息未发送成功'); }, '测试消息已发送；请确认目标群实际收到。')}>发送测试</button><button className="danger-button" type="button" disabled={pending} onClick={async () => { if (await act(() => api.deleteWeComTarget(current.id), '目标与本机 Webhook 凭据已删除。')) setSelectedId(''); }}>删除目标</button></>}<button className="primary-button" type="submit" disabled={pending || !name.trim()}>{pending ? '正在保存…' : '保存目标'}<Icon name="check" /></button></div>
@@ -305,52 +303,6 @@ function Jira({ snapshot, api, act, pending }: Operations & { snapshot: Settings
     <div className="credential-note"><Icon name="shield" /><p>密码由 Windows 保护。修改连接地址或账号时需重新填写密码。</p></div>
     <div className="settings-actions"><button className="secondary-button" type="button" disabled={pending || !snapshot.jira.hasPassword} onClick={test}>{testing ? '正在测试…' : '测试已保存连接'}</button><button className="primary-button" type="submit" disabled={pending}>保存 Jira 配置<Icon name="check" /></button></div>
   </form></section>;
-}
-
-function Workspaces({ api, act, pending }: Operations) {
-  const [items, setItems] = useState<DesktopWorkspace[]>([]);
-  const [selectedId, setSelectedId] = useState('');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [loading, setLoading] = useState(true);
-  const selected = items.find(item => item.id === selectedId);
-  async function reload() {
-    setLoading(true);
-    try { const next = await api.listWorkspaces(); setItems(next); setSelectedId(current => next.some(item => item.id === current) ? current : next[0]?.id ?? ''); }
-    catch (error) { throw error; }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void reload().catch(() => undefined); }, []);
-  useEffect(() => { setName(selected?.name ?? ''); setDescription(selected?.description ?? ''); }, [selected?.id]);
-  async function create() {
-    if (!name.trim()) return;
-    if (await act(async () => { const created = await api.createWorkspace({ name: name.trim(), description: description.trim() || undefined, access: 'read' }); if (created) { setItems(current => [...current, created]); setSelectedId(created.id); } }, '工作区已创建，可直接新建会话；Git 仓库按需添加。')) await reload();
-  }
-  async function save() {
-    if (!selected || !name.trim()) return;
-    if (await act(async () => { const updated = await api.updateWorkspace(selected.id, { name: name.trim(), description: description.trim() || undefined, system: selected.system, instructions: selected.instructions }); setItems(current => current.map(item => item.id === updated.id ? updated : item)); }, '工作区信息已保存。')) await reload();
-  }
-  async function addRepository() {
-    if (!selected) return;
-    if (await act(async () => { const updated = await api.addWorkspaceRepository(selected.id, { access: 'read' }); if (updated) setItems(current => current.map(item => item.id === updated.id ? updated : item)); }, '仓库已加入工作区。')) await reload();
-  }
-  async function setPrimary(repositoryId: string) {
-    if (!selected || selected.primaryRepositoryId === repositoryId) return;
-    if (await act(async () => { const updated = await api.setPrimaryWorkspaceRepository(selected.id, repositoryId); setItems(current => current.map(item => item.id === updated.id ? updated : item)); }, '主仓库已更新。')) await reload();
-  }
-  async function removeRepository(repositoryId: string) {
-    if (!selected || !window.confirm('只解除工作区关联，不会删除仓库文件。继续？')) return;
-    if (await act(async () => { const updated = await api.removeWorkspaceRepository(selected.id, repositoryId); setItems(current => current.map(item => item.id === updated.id ? updated : item)); }, '仓库已从工作区移除。')) await reload();
-  }
-  async function deleteWorkspace() {
-    if (!selected || !window.confirm('只删除工作区元数据，不会删除任何仓库文件。继续？')) return;
-    if (await act(() => api.deleteWorkspace(selected.id), '工作区已删除。')) { setItems(current => current.filter(item => item.id !== selected.id)); setSelectedId(''); }
-  }
-  return <section aria-label="多仓库工作区管理"><div className="section-heading"><div><h3>多仓库工作区</h3><p>工作区用于归类项目与会话，可以不关联 Git 仓库。按需添加的仓库只管理元数据和只读状态，不会扩大 Runtime 授权。</p></div></div>
-    <div className="document-controls"><label>已有工作区<select aria-label="选择工作区" value={selected?.id ?? ''} onChange={event => setSelectedId(event.target.value)} disabled={pending || loading}><option value="">{loading ? '正在读取…' : items.length ? '请选择' : '暂无工作区'}</option>{items.map(item => <option value={item.id} key={item.id}>{item.name}（{item.repositories.length} 个仓库）</option>)}</select></label><button className="primary-button" type="button" onClick={() => { setSelectedId(''); setName(''); setDescription(''); }} disabled={pending}>新建工作区</button></div>
-    {!selected && <form className="settings-form" onSubmit={event => { event.preventDefault(); void create(); }}><h4>新建工作区</h4><label htmlFor="workspace-name">名称</label><input id="workspace-name" value={name} onChange={event => setName(event.target.value)} maxLength={100} required disabled={pending} placeholder="例如：MES6 跨仓库开发" /><label htmlFor="workspace-description">说明</label><textarea id="workspace-description" rows={3} value={description} onChange={event => setDescription(event.target.value)} maxLength={4000} disabled={pending} placeholder="例如：日常事务、业务分析或跨项目协作。" /><div className="settings-actions"><button className="primary-button" type="submit" disabled={pending || !name.trim()}>创建工作区</button></div></form>}
-    {selected && <><form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}><h4>工作区信息</h4><label htmlFor="workspace-edit-name">名称</label><input id="workspace-edit-name" value={name} onChange={event => setName(event.target.value)} maxLength={100} required disabled={pending} /><label htmlFor="workspace-edit-description">说明</label><textarea id="workspace-edit-description" rows={3} value={description} onChange={event => setDescription(event.target.value)} maxLength={4000} disabled={pending} /><div className="settings-actions"><button className="primary-button" type="submit" disabled={pending || !name.trim()}>保存工作区</button><button className="danger-button" type="button" onClick={() => void deleteWorkspace()} disabled={pending}>删除元数据</button></div></form><div className="managed-list"><div className="section-heading"><div><h4>仓库列表</h4><p>主仓库和读写意图只保存为元数据；实际 Runtime 授权仍由现有会话边界决定。</p></div><button className="secondary-button" type="button" onClick={() => void addRepository()} disabled={pending}>添加 Git 仓库</button></div>{selected.repositories.map(repository => <div className="managed-row" key={repository.id}><div className="managed-select"><Icon name="branch" /><span><strong>{repository.alias}{repository.primary ? ' · 主仓库' : ''}</strong><small>{repository.role} · {repository.access} · {repository.status ?? '未刷新'}</small><code>{repository.rootPath}</code></span></div><div className="settings-actions"><button className="secondary-button" type="button" onClick={() => void act(async () => { const updated = await api.refreshWorkspaceRepository(selected.id, repository.id); setItems(current => current.map(item => item.id === updated.id ? updated : item)); }, '仓库状态已刷新。')} disabled={pending}>刷新</button>{!repository.primary && <button className="secondary-button" type="button" onClick={() => void setPrimary(repository.id)} disabled={pending}>设为主仓库</button>}<button className="danger-button" type="button" onClick={() => void removeRepository(repository.id)} disabled={pending}>移除关联</button></div></div>)}</div></>}
-  </section>;
 }
 
 function Documents({ documents, api, act, pending, kind, onKindChange }: Operations & {

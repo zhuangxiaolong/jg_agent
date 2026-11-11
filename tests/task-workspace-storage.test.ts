@@ -11,7 +11,7 @@ async function fixture() {
   const database = join(root, 'local.db'); const path = join(root, 'task-workspace');
   const store = await LocalStore.open(database);
   store.saveProject({ id: 'project', name: '项目', path: join(root, 'project'), branch: 'main' });
-  store.saveSession({ id: 'session', projectId: 'project', title: '开发会话', workspacePath: join(root, 'parent-workspace'), mode: 'develop', status: 'idle', createdAt: '2026-11-10T00:00:00.000Z', model: 'test' });
+  store.saveSession({ id: 'session', projectId: 'project', title: '开发会话', workspacePath: join(root, 'parent-workspace'), status: 'idle', createdAt: '2026-11-10T00:00:00.000Z', model: 'test' });
   const task = createAgentTask({ id: 'task', sessionId: 'session', projectId: 'project', name: '开发任务', role: 'developer', description: '隔离开发', workspaceMode: 'worktree' });
   store.saveAgentTaskContract(task, createTaskContract(task, { acceptanceCriteria: ['真实构建和测试通过'] }), 0, 'local-user');
   const mapping = { version: 1, taskId: 'task', sessionId: 'session', projectId: 'project', path, branch: 'agent/task', baseCommit: 'a'.repeat(40), createdAt: '2026-11-10T00:00:00.000Z', retained: true };

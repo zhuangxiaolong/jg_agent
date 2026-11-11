@@ -15,7 +15,7 @@ test('工作区会话无需项目，分组重启保留且删除工作区后成�
   try {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
     store.saveWorkspace({ id: workspaceId, name: '日常事务', repositories: [] });
-    const session: Session = { id: 'workspace-chat', workspaceId, title: '业务分析', workspacePath: join(root, 'session'), mode: 'read', status: 'idle', createdAt: '2026-11-10T10:00:00Z', model: 'test-model' };
+    const session: Session = { id: 'workspace-chat', workspaceId, title: '业务分析', workspacePath: join(root, 'session'), status: 'idle', createdAt: '2026-11-10T10:00:00Z', model: 'test-model' };
     store.saveSession(session);
     store.saveSession({ ...session, id: 'independent-chat', workspaceId: undefined });
     const event: AgentEvent = { id: 'event', sessionId: session.id, type: 'user', text: '分析工作计划', createdAt: session.createdAt };
@@ -138,7 +138,7 @@ test('v4 数据库迁移后允许无项目会话并保留事件及外键约束',
     store = await LocalStore.open(path, undefined, { recoverUnfinished: false });
     assert.deepEqual(store.getSession('legacy-session')?.projectId, 'legacy-project');
     assert.equal(store.events('legacy-session')[0].id, 'legacy-event');
-    const readSession: Session = { id: 'read-session', title: '独立阅读', workspacePath: join(root, 'session-cwd'), status: 'idle', createdAt: '2026-11-04T00:01:00.000Z', model: 'test', mode: 'read' };
+    const readSession: Session = { id: 'read-session', title: '独立会话', workspacePath: join(root, 'session-cwd'), status: 'idle', createdAt: '2026-11-04T00:01:00.000Z', model: 'test' };
     const readEvent: AgentEvent = { id: 'read-event', sessionId: readSession.id, type: 'delta', text: '无项目事件', createdAt: '2026-11-04T00:01:01.000Z' };
     store.saveSession(readSession);
     store.appendEvent(readEvent);

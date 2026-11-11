@@ -8,7 +8,6 @@ export type WorkspaceRepositoryRole = 'frontend' | 'backend' | 'common' | 'servi
 export type WorkspaceAccess = 'read' | 'write';
 export interface DesktopWorkspaceRepository { id: string; alias: string; name: string; rootPath: string; role: WorkspaceRepositoryRole; primary: boolean; access: WorkspaceAccess; description?: string; defaultBranch?: string; currentBranch?: string; remoteUrl?: string; status?: 'clean' | 'dirty' | 'conflicted' | 'unavailable' }
 export interface DesktopWorkspace { id: string; name: string; description?: string; system?: string; instructions?: string; primaryRepositoryId?: string; repositories: DesktopWorkspaceRepository[]; createdAt: string; updatedAt: string }
-export type AgentMode = 'read' | 'develop';
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type RuntimeKind = 'jinggong' | 'codex' | 'claude_agent_sdk';
 export type PluginSourceType = 'zip' | 'folder' | 'local_marketplace';
@@ -123,7 +122,7 @@ export interface RequirementAcceptanceCriterion { id: string; criterionKey: stri
 export interface RequirementSnapshot { id: string; issueKey: string; jiraUpdated?: string; contentHash: string; fetchedAt: string; issue: JiraIssue }
 export interface RequirementAnalysis { taskType: RequirementTaskType; projectGeneration: ProductSystem | 'unknown'; summary: string; items: RequirementCheckItem[]; acceptanceCriteria: RequirementAcceptanceCriterion[] }
 export interface RequirementAdmission { id: string; status: RequirementAdmissionStatus; implementationAllowed: boolean; projectGeneration: ProductSystem | 'unknown'; taskType: RequirementTaskType; snapshotHash: string; templateVersion: string; ruleVersion: string; checkedAt: string; items: RequirementCheckItem[]; resolutions: RequirementResolution[]; acceptanceCriteria: RequirementAcceptanceCriterion[]; stageBlockers: RequirementBlockingStage[] }
-export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; runtimeCapabilitiesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; mode?: AgentMode; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean }
+export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; runtimeCapabilitiesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
 export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string }
@@ -174,8 +173,6 @@ export interface AgentTask {
   error?: string;
 }
 export interface AgentTaskEvent { id: string; taskId: string; sessionId: string; type: AgentEvent['type']; text: string; createdAt: string; requestId?: number | string }
-/** 瞬时审批请求；只通过 IPC 推送，不写入会话事件或数据库。 */
-export interface ApprovalRequest { token: string; sessionId: string; kind: 'command' | 'fileChange'; summary: string; cwd?: string; reason?: string }
 export interface ConversationAttachment { id: string; name: string; mimeType: string; size: number; kind: 'image' | 'file' }
 export interface FileDiff { path: string; status: string; diff: string; binary?: boolean; truncated?: boolean; staged?: boolean }
 export interface ProviderSettings { baseUrl: string; model: string; hasKey: boolean }
@@ -268,7 +265,7 @@ export interface DesktopApi {
   renameProject(id: string, name: string): Promise<Project>;
   setProjectCollapsed(id: string, collapsed: boolean): Promise<Project>;
   deleteProject(id: string): Promise<void>;
-  createSession(input: { workspaceId?: string; projectId?: string; jiraIssueKey?: string; jiraProjectKey?: string; baseBranch?: string; mode?: AgentMode; runtimeKind?: RuntimeKind; pluginIds?: string[]; alias?: string } | string, jiraIssueKey?: string, jiraProjectKey?: string, baseBranch?: string): Promise<Session>;
+  createSession(input: { workspaceId?: string; projectId?: string; jiraIssueKey?: string; jiraProjectKey?: string; baseBranch?: string; runtimeKind?: RuntimeKind; pluginIds?: string[]; alias?: string } | string, jiraIssueKey?: string, jiraProjectKey?: string, baseBranch?: string): Promise<Session>;
   listProjectBranches(projectId: string): Promise<string[]>;
   switchSessionBranch(sessionId: string, baseBranch: string): Promise<Session>;
   renameSession(id: string, alias: string): Promise<Session>;
@@ -285,10 +282,9 @@ export interface DesktopApi {
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
   cancelRun(sessionId: string): Promise<void>;
-  resolveApproval(token: string, decision: 'accept' | 'decline'): Promise<void>;
   getDiff(sessionId: string): Promise<FileDiff[]>;
   getFileDiff(sessionId: string, file: string): Promise<FileDiff>;
-  configureSession(sessionId: string, input: { providerId?: string; model?: string; mode?: AgentMode; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }): Promise<Session>;
+  configureSession(sessionId: string, input: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }): Promise<Session>;
   bindSessionProject(sessionId: string, projectId: string, baseBranch?: string): Promise<Session>;
   getSettings(): Promise<SettingsSnapshot>;
   checkRuntime(kind: RuntimeKind): Promise<RuntimeHealth>;
@@ -355,6 +351,4 @@ export interface DesktopApi {
   backup(): Promise<string | null>;
   onEvent(listener: (event: AgentEvent) => void): () => void;
   onAgentTaskEvent(listener: (event: AgentTaskEvent) => void): () => void;
-  onApprovalRequest(listener: (request: ApprovalRequest) => void): () => void;
-  onApprovalResolved(listener: (token: string) => void): () => void;
 }

@@ -22,7 +22,7 @@ async function fixture(t: TestContext) {
   await writeFile(path.join(workspace, 'fail.test.cjs'), 'const {test}=require("node:test"); const assert=require("node:assert/strict"); test("真实失败样本",()=>assert.fail("故障注入"));\n');
   git(['add', '.']); git(['commit', '-m', '建立历史验证完整性样本']);
   const store = await LocalStore.open(path.join(root, 'local.db')); const projectId = 'c'.repeat(24);
-  const session: Session = { id: randomUUID(), projectId, title: '历史证据', workspacePath: workspace, branch: 'main', mode: 'read', status: 'idle', model: 'test', createdAt: new Date().toISOString() };
+  const session: Session = { id: randomUUID(), projectId, title: '历史证据', workspacePath: workspace, branch: 'main', status: 'idle', model: 'test', createdAt: new Date().toISOString() };
   store.saveProject({ id: projectId, name: '历史验证样本', path: workspace, branch: 'main' }); store.saveSession(session);
   const evidenceRoot = path.join(root, 'evidence');
   t.after(async () => { store.close(); await rm(root, { recursive: true, force: true }); });

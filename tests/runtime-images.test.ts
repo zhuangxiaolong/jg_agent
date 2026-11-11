@@ -13,15 +13,15 @@ test('sendTurn将真实本地图片构造为原生localImage输入；参数单�
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'jinggong-runtime-image-input-')));
   const filename = path.join(root, '截图.png'); await writeFile(filename, png);
   const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model', apiKey: 'synthetic-image-fixture-key' });
-  const state = runtime as any; state.sessions.add('thread-image-fixture');
+  const state = runtime as any; state.sessions.add('thread-image-fixture'); state.sessionRoots.set('thread-image-fixture', root);
   const calls: { method: string; params: any }[] = [];
   state.request = async (method: string, params: unknown) => { calls.push({ method, params }); return { turn: { id: 'synthetic-rpc-only-turn', status: 'completed' } }; };
   await runtime.sendTurn('thread-image-fixture', '请分析截图中的生产数量', root, [filename]);
   assert.equal(calls.length, 1); assert.equal(calls[0].method, 'turn/start');
   assert.deepEqual(calls[0].params.input, [{ type: 'text', text: '请分析截图中的生产数量', text_elements: [] }, { type: 'localImage', path: filename }]);
   assert.equal(calls[0].params.environments, undefined);
-  assert.deepEqual(calls[0].params.sandboxPolicy, { type: 'workspaceWrite', writableRoots: [root], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true });
-  assert.equal(calls[0].params.approvalPolicy, 'on-request');
+  assert.deepEqual(calls[0].params.sandboxPolicy, { type: 'workspaceWrite', writableRoots: [root], networkAccess: true, excludeTmpdirEnvVar: true, excludeSlashTmp: true });
+  assert.equal(calls[0].params.approvalPolicy, 'never');
   await assert.rejects(runtime.sendTurn('thread-image-fixture', '不应发送', root, ['relative.png']), /路径无效/);
   await writeFile(path.join(root, '伪造.png'), '<html>不是图片</html>');
   await assert.rejects(runtime.sendTurn('thread-image-fixture', '不应发送', root, [path.join(root, '伪造.png')]), /签名/);
@@ -58,7 +58,7 @@ test('真实固定Windows Runtime生成localImage Schema并接受原生图片RPC
       stop = setTimeout(() => reject(new Error('真实Runtime未报告缺少独立模型密钥')), 10000);
     });
     // 绕过应用的无密钥预检查仅验证 Rust 端真实 RPC 反序列化/图片读取；独立环境无任何模型凭据。
-    const result = await state.request('turn/start', { threadId, cwd: workspace, model: 'gpt-5.4', effort: 'high', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }, input: [{ type: 'text', text: '本地图片协议验证，不执行真实推理。', text_elements: [] }, { type: 'localImage', path: filename }] });
+    const result = await state.request('turn/start', { threadId, cwd: workspace, model: 'gpt-5.4', effort: 'high', approvalPolicy: 'never', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [workspace], networkAccess: true, excludeTmpdirEnvVar: true, excludeSlashTmp: true }, input: [{ type: 'text', text: '本地图片协议验证，不执行真实推理。', text_elements: [] }, { type: 'localImage', path: filename }] });
     assert.equal(typeof result.turn.id, 'string');
     const failure = await failed;
     assert.match(failure, /JINGGONG_MODEL_API_KEY|environment variable|API key|认证|密钥/i);

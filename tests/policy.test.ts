@@ -18,6 +18,8 @@ test('不同MES版本隔离，文字要求需人工复核，完整注入不静�
   assert.equal((await evaluateRequirements(applicable, new Map(), async () => true))[0].status, 'review');
   const context = buildDeveloperContext(applicable, []);
   assert.ok(context.includes('MES5要求') && !context.includes('MES6要求'));
+  assert.match(context, /需求准入状态、缺失检查项和代码方案记录仅作提示/);
+  assert.doesNotMatch(context, /暂停代码修改|仍须发布初步修改方案|完成所有人工复核/);
   assert.throws(() => buildDeveloperContext([document(JSON.stringify({ rules: [{ type: 'shell', command: 'evil' }] }))], []), /机器规则/);
   assert.throws(() => buildDeveloperContext([document('a'.repeat(180001), '太大.md')], []), /不会静默/);
 });

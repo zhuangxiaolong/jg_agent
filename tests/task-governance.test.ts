@@ -4,13 +4,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentTask, createTaskContract, DEFAULT_TASK_BUDGET, taskContentHash } from '../packages/agent-orchestrator/src';
-import { assertRuntimeGovernance, canonicalTaskArgumentsHash, classifyRetryFailure, GovernanceError, GovernedToolGateway, normalizeTaskRelativePath, OneShotTaskApprovalBroker, resolveTaskBudgetPolicy, retryPolicyDecision, runtimeCapabilityMatrix, TaskBudgetGuard, TaskCircuitBreaker, type TaskApprovalScope, type TaskGovernanceAuditEvent } from '../packages/agent-orchestrator/src/governance';
+import { assertRuntimeGovernance, canonicalTaskArgumentsHash, classifyRetryFailure, GovernanceError, GovernedToolGateway, normalizeTaskRelativePath, resolveTaskBudgetPolicy, retryPolicyDecision, runtimeCapabilityMatrix, TaskBudgetGuard, TaskCircuitBreaker, type TaskGovernanceAuditEvent } from '../packages/agent-orchestrator/src/governance';
 
 function contract() {
   const task = createAgentTask({ id: 'task-1', sessionId: 'session-1', projectId: 'project-1', name: '治理样本', role: 'developer', description: '受控工具治理测试', runtimeKind: 'codex', workspaceMode: 'worktree' });
   return createTaskContract(task, { acceptanceCriteria: ['通过治理样本测试'], allowedTools: ['read_project', 'write_workspace'], permissions: ['read_project', 'write_workspace'], allowedPaths: ['src/**'], deniedPaths: ['src/private/**', '**/.env', '**/.env.*'] });
 }
-const scope: TaskApprovalScope = { taskId: 'task-1', sessionId: 'session-1', projectId: 'project-1', runtimeKind: 'codex', workspacePath: 'D:\\Workspace\\Sample', toolName: 'write_project_file', contractVersion: 1 };
+const scope = { workspacePath: path.resolve('task-governance-fixture'), toolName: 'write_project_file' };
 
 test('三类 Runtime 能力矩阵如实声明原生权限部分可控及 usage 未接入', () => {
   for (const kind of ['codex', 'jinggong', 'claude_agent_sdk'] as const) {
@@ -117,29 +117,6 @@ test('参数摘要键顺序规范化、原文不保留，拒绝非 JSON 与循�
   const cycle: Record<string, unknown> = {}; cycle.self = cycle;
   assert.throws(() => canonicalTaskArgumentsHash(cycle), /invalid_tool_arguments/);
 });
-test('一次性审批精确绑定所有作用域且仅消费一次，Windows工作区大小写一致', () => {
-  const broker = new OneShotTaskApprovalBroker(() => 100);
-  const grant = broker.grant(scope, { content: '合成敏感样本', path: 'src/a.ts' }, 200);
-  assert.equal(Object.isFrozen(grant), true);
-  assert.equal(JSON.stringify(grant).includes('合成敏感样本'), false);
-  broker.consume(grant.id, { ...scope, workspacePath: 'd:/workspace/sample' }, { path: 'src/a.ts', content: '合成敏感样本' });
-  assert.throws(() => broker.consume(grant.id, scope, { path: 'src/a.ts' }), /consumed/);
-  for (const change of [{ taskId: 'other' }, { sessionId: 'other' }, { projectId: 'other' }, { runtimeKind: 'jinggong' as const }, { workspacePath: 'D:/other' }, { toolName: 'other' }, { contractVersion: 2 }]) {
-    const item = broker.grant(scope, {}, 200);
-    assert.throws(() => broker.consume(item.id, { ...scope, ...change }, {}), /scope_mismatch/);
-  }
-});
-
-test('审批变更参数、过期、撤销都拒绝，并消耗已尝试使用的令牌', () => {
-  let now = 0; const broker = new OneShotTaskApprovalBroker(() => now);
-  const changed = broker.grant(scope, { value: 1 }, 10);
-  assert.throws(() => broker.consume(changed.id, scope, { value: 2 }), /scope_mismatch/);
-  assert.throws(() => broker.consume(changed.id, scope, { value: 1 }), /consumed/);
-  const expired = broker.grant(scope, {}, 10); now = 10;
-  assert.throws(() => broker.consume(expired.id, scope, {}), /expired/);
-  const revoked = broker.grant(scope, {}, 20); assert.equal(broker.revoke(revoked.id), true);
-  assert.throws(() => broker.consume(revoked.id, scope, {}), /consumed/);
-});
 
 test('路径只接受相对路径，拒绝 UNC/盘符/遍历/ADS/尾点空格等 Windows 别名', () => {
   assert.equal(normalizeTaskRelativePath('src\\A.ts'), 'src/A.ts');
@@ -156,17 +133,33 @@ test('工具网关允许路径内读取，禁止规则优先且大小写无法�
   assert.equal(Object.isFrozen(events[0].payload), true);
 });
 
-test('受控写操作必须有精确一次审批，审计只有摘要没有参数和结果原文', async () => {
-  const events: TaskGovernanceAuditEvent[] = []; const approvals = new OneShotTaskApprovalBroker();
-  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), approvals, audit: event => { events.push(event); } });
+test('已获契约权限的写操作直接执行，审计只有摘要没有参数和结果原文', async () => {
+  const events: TaskGovernanceAuditEvent[] = [];
+  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), audit: event => { events.push(event); } });
   const args = { path: 'src/a.ts', content: '合成秘密原文不应进入审计' };
-  await assert.rejects(gateway.execute({ callId: 'without-approval', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace', paths: ['src/a.ts'] }, async () => assert.fail('无审批不应执行')), /approval_required/);
-  const grant = approvals.grant(scope, args, Date.now() + 10000);
-  await gateway.execute({ callId: 'write-1', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace', paths: ['src/a.ts'], approvalId: grant.id }, async () => ({ text: '合成结果原文不应进入审计' }));
+  let executions = 0;
+  await gateway.execute({ callId: 'write-1', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace', paths: ['src/a.ts'] }, async () => { executions++; return { text: '合成结果原文不应进入审计' }; });
+  assert.equal(executions, 1);
   const encoded = JSON.stringify(events);
   assert.equal(encoded.includes(args.content), false);
   assert.equal(encoded.includes('合成结果原文'), false);
-  assert.ok(events.some(event => event.eventType === 'approval.consumed'));
+  assert.deepEqual(events.map(event => event.eventType), ['tool.started', 'tool.completed']);
+  await assert.rejects(gateway.execute({ callId: 'write-denied-path', toolName: scope.toolName, arguments: { ...args, path: 'src/private/a.ts' }, requiredPermission: 'write_workspace', paths: ['src/private/a.ts'] }, async () => assert.fail('契约禁止路径不应执行')), /path_denied/);
+});
+
+test('契约内非读取工具自动执行并计入预算，契约外权限继续拒绝', async () => {
+  const permissions = ['write_workspace', 'execute_command', 'access_network', 'install_dependency', 'read_secrets', 'database_read', 'database_write', 'git_commit', 'git_push', 'git_merge', 'delete_files'] as const;
+  const granted = contract(); granted.allowedTools = [...permissions]; granted.permissions = [...permissions];
+  const budget = new TaskBudgetGuard(DEFAULT_TASK_BUDGET);
+  const gateway = new GovernedToolGateway({ contract: granted, workspacePath: scope.workspacePath, budget });
+  let executions = 0;
+  for (const permission of permissions) {
+    assert.deepEqual(await gateway.execute({ callId: permission, toolName: permission, arguments: {}, requiredPermission: permission }, async () => { executions++; return { executed: permission }; }), { executed: permission });
+  }
+  assert.equal(executions, permissions.length); assert.equal(budget.snapshot().toolCalls, permissions.length);
+  const denied = contract(); denied.allowedTools.push('git_push');
+  const deniedGateway = new GovernedToolGateway({ contract: denied, workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET) });
+  await assert.rejects(deniedGateway.execute({ callId: 'no-contract-permission', toolName: 'git_push', arguments: {}, requiredPermission: 'git_push' }, async () => assert.fail('未获契约权限不应执行')), /permission_denied/);
 });
 
 test('网关在途与已完成调用复用同一次执行，变更参数不得借用幂等键', async () => {
@@ -206,16 +199,15 @@ test('执行错误仅审计固定分类，错误后相同调用不会自动再�
   assert.equal(events.at(-1)?.eventType, 'tool.failed');
 });
 
-test('审批消费后的审计失败不执行工具，已消费令牌不能再次使用', async () => {
-  const approvals = new OneShotTaskApprovalBroker(); let count = 0;
-  const args = { path: 'src/a.ts', content: '尚未执行' }; const grant = approvals.grant(scope, args, Date.now() + 10000);
+test('写操作开始审计失败不执行工具，重复请求仍保持同一失败', async () => {
+  let count = 0;
+  const args = { path: 'src/a.ts', content: '尚未执行' };
   const events: TaskGovernanceAuditEvent[] = [];
-  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), approvals, audit: event => { events.push(event); if (event.eventType === 'approval.consumed') throw new Error('合成审批审计写入失败'); } });
-  const input = { callId: 'approval-audit-fault', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace' as const, paths: ['src/a.ts'], approvalId: grant.id };
+  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), audit: event => { events.push(event); if (event.eventType === 'tool.started') throw new Error('合成写操作开始审计写入失败'); } });
+  const input = { callId: 'write-start-audit-fault', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace' as const, paths: ['src/a.ts'] };
   const operation = async () => { count += 1; return {}; };
   await assert.rejects(gateway.execute(input, operation)); await assert.rejects(gateway.execute(input, operation));
-  assert.equal(count, 0); assert.equal(events.some(event => event.eventType === 'tool.started'), false);
-  assert.throws(() => approvals.consume(grant.id, scope, args), /consumed/);
+  assert.equal(count, 0); assert.deepEqual(events.map(event => event.eventType), ['tool.started']);
 });
 
 test('tool.started 审计失败时工具尚未执行，重复请求仍保持拒绝', async () => {
@@ -229,11 +221,9 @@ test('tool.started 审计失败时工具尚未执行，重复请求仍保持拒�
 test('真实文件副作用后发生异常时审计 unknown_outcome，同一调用不再次写入', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'jinggong-tool-side-effect-'));
   try {
-    const approvals = new OneShotTaskApprovalBroker(); const args = { path: 'src/a.ts', content: '真实副作用样本' }; const events: TaskGovernanceAuditEvent[] = []; let count = 0;
-    const actualScope = { ...scope, workspacePath: root };
-    const grant = approvals.grant(actualScope, args, Date.now() + 10000);
-    const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: root, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), approvals, audit: event => { events.push(event); } });
-    const input = { callId: 'side-effect-fault', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace' as const, paths: ['src/a.ts'], approvalId: grant.id };
+    const args = { path: 'src/a.ts', content: '真实副作用样本' }; const events: TaskGovernanceAuditEvent[] = []; let count = 0;
+    const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: root, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), audit: event => { events.push(event); } });
+    const input = { callId: 'side-effect-fault', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace' as const, paths: ['src/a.ts'] };
     const operation = async () => { count += 1; await writeFile(path.join(root, 'actual-result.txt'), args.content); throw new Error('已写入之后的合成响应异常'); };
     await assert.rejects(gateway.execute(input, operation), /tool_outcome_unknown/);
     await assert.rejects(gateway.execute(input, operation), /tool_outcome_unknown/);
@@ -251,10 +241,9 @@ test('tool.completed 审计失败会尽力落 unknown_outcome 并禁止相同调
   assert.equal(count, 1); assert.deepEqual(events.map(event => event.eventType), ['tool.started', 'tool.unknown_outcome']);
 });
 
-test('审批后等待审计期间参数发生变化时，在真正执行前拒绝', async () => {
-  const approvals = new OneShotTaskApprovalBroker(); const args = { path: 'src/a.ts', content: '获批内容' }; let count = 0;
-  const grant = approvals.grant(scope, args, Date.now() + 10000);
-  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), approvals, audit: event => { if (event.eventType === 'tool.started') args.content = '变更后的未获批内容'; } });
-  await assert.rejects(gateway.execute({ callId: 'mutation-after-approval', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace', paths: ['src/a.ts'], approvalId: grant.id }, async () => { count += 1; return {}; }), /arguments_changed_after_authorization/);
+test('契约校验后等待审计期间参数发生变化时，在真正执行前拒绝', async () => {
+  const args = { path: 'src/a.ts', content: '校验时内容' }; let count = 0;
+  const gateway = new GovernedToolGateway({ contract: contract(), workspacePath: scope.workspacePath, budget: new TaskBudgetGuard(DEFAULT_TASK_BUDGET), audit: event => { if (event.eventType === 'tool.started') args.content = '校验后的变更内容'; } });
+  await assert.rejects(gateway.execute({ callId: 'mutation-after-contract-check', toolName: scope.toolName, arguments: args, requiredPermission: 'write_workspace', paths: ['src/a.ts'] }, async () => { count += 1; return {}; }), /arguments_changed_after_authorization/);
   assert.equal(count, 0);
 });

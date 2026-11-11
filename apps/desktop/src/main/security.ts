@@ -10,7 +10,6 @@ export const promptSchema = z.string().trim().min(1).max(50000);
 export const sessionSendSchema = z.object({ prompt: promptSchema, attachmentIds: z.array(idSchema).max(20).default([]) }).strict();
 export const requirementResolutionActionSchema = z.enum(['confirm', 'provide_info', 'reject_assumption', 'not_applicable', 'accept_risk']);
 export const requirementResolutionSchema = z.object({ itemId: idSchema, action: requirementResolutionActionSchema, valueText: z.string().max(8000).optional(), reason: z.string().max(4000).optional() }).strict();
-export const approvalDecisionSchema = z.object({ token: z.string().uuid(), decision: z.enum(['accept', 'decline']) }).strict();
 export const clipboardTextSchema = z.string().max(2 * 1024 * 1024, '代码内容过长，请分段复制');
 export const providerSchema = z.object({
   baseUrl: httpsUrlSchema,
@@ -29,7 +28,7 @@ export const layoutSchema = z.object({
 export const projectNameSchema = z.string().trim().min(1, '请输入项目显示名称').max(100, '项目显示名称最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '项目显示名称不能包含换行或控制字符');
 export const sessionAliasSchema = z.string().trim().max(100, '会话别名最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '会话别名不能包含换行或控制字符');
 export const systemSchema = z.enum(['MES5', 'MES6', 'WMS', '通用']);
-export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), mode: z.enum(['read', 'develop']).optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && (value.runtimeKind !== undefined || value.providerId !== undefined), '会话配置无效');
+export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && (value.runtimeKind !== undefined || value.providerId !== undefined), '会话配置无效');
 const jiraUrlSchema = z.string().trim().min(1).max(2000).transform((value, context) => {
   try { return normalizeJiraUrl(value); }
   catch { context.addIssue({ code: 'custom', message: '请输入有效的 HTTP 或 HTTPS Jira 地址，不能包含账号或密码。' }); return z.NEVER; }
@@ -58,11 +57,9 @@ export const sessionCreateSchema = z.object({
   jiraIssueKey: jiraIssueKeySchema.optional(),
   jiraProjectKey: jiraProjectScopeSchema,
   baseBranch: z.string().trim().min(1).max(255).optional(),
-  mode: z.enum(['read', 'develop']).default('read'),
   runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk']).default('claude_agent_sdk'),
   pluginIds: z.array(pluginIdentifierSchema).max(100).optional(),
 }).strict()
-  .refine(value => !!value.projectId || value.mode === 'read', '未选择项目时只能创建只读会话')
   .refine(value => (!value.jiraIssueKey && !value.jiraProjectKey) || (!!value.projectId && !!value.jiraIssueKey), 'Jira 关联必须同时绑定项目和任务');
 export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), startAt: z.number().int().min(0).max(1000000).optional(), onlyMine: z.boolean().optional(), scope: z.enum(['daily', 'recent']).optional(), projectKey: jiraProjectScopeSchema }).strict();
 export const requirementInputSchema = z.object({ id: idSchema.optional(), title: z.string().trim().min(1).max(160).refine(value => !/[\r\n\x00]/.test(value), '标题不能包含换行'), content: z.string().min(1).max(80000).refine(value => !!value.trim(), '请输入开发要求正文'), system: systemSchema }).strict();

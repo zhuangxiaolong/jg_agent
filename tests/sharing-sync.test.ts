@@ -45,7 +45,7 @@ test('分享契约不携带 Runtime，导入会话默认 Claude 且不受旧全�
     for (const legacyKind of ['jinggong', 'codex', 'claude_agent_sdk'] as const) {
       store.saveRuntimeKind(legacyKind);
       const id = randomUUID();
-      const imported = createShareImportSession({ id, title: bundle.session!.title, system: bundle.session!.system, workspacePath: path.join(root, id), createdAt: new Date().toISOString(), model: '', mode: 'read', status: 'idle' });
+      const imported = createShareImportSession({ id, title: bundle.session!.title, system: bundle.session!.system, workspacePath: path.join(root, id), createdAt: new Date().toISOString(), model: '', status: 'idle' });
       const prepared = prepareShareImport(store, bundle, imported); store.importSharedData(prepared.session, prepared.events, prepared.memories);
       assert.equal(store.getSession(id)?.runtimeKind, 'claude_agent_sdk');
       assert.equal(store.getSession(id)?.imported, true);

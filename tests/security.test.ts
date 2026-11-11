@@ -54,18 +54,18 @@ test('Jira 查询项目范围保留日报和本人条件并拒绝注入或伪造
   assert.equal(jiraSearchSchema.safeParse({ ...query, issue: { key: 'CD-435' } }).success, false);
 });
 
-test('会话创建默认只读且无项目不允许开发或 Jira 关联', () => {
+test('会话创建默认可开发且无项目可直接开始，Jira 关联仍要求项目和任务', () => {
   const empty = sessionCreateSchema.parse({});
-  assert.equal(empty.mode, 'read');
-  assert.equal(sessionCreateSchema.safeParse({ mode: 'develop' }).success, false);
+  assert.equal('mode' in empty, false);
+  assert.equal(sessionCreateSchema.safeParse({}).success, true);
   assert.equal(sessionCreateSchema.safeParse({ jiraIssueKey: 'CD-435' }).success, false);
   assert.equal(sessionCreateSchema.safeParse({ jiraProjectKey: 'CD' }).success, false);
-  assert.equal(sessionCreateSchema.safeParse({ projectId: 'a'.repeat(24), mode: 'develop' }).success, true);
+  assert.equal(sessionCreateSchema.safeParse({ projectId: 'a'.repeat(24) }).success, true);
   const workspaceId = '00000000-0000-4000-8000-000000000001';
   assert.equal(sessionCreateSchema.parse({ workspaceId }).workspaceId, workspaceId);
   assert.equal(sessionCreateSchema.parse({ workspaceId }).projectId, undefined);
   assert.equal(sessionCreateSchema.safeParse({ workspaceId: '../invalid' }).success, false);
-  assert.equal(sessionCreateSchema.safeParse({ workspaceId, mode: 'develop' }).success, false);
+  assert.equal(sessionCreateSchema.safeParse({ workspaceId }).success, true);
   assert.equal(sessionCreateSchema.parse({ alias: '佛山天气测试' }).alias, '佛山天气测试');
   assert.equal(sessionCreateSchema.safeParse({ alias: '一\n二' }).success, false);
 });
@@ -74,12 +74,12 @@ test('新会话默认 Claude Runtime，允许逐会话显式选择且拒绝无�
   assert.equal(sessionCreateSchema.parse({}).runtimeKind, 'claude_agent_sdk');
   for (const runtimeKind of ['jinggong', 'codex', 'claude_agent_sdk'] as const) {
     assert.equal(sessionCreateSchema.parse({ runtimeKind }).runtimeKind, runtimeKind);
-    assert.equal(sessionCreateSchema.parse({ projectId: 'a'.repeat(24), mode: 'develop', runtimeKind }).runtimeKind, runtimeKind);
+    assert.equal(sessionCreateSchema.parse({ projectId: 'a'.repeat(24), runtimeKind }).runtimeKind, runtimeKind);
   }
   for (const runtimeKind of ['unknown', '', null, 1]) assert.equal(sessionCreateSchema.safeParse({ runtimeKind }).success, false);
 });
 
-test('会话可单独选择 Runtime，省略字段不补写模式或推理强度，模型变更仍要求完整配对', () => {
+test('会话可单独选择 Runtime 和推理强度，模型变更仍要求完整配对', () => {
   for (const runtimeKind of ['jinggong', 'codex', 'claude_agent_sdk'] as const) {
     assert.deepEqual(sessionOptionsSchema.parse({ runtimeKind }), { runtimeKind });
     assert.equal(sessionOptionsSchema.safeParse({ runtimeKind, providerId: 'legacy-default' }).success, false);

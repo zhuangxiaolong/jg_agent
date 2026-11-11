@@ -65,8 +65,6 @@ html[data-style="jinggong"][data-theme="dark"] body { background: #0b1220; }
 .dock-layout .project-new-session { margin: 3px 8px 8px 30px; font-size: 12px; }
 .dock-layout .sidebar-empty { padding: 10px 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .dock-layout .sidebar-footer { padding: 11px 12px 10px; border-top: 1px solid var(--line); background: var(--surface-0); }
-.dock-layout .runtime-summary { min-height: 28px; padding: 0 4px 8px; color: var(--text-secondary); font-size: 12px; }
-.dock-layout .runtime-version { color: var(--muted); font-size: 11px; }
 .dock-layout .sidebar-actions { gap: 6px; }
 .dock-layout .sidebar-actions button { min-height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text-secondary); font-size: 12px; }
 .dock-layout .sidebar-actions button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }

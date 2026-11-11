@@ -26,7 +26,7 @@ test('修改项目显示名称仅更新SQLite元数据，保留路径、分支�
     store.saveSession(session); store.saveSession({ ...session, id: 'custom', title: '保留用户指定标题' });
     const renamed = store.renameProject(project.id, '  新显示名称  ');
     assert.deepEqual(renamed, { ...project, name: '新显示名称' });
-    assert.equal(store.getSession('session')!.title, '新显示名称 · 只读分析');
+    assert.equal(store.getSession('session')!.title, '新显示名称 · 会话');
     assert.equal(store.getSession('custom')!.title, '保留用户指定标题');
     assert.equal(store.getSession('session')!.workspacePath, session.workspacePath);
     assert.equal(store.getSession('session')!.branch, session.branch);
@@ -91,7 +91,7 @@ test('会话别名独立默认标题和Jira关联，推理强度逐会话保存�
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
   try {
     const project = { id: 'project', name: '合成项目', path: 'D:\\fixture', branch: 'main' }; store.saveProject(project);
-    const initial = { id: 'session', projectId: project.id, title: 'CD-435 · 合成项目 · 只读分析', workspacePath: 'D:\\fixture-work', branch: 'agent/session', status: 'idle' as const, createdAt: '2026-11-04T00:00:00Z', model: '', jiraIssue: issue() };
+    const initial = { id: 'session', projectId: project.id, title: 'CD-435 · 合成项目 · 会话', workspacePath: 'D:\\fixture-work', branch: 'agent/session', status: 'idle' as const, createdAt: '2026-11-04T00:00:00Z', model: '', jiraIssue: issue() };
     store.saveSession(initial);
     const renamed = store.renameSession(initial.id, '  排查过站问题  ');
     assert.equal(renamed.alias, '排查过站问题'); assert.equal(renamed.title, initial.title);
@@ -111,13 +111,14 @@ test('会话别名独立默认标题和Jira关联，推理强度逐会话保存�
     assert.equal(store.getSession(initial.id)!.reasoningEffort, undefined);
     assert.equal(store.getSession(initial.id)!.alias, undefined);
     for (const alias of ['x'.repeat(101), '一\n二']) assert.equal(sessionAliasSchema.safeParse(alias).success, false);
-    const options = { providerId: 'legacy-default', model: 'fixture-model', mode: 'read' };
+    const options = { providerId: 'legacy-default', model: 'fixture-model' };
     assert.equal(sessionOptionsSchema.safeParse({ ...options, reasoningEffort: 'high' }).success, true);
     assert.equal(sessionOptionsSchema.safeParse({ ...options, reasoningEffort: 'unbounded' }).success, false);
     assert.equal(sessionOptionsSchema.safeParse({ ...options, runtimeKind: 'claude_agent_sdk' }).success, true);
-    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', runtimeKind: 'claude_agent_sdk' }).success, true);
-    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', runtimeKind: 'codex' }).success, true);
-    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', providerId: 'legacy-default' }).success, false);
+    assert.equal(sessionOptionsSchema.safeParse({ runtimeKind: 'claude_agent_sdk' }).success, true);
+    assert.equal(sessionOptionsSchema.safeParse({ runtimeKind: 'codex' }).success, true);
+    assert.equal(sessionOptionsSchema.safeParse({ providerId: 'legacy-default' }).success, false);
+    assert.equal(sessionOptionsSchema.safeParse({ ...options, mode: 'read' }).success, false);
     assert.equal(sessionOptionsSchema.safeParse({ ...options, runtimeKind: 'unknown' }).success, false);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
