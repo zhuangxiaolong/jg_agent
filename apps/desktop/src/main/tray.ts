@@ -10,11 +10,11 @@ export function createDesktopTray(window: BrowserWindow, iconPath: string, reque
     if (window.isMinimized()) window.restore();
     window.show(); window.focus();
   };
-  tray.setToolTip('精工智能开发平台');
+  tray.setToolTip('精工Agent');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开精工智能开发平台', click: show },
+    { label: '打开精工Agent', click: show },
     { type: 'separator' },
-    { label: '退出精工智能开发平台', click: () => { void requestExit().catch(() => dialog.showErrorBox('退出失败', '请等待当前操作结束后重试。')); } },
+    { label: '退出精工Agent', click: () => { void requestExit().catch(() => dialog.showErrorBox('退出失败', '请等待当前操作结束后重试。')); } },
   ]));
   tray.on('click', show);
   tray.on('double-click', show);

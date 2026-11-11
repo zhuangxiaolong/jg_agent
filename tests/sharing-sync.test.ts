@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { LocalStore } from '../packages/storage/src';
-import { exportShare, parseShare, prepareShareImport, sharedSessionContext } from '../apps/desktop/src/main/sharing';
+import { createShareImportSession, exportShare, parseShare, prepareShareImport, sharedSessionContext } from '../apps/desktop/src/main/sharing';
 import { requirementsSource, shouldSyncRequirementsOnStartup, updateRequirements } from '../apps/desktop/src/main/requirements-sync';
 import type { Session } from '../packages/domain/src';
 import { CodexRuntime } from '../packages/agent-runtime/src';
@@ -32,6 +32,28 @@ test('真实SQLite分享往返保留消息和记忆，重新生成ID，不导出
     assert.throws(() => parseShare(JSON.stringify({ ...bundle, version: 999 })), /version/);
     assert.throws(() => prepareShareImport(destination, bundle), /请选择本机项目/);
   } finally { source.close(); destination.close(); }
+});
+
+test('分享契约不携带 Runtime，导入会话默认 Claude 且不受旧全局值影响', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-sharing-runtime-')), store = await LocalStore.open(path.join(root, 'data.db'));
+  try {
+    const source: Session = { id: randomUUID(), title: '分享经验', workspacePath: path.join(root, 'source'), model: '', runtimeKind: 'codex', runtimeThreadId: 'existing-thread', status: 'completed', createdAt: new Date().toISOString() };
+    store.saveSession(source);
+    const bundle = parseShare(exportShare(store, { kind: 'session', sessionId: source.id }, text => text));
+    assert.equal(Object.hasOwn(bundle.session!, 'runtimeKind'), false);
+    assert.throws(() => parseShare(JSON.stringify({ ...bundle, session: { ...bundle.session, runtimeKind: 'jinggong' } })), /runtimeKind/);
+    for (const legacyKind of ['jinggong', 'codex', 'claude_agent_sdk'] as const) {
+      store.saveRuntimeKind(legacyKind);
+      const id = randomUUID();
+      const imported = createShareImportSession({ id, title: bundle.session!.title, system: bundle.session!.system, workspacePath: path.join(root, id), createdAt: new Date().toISOString(), model: '', mode: 'read', status: 'idle' });
+      const prepared = prepareShareImport(store, bundle, imported); store.importSharedData(prepared.session, prepared.events, prepared.memories);
+      assert.equal(store.getSession(id)?.runtimeKind, 'claude_agent_sdk');
+      assert.equal(store.getSession(id)?.imported, true);
+      assert.equal(store.getRuntimeKind(), legacyKind);
+      assert.equal(store.getSession(source.id)?.runtimeKind, 'codex');
+      assert.equal(store.getSession(source.id)?.runtimeThreadId, 'existing-thread');
+    }
+  } finally { store.close(); }
 });
 
 test('在线规范按清单校验摘要、原子保存、保留禁用状态，拒绝本地冲突及损坏的更新', async () => {

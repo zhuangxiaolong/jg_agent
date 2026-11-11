@@ -1,6 +1,14 @@
 import { safeStorage } from 'electron';
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+
+export interface CredentialVault {
+  has(reference: string, scope: string): boolean;
+  save(reference: string, secret: string, scope: string): void;
+  delete(reference: string, scope: string): void;
+}
+
 export class CredentialStore {
   constructor(private readonly filename: string) {}
   get hasKey(): boolean { return existsSync(this.filename); }
@@ -21,4 +29,20 @@ export class CredentialStore {
     return record.secret;
   }
   delete(): void { if (this.hasKey) unlinkSync(this.filename); }
+}
+
+/** MCP 凭据只按不可逆文件名落 DPAPI，引用和作用域写在加密载荷内。 */
+export class DpapiCredentialVault implements CredentialVault {
+  private readonly root: string;
+  constructor(root: string) { this.root = resolve(root); }
+  private credential(reference: string, scope: string): CredentialStore {
+    const id = createHash('sha256').update(scope).update('\0').update(reference).digest('hex');
+    return new CredentialStore(join(this.root, `${id}.dpapi`));
+  }
+  has(reference: string, scope: string): boolean { return this.credential(reference, scope).read(scope) !== undefined; }
+  save(reference: string, secret: string, scope: string): void {
+    if (!reference || !scope || !secret) throw new Error('MCP 凭据引用、作用域和密钥不能为空');
+    this.credential(reference, scope).save(secret, scope);
+  }
+  delete(reference: string, scope: string): void { this.credential(reference, scope).delete(); }
 }

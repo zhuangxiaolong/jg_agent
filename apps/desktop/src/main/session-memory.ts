@@ -26,8 +26,8 @@ export function rememberCompletedSession(store: LocalStore, session: Session, as
   store.saveMemory(memory); return memory;
 }
 
-export function sessionMemories(memories: Memory[], projectId: string): Memory[] {
+export function sessionMemories(memories: Memory[], projectId?: string): Memory[] {
   const manual = memories.filter(item => item.source !== 'session');
-  const automatic = memories.filter(item => item.source === 'session' && item.projectId === projectId).slice(0, 4);
+  const automatic = memories.filter(item => item.source === 'session' && (projectId ? item.projectId === projectId : item.projectId === undefined)).slice(0, 4);
   return [...manual, ...automatic];
 }

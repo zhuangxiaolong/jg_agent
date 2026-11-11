@@ -20,7 +20,8 @@ test('sendTurn将真实本地图片构造为原生localImage输入；参数单�
   assert.equal(calls.length, 1); assert.equal(calls[0].method, 'turn/start');
   assert.deepEqual(calls[0].params.input, [{ type: 'text', text: '请分析截图中的生产数量', text_elements: [] }, { type: 'localImage', path: filename }]);
   assert.equal(calls[0].params.environments, undefined);
-  assert.deepEqual(calls[0].params.sandboxPolicy, { type: 'dangerFullAccess' });
+  assert.deepEqual(calls[0].params.sandboxPolicy, { type: 'workspaceWrite', writableRoots: [root], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true });
+  assert.equal(calls[0].params.approvalPolicy, 'on-request');
   await assert.rejects(runtime.sendTurn('thread-image-fixture', '不应发送', root, ['relative.png']), /路径无效/);
   await writeFile(path.join(root, '伪造.png'), '<html>不是图片</html>');
   await assert.rejects(runtime.sendTurn('thread-image-fixture', '不应发送', root, [path.join(root, '伪造.png')]), /签名/);
@@ -31,7 +32,7 @@ test('sendTurn将真实本地图片构造为原生localImage输入；参数单�
 });
 
 test('真实固定Windows Runtime生成localImage Schema并接受原生图片RPC，无模型密钥不发起推理', { timeout: 45000 }, async (t) => {
-  if (process.platform !== 'win32') return t.skip('仅验证 Windows 原生 Runtime');
+  if (process.platform !== 'win32') return t.skip('仅验证 Windows 原生 Runtime 协议，不证明 Jinggong Runtime 安全边界');
   let executable = path.resolve('apps/desktop/resources/runtime/bin/codex.exe');
   try { await access(executable); } catch { executable = path.resolve('node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe'); try { await access(executable); } catch { return t.skip('固定Runtime尚未安装'); } }
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-runtime-real-image-'));
@@ -57,7 +58,7 @@ test('真实固定Windows Runtime生成localImage Schema并接受原生图片RPC
       stop = setTimeout(() => reject(new Error('真实Runtime未报告缺少独立模型密钥')), 10000);
     });
     // 绕过应用的无密钥预检查仅验证 Rust 端真实 RPC 反序列化/图片读取；独立环境无任何模型凭据。
-    const result = await state.request('turn/start', { threadId, cwd: workspace, model: 'gpt-5.4', effort: 'high', approvalPolicy: 'never', sandboxPolicy: { type: 'dangerFullAccess' }, input: [{ type: 'text', text: '本地图片协议验证，不执行真实推理。', text_elements: [] }, { type: 'localImage', path: filename }] });
+    const result = await state.request('turn/start', { threadId, cwd: workspace, model: 'gpt-5.4', effort: 'high', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }, input: [{ type: 'text', text: '本地图片协议验证，不执行真实推理。', text_elements: [] }, { type: 'localImage', path: filename }] });
     assert.equal(typeof result.turn.id, 'string');
     const failure = await failed;
     assert.match(failure, /JINGGONG_MODEL_API_KEY|environment variable|API key|认证|密钥/i);

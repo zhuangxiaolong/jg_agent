@@ -1,0 +1,171 @@
+/* 精工工作台 UI 改造：只覆盖展示层，业务组件继续使用现有状态与事件。 */
+:root {
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+}
+
+html[data-style="jinggong"][data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #0f1726;
+  --surface-1: #131e2e;
+  --surface-2: #182437;
+  --surface-3: #202e43;
+  --field: #111b2a;
+  --text: #e8eef6;
+  --text-secondary: #a5b3c5;
+  --muted: #78889d;
+  --line: #2a3a50;
+  --accent: #3b82f6;
+  --accent-bg: #192f52;
+  --accent-text: #f7fbff;
+  --danger: #ef4444;
+  --danger-bg: #3b1f2a;
+  --info-bg: #142d42;
+  --selection: #254a79;
+  --shadow: #030814aa;
+  --bg: #0b1220;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --info: #38bdf8;
+}
+
+html, body, #root { min-width: 0; max-width: 100%; overflow: hidden; }
+html[data-style="jinggong"][data-theme="dark"],
+html[data-style="jinggong"][data-theme="dark"] body { background: #0b1220; }
+
+.dock-layout { min-width: 0; background: var(--surface-1); }
+.dock-layout .sidebar { width: clamp(212px, var(--sidebar-width), 256px); background: var(--surface-0); border-right: 1px solid var(--line); }
+.dock-layout .workspace { min-width: 0; background: var(--surface-1); }
+.dock-layout .workspace-header { height: 50px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--surface-1); }
+.dock-layout .breadcrumbs { min-width: 0; gap: 9px; color: var(--muted); font-size: 13px; }
+.dock-layout .breadcrumbs strong, .dock-layout .breadcrumb-session { color: var(--text); }
+.dock-layout .header-actions { gap: 8px; }
+.dock-layout .icon-button { width: 32px; height: 32px; border-radius: 7px; color: var(--text-secondary); }
+.dock-layout .icon-button:hover:not(:disabled), .dock-layout .icon-button:focus-visible { color: var(--text); background: var(--surface-3); }
+.dock-layout .panel-toggles { padding: 2px; border-color: var(--line); border-radius: 8px; background: var(--surface-0); }
+.dock-layout .panel-toggles .icon-button { width: 29px; height: 28px; }
+.dock-layout .panel-toggles .panel-visible { background: var(--accent-bg); color: var(--accent-hover, #60a5fa); }
+.dock-layout .mode-badge { min-height: 28px; padding: 0 9px; border-color: var(--line); border-radius: 6px; background: var(--accent-bg); color: var(--text-secondary); font-size: 12px; }
+
+.dock-layout .brand { height: 74px; padding: 0 16px; gap: 10px; border-bottom: 1px solid var(--line); }
+.dock-layout .brand-mark { width: 38px; height: 38px; }
+.dock-layout .brand strong { color: var(--text); font-size: 16px; line-height: 1.25; }
+.dock-layout .brand span:not(.version) { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.dock-layout .version { padding: 4px 6px; border-color: var(--line); background: var(--surface-2); color: var(--muted); font-size: 10px; }
+.dock-layout .top-nav { gap: 4px; padding: 14px 12px 12px; }
+.dock-layout .nav-item { min-height: 38px; padding: 0 11px; border-radius: 7px; color: var(--text-secondary); font-size: 13px; }
+.dock-layout .top-nav .nav-item.active { background: var(--accent-bg); color: var(--text); }
+.dock-layout .active-dot { width: 5px; height: 5px; background: var(--accent); }
+.dock-layout .sidebar-section { padding-left: 16px; padding-right: 12px; color: var(--muted); font-size: 12px; }
+.dock-layout .projects-heading, .dock-layout .sessions-heading { min-height: 34px; }
+.dock-layout .project-list { padding: 2px 10px 12px; }
+.dock-layout .project-item, .dock-layout .session-item { min-height: 36px; padding: 0 9px; border-radius: 7px; color: var(--text-secondary); font-size: 13px; }
+.dock-layout .project-item:hover, .dock-layout .session-item:hover { background: var(--surface-2); color: var(--text); }
+.dock-layout .project-item.selected, .dock-layout .session-item.selected { background: var(--surface-3); color: var(--text); }
+.dock-layout .project-new-session { margin: 3px 8px 8px 30px; font-size: 12px; }
+.dock-layout .sidebar-empty { padding: 10px 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.dock-layout .sidebar-footer { padding: 11px 12px 10px; border-top: 1px solid var(--line); background: var(--surface-0); }
+.dock-layout .runtime-summary { min-height: 28px; padding: 0 4px 8px; color: var(--text-secondary); font-size: 12px; }
+.dock-layout .runtime-version { color: var(--muted); font-size: 11px; }
+.dock-layout .sidebar-actions { gap: 6px; }
+.dock-layout .sidebar-actions button { min-height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text-secondary); font-size: 12px; }
+.dock-layout .sidebar-actions button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.dock-layout .local-caption { margin-top: 8px; color: var(--muted); font-size: 10px; }
+
+.dock-layout .workspace-body { min-width: 0; background: var(--surface-1); }
+.dock-layout .conversation { min-width: 0; padding-top: 12px; background: var(--surface-1); }
+.dock-layout .session-welcome { padding: 24px 12px 14px; }
+.dock-layout .session-welcome h1 { margin: 13px 0 8px; color: var(--text); font-size: 21px; line-height: 1.35; }
+.dock-layout .session-welcome p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+.dock-layout .suggestions { max-width: 560px; gap: 8px; margin-top: 20px; }
+.dock-layout .suggestions button { min-height: 38px; padding: 0 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text-secondary); font-size: 13px; }
+.dock-layout .suggestions button:hover { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+.dock-layout .messages { min-width: 0; padding: 0 24px 16px; }
+.dock-layout .message { margin: 12px 0 20px; gap: 10px; }
+.dock-layout .message-avatar { width: 28px; height: 28px; border-radius: 8px; }
+.dock-layout .message-meta { height: 28px; gap: 8px; }
+.dock-layout .message-meta strong { font-size: 13px; }
+.dock-layout .message-meta time { font-size: 12px; }
+.dock-layout .message-text { margin-top: 5px; color: var(--text); font-size: 14px; line-height: 1.68; }
+.dock-layout .tool-event { margin: 10px 0 10px 38px; padding: 10px 12px; border-color: var(--line); border-radius: 8px; background: var(--surface-2); font-size: 13px; }
+.dock-layout .event-status { margin: 10px 0; color: var(--text-secondary); font-size: 13px; }
+
+.dock-layout .composer-container { padding: 14px 24px 10px; background: var(--surface-1); }
+.dock-layout .composer { border-color: var(--line); border-radius: 10px; background: var(--surface-2); box-shadow: 0 8px 22px var(--shadow); }
+.dock-layout .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px #3b82f633; }
+.dock-layout .composer textarea { min-height: 86px; padding: 13px 14px 8px; color: var(--text); font-size: 14px; line-height: 1.6; }
+.dock-layout .composer textarea::placeholder { color: var(--muted); }
+.dock-layout .composer-toolbar { min-height: 38px; padding: 4px 10px 8px 14px; }
+.dock-layout .composer-toolbar button, .dock-layout .attachment-button { min-height: 30px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; }
+.dock-layout .composer-toolbar button:hover:not(:disabled), .dock-layout .attachment-button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.dock-layout .send-button { width: 34px; height: 34px; border-radius: 7px; background: var(--accent); color: var(--accent-text); }
+.dock-layout .composer-caption { margin-top: 6px; color: var(--muted); font-size: 11px; }
+
+.dock-layout .inspector { width: clamp(320px, var(--inspector-width), 380px); background: var(--surface-0); border-left: 1px solid var(--line); }
+.dock-layout .inspector-tabs { height: 42px; min-height: 42px; padding: 0 14px; gap: 16px; border-bottom-color: var(--line); background: var(--surface-0); }
+.dock-layout .inspector-tabs>button:not(.icon-button) { height: 100%; color: var(--muted); font-size: 13px; }
+.dock-layout .inspector-tabs>button.active { color: var(--text); }
+.dock-layout .inspector-tabs>button.active:after { height: 2px; background: var(--accent); }
+.dock-layout .inspector-tabs>button>span { background: var(--surface-3); color: var(--text-secondary); font-size: 11px; }
+.dock-layout .inspector-empty { padding: 20px 26px 60px; }
+.dock-layout .empty-icon { width: 42px; height: 42px; margin-bottom: 13px; border-color: var(--line); border-radius: 10px; background: var(--surface-2); color: var(--muted); }
+.dock-layout .inspector-empty strong { color: var(--text-secondary); font-size: 13px; }
+.dock-layout .inspector-empty p { max-width: 245px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.dock-layout .inspector-footnote { min-height: 36px; padding: 0 10px; border-top-color: var(--line); color: var(--muted); font-size: 11px; }
+.dock-layout .context-content { padding: 8px 18px 20px; color: var(--text-secondary); font-size: 13px; }
+.dock-layout .context-label { margin: 18px 0 7px; color: var(--muted); font-size: 11px; letter-spacing: .35px; }
+.dock-layout .context-content>strong { color: var(--text); font-size: 14px; }
+.dock-layout .context-content>code { color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.dock-layout .context-value, .dock-layout .environment-row { font-size: 13px; }
+.dock-layout .context-hint { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.dock-layout .file-list button { min-height: 34px; padding: 0 9px; color: var(--text-secondary); font-size: 12px; }
+.dock-layout .file-list button.selected { background: var(--selection); }
+.dock-layout .diff-view pre { font-size: 12px; line-height: 1.6; }
+
+.dock-layout .activity-panel { flex-basis: clamp(120px, var(--activity-height), 210px); background: var(--surface-0); border-top-color: var(--line); }
+.dock-layout .activity-panel-header { height: 36px; padding: 0 16px; border-bottom-color: var(--line); }
+.dock-layout .activity-panel-header button { font-size: 12px; }
+.dock-layout .activity-panel-header>span { font-size: 11px; }
+.dock-layout .activity-event { padding: 7px 0; color: var(--text-secondary); font-size: 12px; }
+.dock-layout .activity-event time, .dock-layout .activity-event pre { font-size: 12px; }
+.dock-layout .activity-empty { padding: 16px 0; color: var(--muted); font-size: 12px; }
+.dock-layout .statusbar { height: 26px; padding: 0 16px; border-top-color: var(--line); background: var(--surface-0); color: var(--muted); font-size: 11px; }
+
+@media (max-width: 1439px) {
+  .dock-layout .sidebar { width: min(var(--sidebar-width), 248px); }
+  .dock-layout .inspector { width: min(var(--inspector-width), 340px); }
+}
+@media (max-width: 1199px) {
+  .dock-layout .sidebar { width: min(var(--sidebar-width), 212px); }
+  .dock-layout .inspector { width: min(var(--inspector-width), 320px); }
+  .dock-layout .messages, .dock-layout .composer-container { padding-left: 16px; padding-right: 16px; }
+  .dock-layout .breadcrumbs { font-size: 12px; }
+}
+@media (max-width: 959px) {
+  .dock-layout .sidebar { width: 72px; }
+  .dock-layout .brand { justify-content: center; padding: 0; }
+  .dock-layout .brand>div, .dock-layout .brand .version, .dock-layout .top-nav .nav-item:not(.active) { display: none; }
+  .dock-layout .top-nav, .dock-layout .sidebar-section { padding-left: 8px; padding-right: 8px; }
+  .dock-layout .nav-item { justify-content: center; padding: 0; }
+  .dock-layout .nav-item .icon { width: 20px; height: 20px; }
+  .dock-layout .projects-heading>span, .dock-layout .sessions-heading>span, .dock-layout .project-list, .dock-layout .sidebar-footer { display: none; }
+  .dock-layout .projects-heading { justify-content: center; padding: 0; }
+  .dock-layout .inspector { position: absolute; right: 0; top: 0; bottom: 0; z-index: 4; width: min(340px, calc(100% - 72px)); box-shadow: -12px 0 28px var(--shadow); }
+}
+@media (max-width: 759px) {
+  .dock-layout .inspector { width: calc(100% - 72px); }
+  .dock-layout .messages, .dock-layout .composer-container { padding-left: 10px; padding-right: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-layout *, .dock-layout *::before, .dock-layout *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+.dock-layout .file-list .diff-tree-row { min-height: 31px; padding-top: 4px; padding-bottom: 4px; }
+.dock-layout .file-list .diff-folder-row { color: var(--text-secondary); }
+.dock-layout .file-list .diff-folder-row:hover:not(:disabled) { background: var(--surface-2); }
+.dock-layout .file-list .diff-file-row.status-added { color: var(--git-added); }
+.dock-layout .file-list .diff-file-row.status-modified { color: var(--git-modified); }
+.dock-layout .file-list .diff-file-row.status-deleted { color: var(--git-deleted); }
+.dock-layout .file-list .diff-file-row.status-renamed { color: var(--git-renamed); }
+.dock-layout .file-list .diff-file-row.status-warning { color: var(--git-warning); }
+.dock-layout .file-list .diff-file-row.selected { background: var(--selection); }

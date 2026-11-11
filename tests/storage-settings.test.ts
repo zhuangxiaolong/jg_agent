@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import initSqlJs from 'sql.js';
 import { LocalStore, LEGACY_PROVIDER_ID } from '../packages/storage/src/index';
 import type { JiraIssue, ManagedDocument, Session } from '../packages/domain/src/index';
+import type { WeComDeliveryRecord } from '../packages/wecom-notification/src/desktop-service';
 
-test('v1 数据库真实升级 v2，保留项目/会话/事件，迁移旧 Provider 且不重复', async () => {
+test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，迁移旧 Provider 且不重复', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-migration-'));
   const filename = join(root, 'old.db');
   let store: LocalStore | undefined;
@@ -19,8 +20,8 @@ test('v1 数据库真实升级 v2，保留项目/会话/事件，迁移旧 Provi
       CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,session_id TEXT NOT NULL REFERENCES sessions(id),value TEXT NOT NULL);
       CREATE INDEX events_session ON events(session_id,seq);
       CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); PRAGMA user_version=1;`);
-    const project = { id: 'old-project', name: '旧项目', path: 'D:\\old', branch: 'main' };
-    const session: Session = { id: 'old-session', projectId: project.id, title: '历史会话', workspacePath: 'D:\\worktree', branch: 'agent/old', status: 'completed', createdAt: '2026-11-01T00:00:00Z', model: 'old-model' };
+    const project = { id: 'old-project', name: '旧项目', path: '/old', branch: 'main' };
+    const session: Session = { id: 'old-session', projectId: project.id, title: '历史会话', workspacePath: '/worktree', branch: 'agent/old', status: 'completed', createdAt: '2026-11-01T00:00:00Z', model: 'old-model' };
     const event = { id: 'old-event', sessionId: session.id, type: 'message', text: '旧版本消息', createdAt: '2026-11-01T00:00:01Z' };
     db.run('INSERT INTO projects VALUES (?,?,?)', [project.id, project.path, JSON.stringify(project)]);
     db.run('INSERT INTO sessions VALUES (?,?,?,?)', [session.id, project.id, session.createdAt, JSON.stringify(session)]);
@@ -40,9 +41,56 @@ test('v1 数据库真实升级 v2，保留项目/会话/事件，迁移旧 Provi
     assert.equal(store.getSession(session.id)?.system, 'MES6');
     assert.equal(store.getSession(session.id)?.runtimeCapabilitiesVersion, 2);
     const upgraded = new sql.Database(await readFile(filename));
-    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 2); upgraded.close();
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 10); upgraded.close();
     store.deleteModelProvider(LEGACY_PROVIDER_ID); store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.listProviders(), [], '删除旧 Provider 后不会在重启时被旧配置复活');
+  } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('v4 升级到 v5 后可持久化无项目只读会话与事件，外键保持完整', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-v5-no-project-session-'));
+  const filename = join(root, 'v4.db');
+  let store: LocalStore | undefined;
+  try {
+    const sql = await initSqlJs();
+    const db = new sql.Database();
+    db.run(`CREATE TABLE projects(id TEXT PRIMARY KEY,path TEXT UNIQUE NOT NULL,value TEXT NOT NULL);
+      CREATE TABLE sessions(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),created_at TEXT NOT NULL,value TEXT NOT NULL);
+      CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,session_id TEXT NOT NULL REFERENCES sessions(id),value TEXT NOT NULL);
+      CREATE INDEX events_session ON events(session_id,seq);
+      CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); PRAGMA user_version=4;`);
+    const project = { id: 'legacy-project', name: '旧项目', path: '/legacy', branch: 'main' };
+    const oldSession: Session = { id: 'legacy-session', projectId: project.id, title: '历史会话', workspacePath: '/legacy-worktree', branch: 'agent/legacy', status: 'completed', createdAt: '2026-11-01T00:00:00Z', model: 'legacy-model' };
+    db.run('INSERT INTO projects VALUES (?,?,?)', [project.id, project.path, JSON.stringify(project)]);
+    db.run('INSERT INTO sessions VALUES (?,?,?,?)', [oldSession.id, project.id, oldSession.createdAt, JSON.stringify(oldSession)]);
+    db.run('INSERT INTO events(id,session_id,value) VALUES (?,?,?)', ['legacy-event', oldSession.id, JSON.stringify({ id: 'legacy-event', sessionId: oldSession.id, type: 'message', text: '旧事件', createdAt: oldSession.createdAt })]);
+    await writeFile(filename, db.export());
+    db.close();
+
+    store = await LocalStore.open(filename);
+    const noProjectSession = {
+      id: 'standalone-read-session', projectId: undefined, title: '独立分析',
+      workspacePath: root, branch: '', mode: 'read' as const,
+      status: 'completed' as const, createdAt: '2026-11-10T00:00:00Z', model: 'analysis-model',
+    } as unknown as Session;
+    store.saveSession(noProjectSession);
+    const event = { id: 'standalone-event', sessionId: noProjectSession.id, type: 'message' as const, text: '分析结果已保存', createdAt: '2026-11-10T00:00:01Z' };
+    store.appendEvent(event);
+    store.close(); store = await LocalStore.open(filename);
+
+    assert.equal(store.getSession(noProjectSession.id)?.projectId, undefined);
+    assert.equal(store.getSession(noProjectSession.id)?.mode, 'read');
+    assert.equal(store.getSession(noProjectSession.id)?.workspacePath, root);
+    assert.deepEqual(store.events(noProjectSession.id), [event]);
+    assert.deepEqual(store.events(oldSession.id).map(item => item.id), ['legacy-event']);
+    store.close(); store = undefined;
+
+    const upgraded = new sql.Database(await readFile(filename));
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 10);
+    assert.deepEqual(upgraded.exec('PRAGMA foreign_key_check'), []);
+    const nullProject = upgraded.exec('SELECT project_id FROM sessions WHERE id = \'standalone-read-session\'');
+    assert.equal(nullProject[0].values[0][0], null);
+    upgraded.close();
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -77,7 +125,7 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
   try {
     assert.deepEqual(store.getPreferences(), { theme: 'dark', style: 'jinggong', completionSound: 'chime', updateMode: 'automatic' });
     store.savePreferences({ theme: 'light', style: 'minimal', apiKey: secret } as never);
-    store.saveModelProvider({ id: 'provider-1', name: '中转站', baseUrl: 'https://model.example.invalid', models: ['model-a', 'model-b'], hasKey: true, apiKey: secret } as never);
+    store.saveModelProvider({ id: 'provider-1', name: '中转站', baseUrl: 'https://model.example.invalid', models: ['model-a', 'model-b'], modelCatalog: [{ id: 'model-a', name: '模型 A' }, { id: 'model-unused', name: '未启用模型' }], hasKey: true, apiKey: secret } as never);
     store.saveJira({ baseUrl: 'https://jira.example.invalid', account: '研发账号', hasPassword: true, password: secret } as never);
     store.saveDocument({ ...document, apiKey: secret } as never);
     store.setDocumentEnabled(document.id, false);
@@ -85,6 +133,7 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getPreferences(), { theme: 'light', style: 'minimal', completionSound: 'chime', updateMode: 'automatic' });
     assert.deepEqual(store.listProviders()[0].models, ['model-a', 'model-b']);
+    assert.deepEqual(store.listProviders()[0].modelCatalog, [{ id: 'model-a', name: '模型 A' }]);
     assert.equal(store.getJira().account, '研发账号');
     assert.equal(store.listDocuments()[0].enabled, false);
     assert.equal(store.listMemories()[0].content, '先运行构建，再执行测试。');
@@ -119,7 +168,7 @@ test('Jira旧配置不补写默认，新项目及日期字段真实重开保留�
     assert.deepEqual(store.getJira(), configured);
     assert.equal((await readFile(filename)).includes(Buffer.from(secret)), false);
     const sql = await initSqlJs(); const db = new sql.Database(await readFile(filename));
-    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 2); db.close();
+    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 10); db.close();
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -141,7 +190,7 @@ test('Jira会话任务快照重开保持原字段和概要，附件只存来源�
   const issue = jiraIssue();
   const session: Session = { id: 'jira-session', projectId: 'jira-project', title: issue.summary, workspacePath: 'D:\\workspaces\\jira', branch: 'agent/jira-session', status: 'running', createdAt: '2026-11-04T03:00:00Z', model: 'test-model', providerId: 'provider-1', mode: 'read', system: 'MES5', runtimeThreadId: 'runtime-thread', runtimeCapabilitiesVersion: 1, jiraIssue: issue };
   try {
-    store.saveProject({ id: session.projectId, path: 'D:\\项目 中文', name: 'MES5测试项目', branch: 'main' });
+    store.saveProject({ id: session.projectId!, path: 'D:\\项目 中文', name: 'MES5测试项目', branch: 'main' });
     store.saveSession({ ...session, password: secret, jiraIssue: { ...issue, password: secret, authorization: secret, attachments: issue.attachments.map(attachment => ({ ...attachment, password: secret, headers: { Authorization: `Bearer ${secret}` }, content: secret })) } } as never);
     assert.deepEqual(store.getSession(session.id)?.jiraIssue, issue);
     issue.attachments[0].name = '保存后调用方修改.xlsx';
@@ -167,7 +216,7 @@ test('Jira快照有界保存正文和附件，允许密码字段示例；超限�
   const issue = jiraIssue();
   const session: Session = { id: 'jira-session', projectId: 'jira-project', title: issue.summary, workspacePath: 'D:\\workspaces\\jira', branch: 'agent/jira-session', status: 'completed', createdAt: '2026-11-04T03:00:00Z', model: 'test-model', jiraIssue: issue };
   try {
-    store.saveProject({ id: session.projectId, path: 'D:\\项目', name: '测试', branch: 'main' });
+    store.saveProject({ id: session.projectId!, path: 'D:\\项目', name: '测试', branch: 'main' });
     const maximum = { ...issue, description: '文'.repeat(100000), attachments: Array.from({ length: 200 }, (_, index) => ({ ...issue.attachments[0], id: String(index) })) };
     store.saveSession({ ...session, jiraIssue: maximum });
     assert.equal(store.getSession(session.id)?.jiraIssue?.description.length, 100000);
@@ -198,12 +247,53 @@ test('Jira附件空URL保留不可用链接元数据，重开会话不丢失；�
   issue.attachments[0].url = '';
   const session: Session = { id: 'jira-session', projectId: 'jira-project', title: issue.summary, workspacePath: 'D:\\workspaces\\jira', branch: 'agent/jira-session', status: 'completed', createdAt: '2026-11-04T03:00:00Z', model: 'test-model', jiraIssue: issue };
   try {
-    store.saveProject({ id: session.projectId, path: 'D:\\项目', name: '测试', branch: 'main' });
+    store.saveProject({ id: session.projectId!, path: 'D:\\项目', name: '测试', branch: 'main' });
     store.saveSession(session); store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getSession(session.id)?.jiraIssue, issue);
     assert.equal(store.getSession(session.id)?.jiraIssue?.attachments[0].url, '');
     assert.throws(() => store.saveSession({ ...session, jiraIssue: { ...issue, url: '' } }), /来源链接无效/);
     assert.throws(() => store.saveSession({ ...session, jiraIssue: { ...issue, attachments: [{ ...issue.attachments[0], url: 'https://jira.example.invalid/attachment?token=synthetic-value' }] } }), /授权凭据/);
     assert.deepEqual(store.getSession(session.id)?.jiraIssue, issue);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('Workspace 与企业微信通知表独立持久化，投递幂等且 SQLite 拒绝 Webhook 明文', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-workspace-wecom-'));
+  const filename = join(root, 'agent.db');
+  let store = await LocalStore.open(filename);
+  const workspaceId = '2f84cf15-e596-4e5d-96fb-f7078d13ec8b';
+  const targetId = '493679e1-7afd-42db-b80f-cf56ad51f7ba';
+  const workspace = { id: workspaceId, name: 'MES Workspace', description: '', system: 'MES6', instructions: '', primaryRepositoryId: 'repo-1', repositories: [], createdAt: '2026-11-10T00:00:00.000Z', updatedAt: '2026-11-10T00:00:00.000Z' };
+  const record: WeComDeliveryRecord = {
+    id: 'c7184c50-3131-46be-afce-2a8079f83bb4', idempotencyKey: 'event-1:' + targetId,
+    kind: 'terminal', status: 'sending', eventId: 'event-1', platformSessionId: 'session-1', eventType: 'session.completed',
+    targetId, targetName: '测试通知群', targetSnapshot: { id: targetId, name: '测试通知群', purpose: 'team_group', credentialRef: `wecom.webhook.${targetId}`, enabled: true, workspaceIds: ['2f84cf15-e596-4e5d-96fb-f7078d13ec8b'], runtimeKinds: ['claude_agent_sdk'], eventPolicy: { onCompleted: true, onFailed: true, onError: true, onCancelled: false, onInterrupted: true } },
+    content: '任务已完成', attempts: 0, createdAt: '2026-11-10T00:00:00.000Z', updatedAt: '2026-11-10T00:00:00.000Z',
+  };
+  try {
+    store.saveWorkspace(workspace);
+    assert.deepEqual(store.getWorkspace(workspaceId), workspace);
+    store.saveWorkspace({ ...workspace, name: 'MES Workspace Updated' });
+    assert.equal(store.listWorkspaces<typeof workspace>()[0].name, 'MES Workspace Updated');
+    assert.throws(() => store.saveWorkspace({ ...workspace, description: 'x'.repeat(1024 * 1024) }), /1 MiB/);
+    assert.equal(store.insertWeComDeliveryIfAbsent(record), true);
+    assert.equal(store.insertWeComDeliveryIfAbsent({ ...record, id: '035af421-87f9-49f4-a8de-c4bcdd794d0f' }), false);
+    assert.equal(store.findWeComDeliveryByIdempotencyKey(record.idempotencyKey)?.id, record.id);
+    const oldSent = { ...record, id: '6c46ef34-d12c-414a-a63c-d88440f81811', idempotencyKey: 'old-sent', status: 'sent' as const, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:01.000Z' };
+    const recentFailed = { ...record, id: '97661796-2b8c-4663-907c-ae17a7738888', idempotencyKey: 'recent-failed', status: 'failed' as const, createdAt: '2026-11-09T00:00:00.000Z', updatedAt: '2026-11-09T00:00:01.000Z' };
+    assert.equal(store.insertWeComDeliveryIfAbsent(oldSent), true);
+    assert.equal(store.insertWeComDeliveryIfAbsent(recentFailed), true);
+    assert.equal(store.cleanupWeComDeliveries(90, new Date('2026-11-10T00:00:00.000Z')), 1);
+    assert.equal(store.findWeComDeliveryById(oldSent.id), undefined);
+    assert.equal(store.findWeComDeliveryById(record.id)?.status, 'sending', '清理不能删除仍待恢复的发送中记录');
+    assert.equal(store.findWeComDeliveryById(recentFailed.id)?.status, 'failed');
+    assert.throws(() => store.saveWeComTarget({ id: targetId, name: 'bad', webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=synthetic-secret' }), /不能写入 SQLite/);
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.listWeComDeliveries()[0].id, record.id);
+    assert.deepEqual(store.listWeComDeliveries()[0].targetSnapshot.workspaceIds, [workspaceId]);
+    assert.deepEqual(store.listWeComDeliveries()[0].targetSnapshot.runtimeKinds, ['claude_agent_sdk']);
+    assert.equal(store.listWorkspaces<typeof workspace>()[0].name, 'MES Workspace Updated');
+    const bytes = await readFile(filename);
+    assert.equal(bytes.includes(Buffer.from('synthetic-secret')), false);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });

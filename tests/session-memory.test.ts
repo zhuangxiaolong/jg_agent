@@ -37,6 +37,37 @@ test('自动记忆按真实完成轮次摘录、重复完成去重、多轮更�
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('无项目会话的自动记忆可持久化且不泄漏到项目会话上下文', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-no-project-memory-'));
+  const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
+  try {
+    store.saveProject({ id: 'project', name: '项目', branch: 'main', path: root });
+    const standalone = { id: 'standalone', projectId: undefined, title: '通用问答', status: 'completed' as const, workspacePath: root, branch: '', model: 'model', createdAt: new Date().toISOString() } as unknown as Session;
+    const projectSession: Session = { id: 'project-session', projectId: 'project', title: '项目分析', status: 'completed', workspacePath: root, branch: 'agent/project', model: 'model', createdAt: new Date().toISOString() };
+    store.saveSession(standalone); store.saveSession(projectSession);
+    const addCompletedTurn = (sessionId: string, prefix: string, task: string, result: string) => {
+      const createdAt = new Date().toISOString();
+      store.appendEvent({ id: `${prefix}-user`, sessionId, type: 'user', text: task, createdAt });
+      store.appendEvent({ id: `${prefix}-result`, sessionId, type: 'message', text: result, createdAt });
+      store.appendEvent({ id: `${prefix}-done`, sessionId, type: 'status', text: 'completed', createdAt });
+    };
+    addCompletedTurn(standalone.id, 'standalone', '一般问题', '一般回答');
+    addCompletedTurn(projectSession.id, 'project', '项目问题', '项目回答');
+    rememberCompletedSession(store, standalone, () => {});
+    rememberCompletedSession(store, projectSession, () => {});
+
+    const memories = store.listMemories();
+    assert.equal(sessionMemories(memories, undefined as unknown as string).some(memory => memory.sessionId === standalone.id), true);
+    assert.equal(sessionMemories(memories, 'project').some(memory => memory.sessionId === standalone.id), false);
+    assert.equal(sessionMemories(memories, undefined as unknown as string).some(memory => memory.sessionId === projectSession.id), false);
+    assert.equal(sessionMemories(memories, 'project').some(memory => memory.sessionId === projectSession.id), true);
+
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.getSession(standalone.id)?.projectId, undefined);
+    assert.equal(store.listMemories().find(memory => memory.sessionId === standalone.id)?.sourceEventId, 'standalone-done');
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('项目收放、输入框尺寸和更新地址持久化；旧完成已读请求不能清除新完成标记', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-v062-'));
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);

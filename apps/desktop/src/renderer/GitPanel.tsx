@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { GitState, ManagedDocument, RequirementResult } from '../../../../packages/domain/src';
+import type { GitState, ManagedDocument, RequirementResult, VerificationProfileId, VerificationRunDetail, VerificationRunSummary } from '../../../../packages/domain/src';
 import { Icon } from './ui';
 
 export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: { sessionId: string; running: boolean; onChanged: () => Promise<void>; documents: ManagedDocument[]; jiraUrl?: string }) {
@@ -16,11 +16,18 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [verificationRuns, setVerificationRuns] = useState<VerificationRunSummary[]>([]);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [activeVerificationRun, setActiveVerificationRun] = useState('');
+  const [verificationReport, setVerificationReport] = useState<VerificationRunDetail | null>(null);
+  const [verificationArtifact, setVerificationArtifact] = useState('');
+  const [verificationError, setVerificationError] = useState('');
   const current = useRef(sessionId);
   current.current = sessionId;
   const blocked = requirements.some(item => item.status === 'fail');
   const missingReview = requirements.some(item => item.status === 'review' && !reviewed.includes(item.documentId));
-  const disabled = !!pending || running;
+  const disabled = !!pending || running || verificationBusy || verificationPending;
   async function load() {
     const next = await api.getGitState(sessionId);
     if (current.current !== sessionId) return;
@@ -35,6 +42,23 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
     api.getGitState(sessionId).then(next => { if (alive) { setState(next); setRemote(next.remotes[0] || ''); setPullRemote(next.remotes[0] || ''); } }).catch(reason => alive && setError(reason instanceof Error ? reason.message : String(reason)));
     return () => { alive = false; };
   }, [sessionId, api]);
+  useEffect(() => {
+    let alive = true;
+    setVerificationRuns([]); setVerificationBusy(false); setVerificationPending(false); setActiveVerificationRun(''); setVerificationReport(null); setVerificationArtifact(''); setVerificationError('');
+    const refresh = () => api.listVerificationRuns(sessionId).then(items => { if (alive && current.current === sessionId) setVerificationRuns(items); }).catch(reason => { if (alive && current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); });
+    void refresh();
+    const unsubscribe = api.onVerification(event => {
+      if (!alive || event.sessionId !== sessionId || current.current !== sessionId) return;
+      if (event.state === 'started') { setVerificationBusy(true); setActiveVerificationRun(event.runId); }
+      else {
+        setVerificationBusy(false); setActiveVerificationRun('');
+        void refresh();
+        if (event.status === 'passed') setNotice('真实验证已通过，证据报告已保存。');
+        else if (event.status) setNotice(`真实验证结束：${verificationStatusLabel(event.status)}。`);
+      }
+    });
+    return () => { alive = false; unsubscribe(); };
+  }, [sessionId, api]);
   const documentVersion = documents.map(item => `${item.id}:${item.digest}:${item.enabled}`).join('|');
   useEffect(() => { setChecked(false); setReviewed([]); setRequirements([]); }, [documentVersion, running]);
   useEffect(() => {
@@ -46,9 +70,49 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
     catch (reason) { if (current.current === sessionId) setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { if (current.current === sessionId) setPending(''); }
   }
+  async function startVerification(profileId: VerificationProfileId) {
+    setVerificationPending(true); setVerificationError(''); setVerificationArtifact('');
+    try {
+      const { runId } = await api.startVerification(sessionId, profileId);
+      if (current.current !== sessionId) return;
+      setActiveVerificationRun(runId); setVerificationBusy(true);
+      setNotice(profileId === 'tests' ? '测试已启动，等待真实命令结果。' : '类型检查已启动，等待真实命令结果。');
+    } catch (reason) { if (current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { if (current.current === sessionId) setVerificationPending(false); }
+  }
+  async function cancelVerification() {
+    if (!activeVerificationRun) return;
+    setVerificationError('');
+    try { await api.cancelVerification(sessionId, activeVerificationRun); setNotice('已请求取消验证，正在等待进程退出并保存报告。'); }
+    catch (reason) { setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
+  }
+  async function openVerificationRun(runId: string) {
+    setVerificationError(''); setVerificationArtifact('');
+    try { const detail = await api.getVerificationRun(sessionId, runId); if (current.current === sessionId) setVerificationReport(detail); }
+    catch (reason) { if (current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
+  }
+  async function openVerificationArtifact(runId: string, artifact: 'stdout.log' | 'stderr.log') {
+    setVerificationError('');
+    try { const output = await api.readVerificationArtifact(sessionId, runId, artifact); if (current.current === sessionId) setVerificationArtifact(output || '（文件为空）'); }
+    catch (reason) { if (current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
+  }
   return <div className="git-panel" aria-label="Git 管理">
     <div className="git-panel-heading"><span><Icon name="branch" />{state?.branch || '读取分支中…'}</span><button className="icon-button" aria-label="刷新 Git 状态" disabled={disabled} onClick={() => act('refresh', async () => { await load(); setChecked(false); setReviewed([]); await onChanged(); })}><Icon name="refresh" /></button></div>
     {error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}{notice && <div className="settings-notice" role="status"><Icon name="check" />{notice}</div>}
+    <section className="verification-section" aria-label="真实验证证据">
+      <div className="git-section-label">真实验证证据<span>{verificationBusy ? '执行中' : `${verificationRuns.length} 条历史记录`}</span></div>
+      <p className="git-hint">由桌面主进程执行固定的类型检查或测试命令并采集结果；Agent 文本不作为验证证据。</p>
+      {verificationError && <div className="form-error" role="alert"><Icon name="alert" />{verificationError}</div>}
+      <div className="verification-actions">
+        <button className="secondary-button" disabled={disabled} onClick={() => void startVerification('typecheck')}>{verificationPending ? '正在启动…' : '运行类型检查'}</button>
+        <button className="secondary-button" disabled={disabled} onClick={() => void startVerification('tests')}>{verificationPending ? '正在启动…' : '运行测试'}</button>
+        {verificationBusy && <button className="text-button" disabled={verificationPending} onClick={() => void cancelVerification()}>取消验证</button>}
+      </div>
+      {verificationRuns.length > 0 && <div className="verification-history" aria-label="验证历史">{verificationRuns.map(run => <button className={`verification-history-item${verificationReport?.summary.runId === run.runId ? ' selected' : ''}`} key={run.runId} onClick={() => void openVerificationRun(run.runId)}><span><strong>{run.runType === 'test' ? '测试' : '类型检查'}</strong><em className={`verification-status status-${run.status}`}>{verificationStatusLabel(run.status)}</em></span><time>{new Date(run.startedAt).toLocaleString('zh-CN')}</time><small>{run.processStatus === 'running' ? '执行中' : `退出码 ${run.exitCode ?? '无'}`} · {Math.round(run.durationMs / 1000)} 秒</small></button>)}</div>}
+      {verificationReport && <div className="verification-report"><div className="verification-report-heading"><strong>验证报告</strong><span>{verificationStatusLabel(verificationReport.summary.status)} · {verificationReport.summary.runId.slice(0, 8)}</span></div><div className="verification-artifacts"><button className="text-button" onClick={() => void openVerificationArtifact(verificationReport.summary.runId, 'stdout.log')}>查看标准输出</button><button className="text-button" onClick={() => void openVerificationArtifact(verificationReport.summary.runId, 'stderr.log')}>查看错误输出</button></div><pre>{verificationArtifact || verificationReport.markdown}</pre></div>}
+      {verificationBusy && <p className="git-hint">运行 ID：{activeVerificationRun || '正在分配'}。验证完成后会自动保存历史报告。</p>}
+      {!verificationRuns.length && !verificationBusy && <p className="git-hint">尚无真实验证记录。</p>}
+    </section>
     <div className="git-commit-section"><div className="git-section-label">提交工作区变更<span>{state ? state.dirty ? '有未提交变更' : '工作区干净' : '正在读取'}</span></div>
       <button className="secondary-button generate-message" disabled={disabled || !state?.dirty} onClick={() => act('generate', async () => { const value = await api.generateCommitMessage(sessionId); if (current.current === sessionId) setMessage(value); })}><Icon name="file" />{pending === 'generate' ? '正在分析真实 Diff…' : '根据 Diff 生成提交说明'}</button>
       <label htmlFor="commit-message">提交说明</label><textarea id="commit-message" aria-label="提交说明" value={message} onChange={e => setMessage(e.target.value)} rows={3} maxLength={4000} disabled={disabled} placeholder="输入或生成中文提交说明" />
@@ -66,4 +130,8 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
     <div className="git-push-section"><div className="git-section-label">拉取当前分支</div><div className="push-controls"><select aria-label="拉取远程仓库" value={pullRemote} onChange={e => setPullRemote(e.target.value)} disabled={disabled || !state?.remotes.length}>{!state?.remotes.length && <option value="">未配置远程仓库</option>}{state?.remotes.map(value => <option key={value}>{value}</option>)}</select><button className="secondary-button" disabled={disabled || !pullRemote || !state || state.dirty} title={state?.dirty ? '请先提交工作区变更' : '快进拉取远程同名 Agent 分支'} onClick={() => act('pull', async () => { await api.pullChanges(sessionId, pullRemote); if (current.current !== sessionId) return; setNotice('已快进拉取远程同名 Agent 分支。'); setChecked(false); setReviewed([]); setRequirements([]); await load(); await onChanged(); })}><Icon name="download" />{pending === 'pull' ? '拉取中…' : '拉取分支'}</button></div><p className="git-hint">仅从 {pullRemote || '所选远程'}/{state?.branch || '当前 Agent 分支'} 快进更新（ff-only）。分支出现分歧时会停止，请人工处理。</p></div>
     <div className="git-history"><div className="git-section-label">提交历史<span>{state?.commits.length || 0} 条</span></div>{state && !state.commits.length && <p className="git-hint">暂无提交历史。</p>}{state?.commits.map(commit => <article className="commit-entry" key={commit.hash}><span className="commit-point" /><div><strong>{commit.message}</strong><p><code title={commit.hash}>{commit.shortHash}</code><span>{commit.author}</span></p><time>{new Date(commit.date).toLocaleString('zh-CN')}</time></div></article>)}</div>
   </div>;
+}
+
+function verificationStatusLabel(status: VerificationRunSummary['status']): string {
+  return status === 'passed' ? '通过' : status === 'failed' ? '失败' : status === 'stale' ? '证据已过期' : status === 'not_run' ? '未执行' : '无法判定';
 }

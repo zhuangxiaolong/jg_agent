@@ -2,7 +2,7 @@
   "name": "jinggong-agent",
   "version": "0.6.8",
   "private": true,
-  "description": "精工智能开发平台 Windows 桌面客户端",
+  "description": "精工Agent Windows 桌面客户端",
   "author": "精工研发",
   "main": "dist/main.cjs",
   "scripts": {
@@ -13,11 +13,13 @@
     "test": "tsx --test tests/*.test.ts",
     "test:desktop": "node scripts/desktop-smoke.mjs",
     "runtime:probe": "node scripts/probes/runtime-probe.mjs",
-    "pack": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",
-    "dist": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win nsis --x64",
-    "release:win": "npm run build && node scripts/stage-runtime.mjs && node scripts/release-win.mjs"
+    "runtime:build:jinggong": "node scripts/build-jinggong-runtime.mjs",
+    "pack": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",
+    "dist": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && electron-builder --win nsis --x64",
+    "release:win": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && node scripts/release-win.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.319",
     "electron-updater": "6.8.11",
     "fast-xml-parser": "5.12.0",
     "fflate": "0.8.3",
@@ -41,7 +43,7 @@
   },
   "build": {
     "appId": "com.jinggong.agent",
-    "productName": "精工智能开发平台",
+    "productName": "精工Agent",
     "executableName": "JinggongAgent",
     "artifactName": "JinggongAgent-Setup-${version}-${arch}.${ext}",
     "directories": {

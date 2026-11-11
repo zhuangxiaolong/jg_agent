@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
-import { idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, redact, requirementInputSchema } from './security';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
 import type { LocalStore } from '../../../../packages/storage/src';
-import type { ManagedDocument, ProviderProfile, ProviderSettings, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
+import type { ClaudeRuntimeSettings, ManagedDocument, ProviderModel, ProviderProfile, ProviderSettings, RuntimeKind, SettingsSnapshot, UpdateStatus, WeComTargetSummary } from '../../../../packages/domain/src';
+import type { WeComDeliveryRecord } from '../../../../packages/wecom-notification/src/desktop-service';
+import type { WeComNotificationTarget } from '../../../../packages/wecom-notification/src';
 
 /** 凭据只在主进程解密，数据库和 Renderer 永远只接收是否已配置。 */
 export class SettingsService {
@@ -17,24 +19,30 @@ export class SettingsService {
     return new CredentialStore(id === 'legacy-default' ? path.join(this.dataRoot, 'config/model-key.dpapi') : path.join(this.dataRoot, 'config/secrets', `${id}.dpapi`));
   }
   jiraCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/jira.dpapi')); }
+  claudeCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/claude-console.dpapi')); }
+  private wecomCredential(id: string): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets', `wecom-${id}.dpapi`)); }
   profiles(): ProviderProfile[] { return this.store.listProviders().map(profile => ({ ...profile, hasKey: this.credential(profile.id).hasKey })); }
   defaultProvider(): ProviderSettings {
     const profile = this.profiles()[0];
     return profile ? { baseUrl: profile.baseUrl, model: profile.models[0], hasKey: profile.hasKey } : { baseUrl: '', model: '', hasKey: false };
   }
   snapshot(update: UpdateStatus = { state: 'disabled', message: '更新检查尚未启动' }): SettingsSnapshot {
-    return { preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, requirementsSync: this.store.getRequirementsSync() };
+    return { preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
+  }
+  saveRuntimeKind(value: unknown): RuntimeKind {
+    if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk') throw new Error('Runtime 类型无效');
+    return this.store.saveRuntimeKind(value);
   }
   redact(text: string): string {
     let value = redact(text);
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential()];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       try { const secret = vault.read(); if (secret) value = redact(value, secret); } catch { /* 凭据损坏不能阻断错误收尾。 */ }
     }
     return value;
   }
   assertCleanText(content: string): void {
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential()];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       let secret: string | undefined;
       try { secret = vault.read(); } catch { continue; }
@@ -43,7 +51,7 @@ export class SettingsService {
   }
   redactContent(content: string): string {
     let value = content;
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential()];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       try { const secret = vault.read(); if (secret) value = value.split(secret).join('[已脱敏]'); } catch { /* 凭据损坏不能阻断会话显示。 */ }
     }
@@ -73,7 +81,7 @@ export class SettingsService {
   saveProfile(value: unknown): ProviderProfile {
     this.assertIdle();
     const input = modelProfileSchema.parse(value);
-    for (const field of [input.name, input.baseUrl, ...input.models]) {
+    for (const field of [input.name, input.baseUrl, ...input.models, ...(input.modelCatalog?.flatMap(item => [item.id, item.name]) ?? [])]) {
       this.assertCleanText(field);
       if (input.apiKey && field.includes(input.apiKey)) throw new Error('中转站元数据不能包含 API Key');
     }
@@ -85,9 +93,34 @@ export class SettingsService {
     const credential = this.credential(id);
     if (credential.hasKey && !input.apiKey && current?.baseUrl !== baseUrl) throw new Error('更换模型服务地址时请重新输入该服务的 API Key，避免把旧密钥发送到新地址');
     if (input.apiKey) credential.save(input.apiKey, baseUrl);
-    const profile: ProviderProfile = { id, name: input.name, baseUrl, models: input.models, hasKey: credential.hasKey };
+    const catalog = input.modelCatalog?.filter(item => input.models.includes(item.id)).map(item => ({ id: item.id, name: item.name })) as ProviderModel[] | undefined;
+    const profile: ProviderProfile = { id, name: input.name, baseUrl, models: input.models, ...(catalog?.length ? { modelCatalog: catalog } : {}), hasKey: credential.hasKey };
     this.store.saveModelProvider(profile);
     return profile;
+  }
+  async fetchProviderModels(value: unknown): Promise<ProviderModel[]> {
+    this.assertIdle();
+    const id = profileIdSchema.parse(value);
+    const profile = this.profiles().find(item => item.id === id);
+    if (!profile) throw new Error('模型中转站不存在');
+    const key = this.credential(profile.id).read(profile.baseUrl);
+    if (!key) throw new Error('请先配置该中转站 API Key');
+    const endpoint = new URL(profile.baseUrl.replace(/\/$/, '') + '/models');
+    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`获取模型列表失败（HTTP ${response.status}）`);
+    const payload = await response.json() as { data?: unknown };
+    if (!Array.isArray(payload.data)) throw new Error('中转站返回的模型列表格式无效');
+    const models: ProviderModel[] = [];
+    for (const item of payload.data) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as { id?: unknown; name?: unknown; owned_by?: unknown };
+      if (typeof record.id !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(record.id)) continue;
+      const name = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : typeof record.owned_by === 'string' && record.owned_by.trim() ? record.owned_by.trim() : record.id;
+      models.push({ id: record.id, name: name.slice(0, 240) });
+    }
+    const unique = [...new Map(models.map(item => [item.id, item])).values()].slice(0, 100);
+    if (!unique.length) throw new Error('中转站未返回可用模型');
+    return unique;
   }
   deleteProfile(value: unknown): void {
     this.assertIdle(); const id = profileIdSchema.parse(value);
@@ -113,6 +146,71 @@ export class SettingsService {
     if (input.password) vault.save(input.password, `${baseUrl}\n${input.account}`);
     const result = { baseUrl, account: input.account, hasPassword: vault.hasKey, projectKey, dateFieldId };
     this.store.saveJira(result); return result;
+  }
+  saveClaudeCredential(value: unknown): { hasCredential: boolean } {
+    this.assertIdle();
+    this.claudeCredential().save(claudeCredentialSchema.parse(value), 'anthropic-console');
+    return { hasCredential: true };
+  }
+  claudeRuntime(): ClaudeRuntimeSettings {
+    return { ...this.store.getClaudeRuntime(), hasCredential: this.claudeCredential().hasKey };
+  }
+  saveClaudeRuntime(value: unknown): ClaudeRuntimeSettings {
+    this.assertIdle();
+    const input = claudeRuntimeSchema.parse(value);
+    this.assertCleanText(input.model);
+    if (input.baseUrl) this.assertCleanText(input.baseUrl);
+    this.store.saveClaudeRuntime(input);
+    return this.claudeRuntime();
+  }
+  clearClaudeCredential(): void { this.assertIdle(); this.claudeCredential().delete(); }
+  private wecomTargets(): WeComTargetSummary[] {
+    return this.store.listWeComTargets<Omit<WeComTargetSummary, 'hasCredential'> & { hasCredential?: boolean }>().map(target => ({ ...target, hasCredential: this.wecomCredential(target.id).hasKey }));
+  }
+  wecomTargetsForDelivery(): WeComNotificationTarget[] {
+    return this.wecomTargets().map(target => ({ id: target.id, name: target.name, purpose: target.purpose, credentialRef: target.credentialRef, enabled: target.enabled, eventPolicy: target.eventPolicy, ...(target.mentionedUserIds?.length ? { mentionedUserIds: target.mentionedUserIds } : {}), ...(target.mentionedMobiles?.length ? { mentionedMobiles: target.mentionedMobiles } : {}), ...(target.workspaceIds?.length ? { workspaceIds: target.workspaceIds } : {}), ...(target.runtimeKinds?.length ? { runtimeKinds: target.runtimeKinds } : {}) }));
+  }
+  readWeComCredential(reference: string): string | undefined {
+    const match = /^wecom\.webhook\.([a-f0-9-]{36})$/i.exec(reference);
+    if (!match) return undefined;
+    const target = this.wecomTargets().find(item => item.id === match[1]);
+    if (!target || target.credentialRef !== reference) return undefined;
+    return this.wecomCredential(target.id).read(`wecom.webhook.${target.id}`);
+  }
+  saveWeComTarget(value: unknown): WeComTargetSummary {
+    this.assertIdle();
+    const input = wecomTargetSchema.parse(value);
+    const current = input.id ? this.wecomTargets().find(item => item.id === input.id) : undefined;
+    if (input.id && !current) throw new Error('企业微信通知目标不存在');
+    if (!current && !input.webhookUrl) throw new Error('请填写 Webhook 地址');
+    const id = current?.id ?? randomUUID();
+    const credential = this.wecomCredential(id);
+    const now = new Date().toISOString();
+    const target: WeComTargetSummary = {
+      id, name: input.name, purpose: input.purpose, credentialRef: `wecom.webhook.${id}`, hasCredential: Boolean(input.webhookUrl) || credential.hasKey, enabled: input.enabled,
+      ...(input.purpose === 'team_group' && input.mentionedUserIds?.length ? { mentionedUserIds: input.mentionedUserIds } : {}),
+      ...(input.purpose === 'team_group' && input.mentionedMobiles?.length ? { mentionedMobiles: input.mentionedMobiles } : {}),
+      ...(input.workspaceIds?.length ? { workspaceIds: [...new Set(input.workspaceIds)] } : {}),
+      ...(input.runtimeKinds?.length && input.runtimeKinds.length < 3 ? { runtimeKinds: [...new Set(input.runtimeKinds)] } : {}),
+      eventPolicy: input.eventPolicy, createdAt: current?.createdAt ?? now, updatedAt: now,
+    };
+    this.assertCleanValue(target);
+    // 先完成所有可持久化元数据校验，Webhook 只进入 safeStorage。
+    if (input.webhookUrl && JSON.stringify(target).includes(input.webhookUrl)) throw new Error('通知目标元数据不能包含 Webhook 地址');
+    if (input.webhookUrl) credential.save(input.webhookUrl, `wecom.webhook.${id}`);
+    try {
+      this.store.saveWeComTarget(target);
+    } catch (error) {
+      // 新目标元数据写入失败时清掉刚创建的孤立凭据；编辑旧目标则保留原凭据，避免数据库短暂故障造成凭据丢失。
+      if (!current && input.webhookUrl) credential.delete();
+      throw error;
+    }
+    return target;
+  }
+  deleteWeComTarget(value: unknown): void {
+    this.assertIdle(); const id = idSchema.parse(value);
+    if (!this.wecomTargets().some(item => item.id === id)) throw new Error('企业微信通知目标不存在');
+    this.store.deleteWeComTarget(id); this.wecomCredential(id).delete();
   }
   saveRequirement(value: unknown): ManagedDocument {
     this.assertIdle(); const input = requirementInputSchema.parse(value);

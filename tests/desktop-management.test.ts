@@ -114,5 +114,10 @@ test('会话别名独立默认标题和Jira关联，推理强度逐会话保存�
     const options = { providerId: 'legacy-default', model: 'fixture-model', mode: 'read' };
     assert.equal(sessionOptionsSchema.safeParse({ ...options, reasoningEffort: 'high' }).success, true);
     assert.equal(sessionOptionsSchema.safeParse({ ...options, reasoningEffort: 'unbounded' }).success, false);
+    assert.equal(sessionOptionsSchema.safeParse({ ...options, runtimeKind: 'claude_agent_sdk' }).success, true);
+    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', runtimeKind: 'claude_agent_sdk' }).success, true);
+    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', runtimeKind: 'codex' }).success, true);
+    assert.equal(sessionOptionsSchema.safeParse({ mode: 'develop', providerId: 'legacy-default' }).success, false);
+    assert.equal(sessionOptionsSchema.safeParse({ ...options, runtimeKind: 'unknown' }).success, false);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });

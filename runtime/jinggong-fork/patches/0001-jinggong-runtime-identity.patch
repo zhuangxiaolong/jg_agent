@@ -1,0 +1,21 @@
+From jinggong-runtime-fork
+Subject: [PATCH] build an independently branded Jinggong App Server
+
+The patch is applied by scripts/build-jinggong-runtime.mjs to the pinned
+openai/codex rust-v0.156.1 source tree. It changes the Cargo package and
+binary identity, the CLI help/completion identity, the provider user-agent
+originator, and the HTTP client user-agent. The App Server stdio JSONL
+protocol and the upstream execution implementation remain unchanged.
+
+Files changed by the reproducible patch:
+
+  codex-rs/cli/Cargo.toml
+  codex-rs/Cargo.lock
+  codex-rs/cli/src/main.rs
+  codex-rs/login/src/auth/default_client.rs
+  codex-rs/backend-client/src/client.rs
+
+Expected identity after build:
+
+  jinggong-runtime 0.1.0
+  jinggong_runtime/0.1.0 (精工 Agent; 0.1.0)

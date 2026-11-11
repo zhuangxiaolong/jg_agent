@@ -28,6 +28,9 @@ export function exportShare(store: LocalStore, input: ShareExportInput, clean: (
   }
   const content = JSON.stringify(result, null, 2); parseShare(content); return content;
 }
+export function createShareImportSession(session: Omit<Session, 'runtimeKind' | 'imported'>): Session {
+  return { ...session, runtimeKind: 'claude_agent_sdk', imported: true };
+}
 export function prepareShareImport(store: LocalStore, bundle: ShareBundle, session?: Session): { session?: Session; events: AgentEvent[]; memories: Memory[] } {
   if (bundle.session && !session) throw new Error('导入会话前请选择本机项目');
   const existing = new Set(store.listMemories().map(item => createHash('sha256').update(item.title + '\0' + item.content).digest('hex')));

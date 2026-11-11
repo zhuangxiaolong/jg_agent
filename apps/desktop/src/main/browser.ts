@@ -23,7 +23,7 @@ export class BrowserManager {
   }
   private state(sessionId: string): BrowserState {
     const existing = this.states.get(sessionId); if (existing && !existing.window.isDestroyed()) return existing;
-    const win = new BrowserWindow({ parent: this.owner, width: 1280, height: 860, minWidth: 700, minHeight: 500, title: '精工智能开发平台 · 浏览器', backgroundColor: '#16181d', autoHideMenuBar: true, webPreferences: { preload: path.join(this.dist, 'browser-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    const win = new BrowserWindow({ parent: this.owner, width: 1280, height: 860, minWidth: 700, minHeight: 500, title: '精工Agent · 浏览器', backgroundColor: '#16181d', autoHideMenuBar: true, webPreferences: { preload: path.join(this.dist, 'browser-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
     const state: BrowserState = { window: win, tabs: [], active: '', downloads: [], sessionId };
     this.states.set(sessionId, state);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

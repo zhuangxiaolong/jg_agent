@@ -3,3 +3,13 @@
 @import url('./palettes.css');
 @import url('./jira.css');
 @import url('./dock-layout.css');
+@import url('./ui-redesign.css');
+@import url('./agent-tasks.css');
+
+/* 品牌区保持单行标题，同时为侧栏内容留出稳定空间。 */
+.dock-layout .brand { gap: 7px; min-width: 0; }
+.dock-layout .brand-mark { width: 28px; height: 28px; flex: 0 0 auto; }
+.dock-layout .brand > div { min-width: 0; flex: 1 1 auto; }
+.dock-layout .brand strong { display: block; min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; }
+.dock-layout .brand span:not(.version) { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; }
+.dock-layout .brand .version { flex: 0 0 auto; padding: 3px 4px; font-size: 9px; }

@@ -8,6 +8,20 @@ const MAX_FILES = 500;
 const MAX_DIFF_BYTES = 512 * 1024;
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/;
 
+export interface GitWorkspaceMetadata {
+  path: string; branch: string; head: string; repositoryId: string; dirty: boolean;
+  unmergedFiles: string[]; unsafeIndexFiles: string[]; truncated: boolean; stateHash: string;
+}
+export interface GitWorkspaceChange extends FileDiff {
+  layer: 'committed' | 'staged' | 'unstaged' | 'untracked'; previousPath?: string;
+  contentHash: string; unsafeReasons: string[]; truncated: boolean; binary: boolean;
+}
+export interface GitWorkspaceChanges {
+  baseCommit: string; head: string; baseIsAncestor: boolean; changes: GitWorkspaceChange[];
+  truncated: boolean; fingerprint: string;
+}
+export interface GitIncomingPathRisk { path: string; reason: string }
+
 function samePath(left: string, right: string): boolean {
   return process.platform === 'win32' ? resolve(left).toLowerCase() === resolve(right).toLowerCase() : resolve(left) === resolve(right);
 }
@@ -78,6 +92,11 @@ export class GitConnector {
     const current = await this.register(projectPath);
     const raw = (await this.run(current.path, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).text;
     return raw.split(/\r?\n/).map(value => value.trim()).filter(value => value && value !== 'HEAD');
+  }
+
+  managedWorkspaceLocation(id: string): { path: string; branch: string } {
+    if (!SAFE_ID.test(id)) throw new Error('无效的工作区标识。');
+    return { path: resolve(this.rootWorkspaces, id), branch: `agent/${id}` };
   }
 
   async createWorkspace(project: Project, sessionId: string, baseBranch?: string): Promise<{ path: string; branch: string; baseBranch?: string }> {
@@ -278,6 +297,137 @@ export class GitConnector {
     const remotes = (await this.run(workspace, ['remote'])).text.split(/\r?\n/).filter(Boolean);
     const dirty = Boolean((await this.run(workspace, [...await this.filterOverrides(workspace), 'status', '--porcelain=v1', '-z', '--untracked-files=all'])).text);
     return { branch, commits, remotes, dirty };
+  }
+
+  /** 返回不含远程地址的仓库身份，任务工作区用它校验跨项目误配。 */
+  async repositoryIdentity(projectPath: string): Promise<string> {
+    const project = await this.register(projectPath);
+    return this.commonRepositoryIdentity(project.path);
+  }
+
+  private async commonRepositoryIdentity(workspace: string): Promise<string> {
+    const value = (await this.run(workspace, ['rev-parse', '--git-common-dir'])).text.trim();
+    const canonical = await realpath(resolve(workspace, value));
+    return createHash('sha256').update(process.platform === 'win32' ? canonical.toLowerCase() : canonical).digest('hex');
+  }
+
+  /** 只读取受管工作区身份、完整HEAD与冲突状态，不修改索引或分支。 */
+  async inspectWorkspace(workspacePath: string): Promise<GitWorkspaceMetadata> {
+    const workspace = await this.workspace(workspacePath);
+    const overrides = await this.filterOverrides(workspace);
+    const head = (await this.run(workspace, ['rev-parse', '--verify', 'HEAD^{commit}'])).text.trim();
+    const branch = (await this.run(workspace, ['branch', '--show-current'])).text.trim();
+    const raw = await this.run(workspace, [...overrides, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { maxBytes: 1024 * 1024, allowTruncate: true });
+    const unmerged = await this.run(workspace, ['ls-files', '--unmerged', '-z', '--'], { maxBytes: 1024 * 1024, allowTruncate: true });
+    const indexFlags = await this.run(workspace, ['ls-files', '-v', '-z', '--'], { maxBytes: 1024 * 1024, allowTruncate: true });
+    const unmergedFiles = [...new Set(unmerged.text.split('\0').filter(Boolean).map(item => item.slice(item.indexOf('\t') + 1)))].sort();
+    const unsafeIndexFiles = indexFlags.text.split('\0').filter(item => /^[a-zS] /.test(item)).map(item => item.slice(2)).sort();
+    const repositoryId = await this.commonRepositoryIdentity(workspace);
+    return { path: workspace, branch, head, repositoryId, dirty: Boolean(raw.text), unmergedFiles, unsafeIndexFiles,
+      truncated: raw.truncated || unmerged.truncated || indexFlags.truncated,
+      stateHash: createHash('sha256').update(JSON.stringify({ head, branch, raw: raw.text, unmerged: unmerged.text, unsafeIndexFiles, repositoryId })).digest('hex') };
+  }
+
+  /** 同时保留冻结基准以来的提交成果、暂存、未暂存和未跟踪变更。 */
+  async changesSince(workspacePath: string, baseCommit: string): Promise<GitWorkspaceChanges> {
+    if (!/^[a-f0-9]{40,64}$/.test(baseCommit)) throw new Error('任务基准提交必须为完整SHA');
+    const workspace = await this.workspace(workspacePath);
+    await this.run(workspace, ['rev-parse', '--verify', `${baseCommit}^{commit}`]);
+    const head = (await this.run(workspace, ['rev-parse', '--verify', 'HEAD^{commit}'])).text.trim();
+    const baseIsAncestor = (await this.run(workspace, ['merge-base', '--is-ancestor', baseCommit, head], { allowMissing: true })).code === 0;
+    const overrides = await this.filterOverrides(workspace);
+    const sources: Array<{ layer: GitWorkspaceChange['layer']; args: string[]; names: string[] }> = [
+      { layer: 'committed', args: [baseCommit, head], names: [] },
+      { layer: 'staged', args: ['--cached', 'HEAD'], names: [] },
+      { layer: 'unstaged', args: [], names: [] },
+    ];
+    const entries: Array<{ layer: GitWorkspaceChange['layer']; path: string; status: string; previousPath?: string; args: string[] }> = [];
+    let truncated = false;
+    for (const source of sources) {
+      const listing = await this.run(workspace, [...overrides, 'diff', '--no-ext-diff', '--no-textconv', '--find-renames=50%', '--name-status', '-z', ...source.args, '--'], { maxBytes: 1024 * 1024, allowTruncate: true });
+      truncated ||= listing.truncated;
+      const fields = listing.text.split('\0');
+      for (let index = 0; index + 1 < fields.length && fields[index];) {
+        const status = fields[index++];
+        const previous = fields[index++];
+        const renamed = /^[RC]/.test(status);
+        const file = renamed ? fields[index++] : previous;
+        if (!file) { truncated = true; break; }
+        entries.push({ layer: source.layer, path: file, status: status[0], ...(renamed ? { previousPath: previous } : {}), args: source.args });
+      }
+    }
+    const untracked = await this.run(workspace, ['ls-files', '--others', '--exclude-standard', '-z', '--'], { maxBytes: 1024 * 1024, allowTruncate: true });
+    truncated ||= untracked.truncated;
+    entries.push(...untracked.text.split('\0').filter(Boolean).map(path => ({ layer: 'untracked' as const, path, status: 'A', args: [] })));
+    if (entries.length > MAX_FILES) truncated = true;
+    const changes: GitWorkspaceChange[] = [];
+    let remainingBytes = 2 * 1024 * 1024;
+    for (const entry of entries.slice(0, MAX_FILES)) {
+      const unsafeReasons: string[] = [];
+      for (const file of [entry.previousPath, entry.path].filter((value): value is string => Boolean(value))) {
+        try { await this.validateCommitPath(workspace, file); }
+        catch (error) { unsafeReasons.push(error instanceof Error ? error.message : '变更路径检查失败'); }
+      }
+      let patch = '', binary = false, clipped = false;
+      if (unsafeReasons.length) patch = '路径存在安全风险，未读取变更正文。';
+      else if (remainingBytes <= 0) { patch = '变更正文超过本次检查上限，未读取其余正文。'; clipped = true; }
+      else if (entry.layer === 'untracked') {
+        const absolute = await this.safeFile(workspace, entry.path);
+        const info = await lstat(absolute);
+        const handle = await open(absolute, 'r');
+        let bytes: Buffer;
+        try {
+          bytes = Buffer.alloc(Math.min(info.size, MAX_DIFF_BYTES, remainingBytes));
+          const read = await handle.read(bytes, 0, bytes.length, 0);
+          bytes = bytes.subarray(0, read.bytesRead);
+        } finally { await handle.close(); }
+        clipped = info.size > bytes.length;
+        try {
+          if (bytes.includes(0)) throw new Error('binary');
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+          const lines = text.split('\n');
+          if (lines.at(-1) === '') lines.pop();
+          const header = `diff --git a/${entry.path} b/${entry.path}\nnew file mode 100644\n--- /dev/null\n+++ b/${entry.path}\n`;
+          patch = header + (lines.length ? `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => `+${line}`).join('\n')}\n${text.endsWith('\n') ? '' : '\\ No newline at end of file\n'}` : '');
+        } catch { binary = true; patch = `新增二进制文件，内容哈希：${createHash('sha256').update(bytes).digest('hex')}`; }
+      } else {
+        const value = await this.run(workspace, [...overrides, 'diff', '--no-ext-diff', '--no-textconv', '--find-renames=50%', ...entry.args, '--', ...[entry.previousPath, entry.path].filter((value): value is string => Boolean(value))], { maxBytes: Math.max(1, Math.min(MAX_DIFF_BYTES, remainingBytes)), allowTruncate: true });
+        patch = value.text; clipped = value.truncated;
+        binary = /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch);
+      }
+      remainingBytes -= Buffer.byteLength(patch);
+      truncated ||= clipped;
+      changes.push({ path: entry.path, status: entry.status, layer: entry.layer, ...(entry.previousPath ? { previousPath: entry.previousPath } : {}), diff: patch, binary, truncated: clipped,
+        contentHash: createHash('sha256').update(patch).digest('hex'), unsafeReasons });
+    }
+    return { baseCommit, head, baseIsAncestor, changes, truncated,
+      fingerprint: createHash('sha256').update(JSON.stringify({ baseCommit, head, baseIsAncestor, truncated, changes: changes.map(({ diff: _diff, ...item }) => item) })).digest('hex') };
+  }
+
+  /** 检查集成可能触达的目标路径，包含被status忽略的同名文件；仅检查，不覆盖。 */
+  async inspectIncomingPaths(workspacePath: string, files: string[]): Promise<GitIncomingPathRisk[]> {
+    const workspace = await this.workspace(workspacePath);
+    if (files.length > MAX_FILES) return [{ path: '（完整清单）', reason: '目标路径检查数量超过上限' }];
+    const risks: GitIncomingPathRisk[] = [];
+    for (const file of [...new Set(files)]) {
+      try { await this.validateCommitPath(workspace, file); }
+      catch (error) { risks.push({ path: file, reason: error instanceof Error ? error.message : '目标路径检查失败' }); continue; }
+      let current = workspace;
+      for (const part of file.split(/[\\/]/)) {
+        current = resolve(current, part);
+        const info = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+        if (!info) break;
+        const leaf = samePath(current, resolve(workspace, file));
+        if ((!leaf && !info.isDirectory()) || (leaf && !info.isFile())) { risks.push({ path: file, reason: '目标路径存在文件/目录祖先重叠' }); break; }
+        if (leaf) {
+          const tracked = (await this.run(workspace, ['ls-tree', '-z', 'HEAD', '--', file])).text;
+          if (!tracked) {
+            risks.push({ path: file, reason: '目标存在未跟踪或被忽略的同名文件，不能覆盖' });
+          }
+        }
+      }
+    }
+    return risks;
   }
 
   async removeWorkspace(workspacePath: string): Promise<void> {
