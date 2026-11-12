@@ -1,6 +1,7 @@
 import { useTransientError } from './use-transient-error';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
+import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
+import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { Icon, Mark } from './ui';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
 import { MarkdownContent } from './MarkdownContent';
@@ -17,8 +18,11 @@ import { isJiraSessionCreating } from './jira-create-state';
 import { ProjectRow } from './ProjectRow';
 import { SessionRow } from './SessionRow';
 import { AgentTasksPanel } from './AgentTasksPanel';
+import { agentTasksToReveal } from './agent-task-state';
+import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
 import { latestRunningIndicator, runningIndicatorDetails } from './running-indicator';
+import { BrowserPanel } from './BrowserPanel';
 
 
 const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '运行中', completed: '已完成', failed: '失败', interrupted: '已中断' };
@@ -115,6 +119,7 @@ export function App() {
   const [error, setError] = useTransientError();
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
+  const [browserStates, setBrowserStates] = useState<Record<string, BrowserPanelState>>({});
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false);
   const [showReturnLatest, setShowReturnLatest] = useState(false);
   const [updateDownloadedVersion, setUpdateDownloadedVersion] = useState('');
@@ -132,6 +137,11 @@ export function App() {
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [branchLoading, setBranchLoading] = useState(false);
   const [sendingSessions, setSendingSessions] = useState<ReadonlySet<string>>(new Set());
+  const pendingSendCounts = useRef(new Map<string, number>());
+  const sessionDraftsRef = useRef<Record<string, SessionDraft>>({});
+  const currentSessionIdRef = useRef('');
+  const sendingSessionIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const emptySessionCleanup = useRef(new Set<string>());
   const messagesRef = useRef<HTMLDivElement>(null);
   const sessionSettingsRef = useRef<HTMLDivElement>(null);
   const sessionSettingsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -150,6 +160,12 @@ export function App() {
   const project = data?.projects.find(item => item.id === projectId);
   const jiraAssociationId = data?.projects.some(item => item.id === jiraLocalProjectId) ? jiraLocalProjectId : projectId;
   const session = data?.sessions.find(item => item.id === sessionId);
+  const agentTasks = useSessionAgentTasks(api, sessionId, text => setError(message(text)));
+  const hasAgentTasks = agentTasks.tasks.length > 0;
+  const currentInspector = inspector === 'agents' && !hasAgentTasks ? 'jira' : inspector;
+  const revealedAgentTasks = useRef(new Set<string>());
+  const browserState = browserStates[sessionId];
+  const browserOpen = !!session && !!browserState?.visible;
   const sessionProject = data?.projects.find(item => item.id === session?.projectId);
   const sessionRuntimeKind = session?.runtimeKind ?? 'codex';
   const sessionReadAccess = session?.readAccess ?? { mode: 'full' as const, directories: [] };
@@ -182,6 +198,9 @@ export function App() {
   const configurationChanged = !!session && (draftProvider !== (session.providerId || data?.settings?.providers[0]?.id || '') || draftModel !== session.model || draftSystem !== (session.system || '通用') || draftReasoning !== (session.reasoningEffort || ''));
   const projectBindingChanged = !!session && bindProjectId !== (session.projectId || '');
   sessionNames.current = new Map(data?.sessions.map(item => [item.id, sessionDisplayName(item)]) ?? []);
+  sessionDraftsRef.current = sessionDrafts;
+  currentSessionIdRef.current = sessionId;
+  sendingSessionIdsRef.current = sendingSessions;
 
   async function toggleProject(id: string) {
     const item = data?.projects.find(candidate => candidate.id === id);
@@ -209,21 +228,53 @@ export function App() {
     setData(next);
     return next;
   }
+  async function discardEmptySession(id: string, allowSelected = false) {
+    if (!id || emptySessionCleanup.current.has(id)) return;
+    const target = data?.sessions.find(item => item.id === id);
+    if (!target) return;
+    const draft = sessionDraftsRef.current[id];
+    if (draft?.prompt.trim() || draft?.attachments.length) return;
+    if (isSessionRunActive(id, runningSessions.current, sendingSessionIdsRef.current) || pendingSendCounts.current.has(id)) return;
+    if (!allowSelected && currentSessionIdRef.current === id) return;
+    emptySessionCleanup.current.add(id);
+    try {
+      const savedEvents = await api.getEvents(id);
+      if (savedEvents.some(event => ['user', 'message', 'delta', 'tool', 'error', 'approval'].includes(event.type))) return;
+      if (sessionDraftsRef.current[id]?.prompt.trim() || sessionDraftsRef.current[id]?.attachments.length) return;
+      if (isSessionRunActive(id, runningSessions.current, sendingSessionIdsRef.current) || pendingSendCounts.current.has(id)) return;
+      if (!allowSelected && currentSessionIdRef.current === id) return;
+      await api.deleteSession(id);
+      setData(current => current ? { ...current, sessions: current.sessions.filter(item => item.id !== id) } : current);
+      setEvents(current => { const next = { ...current }; delete next[id]; return next; });
+      setSessionDrafts(current => { const next = { ...current }; delete next[id]; return next; });
+      setUnread(current => { const next = { ...current }; delete next[id]; return next; });
+      setStatuses(current => { const next = { ...current }; delete next[id]; return next; });
+      setBrowserStates(current => { const next = { ...current }; delete next[id]; return next; });
+      sessionNames.current.delete(id);
+      if (currentSessionIdRef.current === id) setSessionId('');
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      emptySessionCleanup.current.delete(id);
+    }
+  }
   function updateSession(updated: Session) {
     setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
   }
   async function refreshRequirementAdmission() {
-    if (!session || requirementBusy || running) return;
+    if (!session || !requiresRequirementAdmission(session.jiraIssue) || requirementBusy || running) return;
     setRequirementBusy(true); setError(''); setNotice('');
     try {
       const updated = await api.refreshRequirementAdmission(session.id);
       updateSession(updated);
-      setNotice(updated.requirementAdmission?.status === 'error' ? 'Jira 快照获取失败；可检查 Jira 连接后重试，开发会话仍可继续。' : 'Jira 快照已刷新，需求准入提示已更新。');
+      setNotice(requiresRequirementAdmission(updated.jiraIssue)
+        ? updated.requirementAdmission?.status === 'error' ? 'Jira 快照获取失败；可检查 Jira 连接后重试，开发会话仍可继续。' : 'Jira 快照已刷新，需求准入提示已更新。'
+        : 'Jira 快照已刷新。');
     } catch (reason) { setError(message(reason)); }
     finally { setRequirementBusy(false); }
   }
   async function resolveRequirementItem(itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string) {
-    if (!session || requirementBusy || running) return;
+    if (!session || !requiresRequirementAdmission(session.jiraIssue) || requirementBusy || running) return;
     setRequirementBusy(true); setError(''); setNotice('');
     try {
       const updated = await api.resolveRequirementItem(session.id, itemId, action, valueText, reason);
@@ -240,7 +291,29 @@ export function App() {
       setData(current => current ? { ...current, settings: next.settings, projects: next.projects, sessions: next.sessions, provider: next.provider, runtime: next.runtime, runtimes: next.runtimes } : current);
     }).catch(reason => setError(message(reason)));
   }
-  function openSettings(tab: typeof settingsTab = 'providers') { setSettingsTab(tab); setShowSettings(true); }
+  function openSettings(tab: typeof settingsTab = 'providers') { if (sessionId) void discardEmptySession(sessionId, true); setSettingsTab(tab); setShowSettings(true); }
+  async function closeBrowser() {
+    if (!sessionId) return;
+    try { await api.closeBrowser(sessionId); setBrowserStates(current => current[sessionId] ? { ...current, [sessionId]: { ...current[sessionId], visible: false } } : current); }
+    catch (reason) { setError(message(reason)); }
+  }
+  useEffect(() => api.onBrowserState(state => { setBrowserStates(current => ({ ...current, [state.sessionId]: state })); }), [api]);
+  useEffect(() => {
+    const tasks = agentTasksToReveal(agentTasks.tasks, sessionId, revealedAgentTasks.current, agentTasks.events);
+    if (!tasks.length) return;
+    tasks.forEach(task => revealedAgentTasks.current.add(task.id));
+    setInspector('agents');
+    if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true });
+  }, [agentTasks.tasks, agentTasks.events, sessionId]);
+  useEffect(() => {
+    if (!hasAgentTasks) setInspector(current => current === 'agents' ? 'jira' : current);
+  }, [hasAgentTasks, sessionId]);
+  useEffect(() => {
+    if (!sessionId) return;
+    let disposed = false;
+    void api.browserState(sessionId).then(state => { if (!disposed) setBrowserStates(current => current[sessionId] ? current : { ...current, [sessionId]: state }); }).catch(reason => { if (!disposed) setError(message(reason)); });
+    return () => { disposed = true; void api.setBrowserViewport({ sessionId, visible: false }).catch(() => {}); };
+  }, [api, sessionId]);
   function changeLayout(patch: Partial<LayoutPreferences>) {
     const next = { ...layoutRef.current, ...patch };
     layoutRef.current = next; setLayout(next);
@@ -274,11 +347,11 @@ export function App() {
   function resizeBounds(kind: ResizeKind) {
     const current = layoutRef.current;
     const min = kind === 'left' ? 200 : kind === 'right' ? 320 : kind === 'composer' ? 80 : 100;
-    let max = kind === 'left' ? 248 : kind === 'right' ? 380 : kind === 'composer' ? 400 : 480;
+    let max = kind === 'left' ? 520 : kind === 'right' ? 840 : kind === 'composer' ? 400 : 480;
     if (kind === 'left' || kind === 'right') {
       const responsiveMax = kind === 'left'
-        ? window.innerWidth <= 1199 ? 200 : window.innerWidth <= 1439 ? 228 : 248
-        : window.innerWidth <= 1199 ? 320 : window.innerWidth <= 1439 ? 340 : 380;
+        ? 520
+        : window.innerWidth <= 1199 ? 600 : window.innerWidth <= 1439 ? 720 : 840;
       max = Math.min(max, responsiveMax);
       const other = kind === 'left' ? current.rightVisible ? current.rightWidth ?? 420 : 0 : current.leftVisible ? current.leftWidth ?? 220 : 0;
       max = Math.min(max, window.innerWidth - other - 360);
@@ -289,7 +362,7 @@ export function App() {
     return { min, max: Math.max(min, max) };
   }
   function adjustResize(kind: ResizeKind, event: ReactKeyboardEvent<HTMLButtonElement>) {
-    if (event.key === 'Home') { event.preventDefault(); changeLayout(resizePatch(kind, kind === 'left' ? 220 : kind === 'right' ? 380 : kind === 'composer' ? 110 : 180)); return; }
+    if (event.key === 'Home') { event.preventDefault(); changeLayout(resizePatch(kind, kind === 'left' ? 220 : kind === 'right' ? 420 : kind === 'composer' ? 110 : 180)); return; }
     const step = event.shiftKey ? 40 : 12;
     let delta = 0;
     if (kind === 'left') delta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
@@ -376,7 +449,7 @@ export function App() {
       } catch (reason) {
         setDiffs([]); setSelectedFile(''); setDiffError(message(reason));
       }
-      setNotice(`${targetProjectName ? `会话已切换到项目「${targetProjectName}」` : '会话已切换为不关联项目'}。原目录与其中的改动已保留，恢复路径见会话消息。`);
+      if (targetProjectId) setNotice(`会话已切换到项目「${targetProjectName}」。原目录与其中的改动已保留，恢复路径见会话消息。`);
       const savedEvents = await api.getEvents(updated.id);
       setEvents(current => ({ ...current, [updated.id]: mergeEvents(savedEvents, current[updated.id] || []) }));
     } catch (reason) { setError(message(reason)); }
@@ -429,7 +502,7 @@ export function App() {
     try {
       const updated = await api.restoreSessionFullReadAccess(session.id);
       setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
-      setNotice('已恢复全盘文档只读。');
+      setNotice('已恢复项目外资料全量只读。');
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
@@ -567,6 +640,13 @@ export function App() {
   }, [sessionId]);
 
   useEffect(() => {
+    const leavingSessionId = sessionId;
+    return () => {
+      if (leavingSessionId) void discardEmptySession(leavingSessionId);
+    };
+  }, [sessionId, api]);
+
+  useEffect(() => {
     const element = messagesRef.current;
     if (!element) return;
     if (followLatest.current) element.scrollTop = element.scrollHeight;
@@ -619,6 +699,7 @@ export function App() {
   }
   function openCreateSession(targetProjectId = projectId) {
     const selectedProjectId = targetProjectId && data?.projects.some(item => item.id === targetProjectId) ? targetProjectId : undefined;
+    if (sessionId) void discardEmptySession(sessionId, true);
     setSessionSettingsOpen(false);
     void newSession(selectedProjectId);
   }
@@ -651,7 +732,15 @@ export function App() {
     try {
       const created = await api.createSession({ projectId: jiraAssociationId, jiraIssueKey: key, jiraProjectKey, baseBranch: await resolveBaseBranch(jiraAssociationId), runtimeKind: session?.runtimeKind ?? 'claude_agent_sdk' });
       await refresh(); setProjectId(created.projectId || ''); setSessionId(created.id);
-      if (created.jiraIssue) { setSessionDrafts(current => ({ ...current, [created.id]: { prompt: jiraTaskPrompt(created.jiraIssue!), attachments: [] } })); const unavailable = created.jiraIssue.attachments.filter(item => item.imageWarning).length; const status = created.requirementAdmission?.status; setNotice(`已关联 ${created.jiraIssue.key}。需求准入提示：${status === 'ready' ? '检查完成' : status === 'blocked' ? '存在待确认项' : status === 'error' ? '检查失败' : status === 'stale' ? '需求已变化' : '尚待检查'}，仅供实施参考，不阻断开发。${unavailable ? ` ${unavailable} 张图片未能带入，可在关联任务详情中重试。` : ''}`); }
+      if (created.jiraIssue) {
+        setSessionDrafts(current => ({ ...current, [created.id]: { prompt: jiraTaskPrompt(created.jiraIssue!), attachments: [] } }));
+        const unavailable = created.jiraIssue.attachments.filter(item => item.imageWarning).length;
+        const status = created.requirementAdmission?.status;
+        const admissionNotice = requiresRequirementAdmission(created.jiraIssue)
+          ? `需求准入提示：${status === 'ready' ? '检查完成' : status === 'blocked' ? '存在待确认项' : status === 'error' ? '检查失败' : status === 'stale' ? '需求已变化' : '尚待检查'}，仅供实施参考，不阻断开发。`
+          : '';
+        setNotice(`已关联 ${created.jiraIssue.key}。${admissionNotice}${unavailable ? ` ${unavailable} 张图片未能带入，可在关联任务详情中重试。` : ''}`);
+      }
       else { setError('会话已创建，但未返回 Jira 任务快照，请检查任务关联后再发送。'); }
       return created;
     } catch (reason) { setError(message(reason)); }
@@ -659,33 +748,44 @@ export function App() {
   }
   async function send(event?: FormEvent) {
     event?.preventDefault();
-    if ((!prompt.trim() && !conversationAttachments.length) || !session || isSessionRunActive(session.id, runningSessions.current, sendingSessions) || busy) return;
+    if ((!prompt.trim() && !conversationAttachments.length) || !session || busy) return;
     if (!configuredProvider?.hasKey) { setSessionSettingsOpen(true); setError('请先在当前会话设置中选择已配置密钥的中转站，或管理中转站凭据。'); return; }
     if (projectBindingChanged) { setError('请先应用本地项目选择，再发送任务。'); return; }
     if (configurationChanged) { setError('请先应用会话设置，再发送任务。'); return; }
     const text = prompt.trim() || '请分析本轮上传的附件。';
     const attachmentIds = conversationAttachments.map(item => item.id);
     const id = session.id;
+    const wasRunning = isSessionRunActive(id, runningSessions.current, sendingSessions);
+    pendingSendCounts.current.set(id, (pendingSendCounts.current.get(id) ?? 0) + 1);
     runningSessions.current.add(id);
     setWorkingExpanded(false);
     setError(''); setNotice(''); setSendingSessions(current => new Set(current).add(id));
     setStatuses(current => ({ ...current, [id]: 'running' }));
-    setPrompt('');
+    setSessionDrafts(current => ({ ...current, [id]: { prompt: '', attachments: [] } }));
     try {
-      await api.sendTurn(id, text, attachmentIds);
-      setConversationAttachments([]);
+      const result = await api.sendTurn(id, text, attachmentIds);
+      if (selectedSessionRef.current === id && result?.queued) setNotice('补充任务已排队，将在当前任务结束后依次执行。');
+      else if (selectedSessionRef.current === id && result?.steered) setNotice('补充任务已发送到当前运行任务。');
       const next = await refresh();
       const latest = next.sessions.find(item => item.id === id);
       if (latest) setStatuses(current => ({ ...current, [id]: latest.status }));
       const saved = await api.getEvents(id);
       setEvents(current => ({ ...current, [id]: mergeEvents(saved, current[id] || []) }));
     } catch (reason) {
-      runningSessions.current.delete(id);
+      if (!wasRunning) runningSessions.current.delete(id);
       if (selectedSessionRef.current === id) setError(message(reason));
-      setStatuses(current => ({ ...current, [id]: 'failed' }));
-      setPrompt(current => current || text);
+      if (!wasRunning) setStatuses(current => ({ ...current, [id]: 'failed' }));
+      setSessionDrafts(current => {
+        const draft = current[id] ?? { prompt: '', attachments: [] };
+        return { ...current, [id]: { prompt: draft.prompt ? `${text}\n\n${draft.prompt}` : text, attachments: [...conversationAttachments.filter(item => !draft.attachments.some(existing => existing.id === item.id)), ...draft.attachments] } };
+      });
     } finally {
-      setSendingSessions(current => { const next = new Set(current); next.delete(id); return next; });
+      const remaining = (pendingSendCounts.current.get(id) ?? 1) - 1;
+      if (remaining > 0) pendingSendCounts.current.set(id, remaining);
+      else {
+        pendingSendCounts.current.delete(id);
+        setSendingSessions(current => { const next = new Set(current); next.delete(id); return next; });
+      }
     }
   }
   async function cancel() {
@@ -718,7 +818,7 @@ export function App() {
     return <section className="project-group" key={item.id} aria-label={`项目 ${item.name}`}>
       <ProjectRow project={item} selected={item.id === projectId} disabled={!!busy || running} unread={data?.sessions.some(candidate => candidate.projectId === item.id && !!unread[candidate.id]) ?? false} onSelect={() => { setProjectId(item.id); void toggleProject(item.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (projectId === item.id) { const replacement = next.projects[0]; setProjectId(replacement?.id || ''); setSessionId(next.sessions.find(candidate => candidate.projectId === replacement?.id)?.id || ''); } }} />
       <div id={`project-sessions-${item.id}`} hidden={item.collapsed !== false}>
-        {data?.sessions.filter(sessionItem => sessionItem.projectId === item.id).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(item.id); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => candidate.projectId === item.id)?.id || ''); }} />)}
+        {data?.sessions.filter(sessionItem => sessionItem.projectId === item.id).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(item.id); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => candidate.projectId === item.id)?.id || ''); }} />)}
         <button className="project-new-session text-button" disabled={!!busy} onClick={() => openCreateSession(item.id)}><Icon name="plus" />新建会话</button>
       </div>
     </section>;
@@ -738,26 +838,26 @@ export function App() {
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>
         {!data?.projects.length && <div className="sidebar-empty">可以添加 Git 项目，也可以直接创建独立会话。</div>}
         {data?.projects.map(item => renderProjectGroup(item))}
-         {!!data?.sessions.some(item => !item.projectId) && <section className="standalone-sessions" aria-label="独立会话"><div className="standalone-sessions-heading">独立会话</div>{data.sessions.filter(item => !item.projectId).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(''); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => !candidate.projectId)?.id || ''); }} />)}</section>}
+         {!!data?.sessions.some(item => !item.projectId) && <section className="standalone-sessions" aria-label="独立会话"><div className="standalone-sessions-heading">独立会话</div>{data.sessions.filter(item => !item.projectId).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(''); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => !candidate.projectId)?.id || ''); }} />)}</section>}
       </div>
       <div className="sidebar-footer">
         <div className="sidebar-actions"><button onClick={() => openSettings()} disabled={!data}><Icon name="settings" />全局设置</button></div>
         <div className="local-caption"><Icon name="shield" />数据保存在当前 Windows 用户本机</div>
       </div>
-       <button type="button" className="panel-resize-handle sidebar-resize-handle" role="separator" aria-label="调整项目和会话栏宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={248} aria-valuenow={Math.min(layout.leftWidth ?? 220, 248)} title="拖动调整项目和会话栏宽度" onPointerDown={event => beginResize('left', event)} onKeyDown={event => adjustResize('left', event)} onDoubleClick={() => changeLayout({ leftWidth: 220 })} />
+       <button type="button" className="panel-resize-handle sidebar-resize-handle" role="separator" aria-label="调整项目和会话栏宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={520} aria-valuenow={Math.min(layout.leftWidth ?? 220, 520)} title="拖动调整项目和会话栏宽度" onPointerDown={event => beginResize('left', event)} onKeyDown={event => adjustResize('left', event)} onDoubleClick={() => changeLayout({ leftWidth: 220 })} />
     </aside>
 
     <div className="workspace" inert={showSettings} aria-hidden={showSettings || undefined}>
       <header className="workspace-header">
         <div className="breadcrumbs"><strong>{project?.name || '欢迎使用'}</strong>{session && <><Icon name="chevron" /><span className="breadcrumb-session">{sessionTitle}</span></>}</div>
-        <div className="header-actions"><button className="icon-button" title="打开会话浏览器" aria-label="打开会话浏览器" disabled={!session} onClick={() => { if (session) void api.openBrowser(session.id).catch(error => setError(message(error))); }}><Icon name="box" /></button><div className="panel-toggles" role="group" aria-label="面板显示"><button className={`icon-button ${layout.leftVisible ? 'panel-visible' : ''}`} aria-label={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} title={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} aria-controls="project-sidebar" aria-expanded={layout.leftVisible} disabled={!data} onClick={() => changeLayout({ leftVisible: !layoutRef.current.leftVisible })}><Icon name="panel-left" /></button><button className={`icon-button ${layout.rightVisible ? 'panel-visible' : ''}`} aria-label={layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} title={layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} aria-controls="right-panel" aria-expanded={layout.rightVisible} disabled={!data} onClick={() => changeLayout({ rightVisible: !layoutRef.current.rightVisible })}><Icon name="panel-right" /></button><button className={`icon-button ${layout.bottomVisible ? 'panel-visible' : ''}`} aria-label={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} title={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} aria-controls="bottom-panel" aria-expanded={layout.bottomVisible} disabled={!data} onClick={() => changeLayout({ bottomVisible: !layoutRef.current.bottomVisible })}><Icon name="panel-bottom" /></button></div></div>
+        <div className="header-actions"><button className={`icon-button ${browserOpen ? 'panel-visible' : ''}`} title="打开会话浏览器" aria-label="打开会话浏览器" aria-controls="browser-panel" aria-expanded={browserOpen} disabled={!session} onClick={() => { if (session) void api.openBrowser(session.id).catch(error => setError(message(error))); }}><Icon name="box" /></button><div className="panel-toggles" role="group" aria-label="面板显示"><button className={`icon-button ${layout.leftVisible ? 'panel-visible' : ''}`} aria-label={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} title={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} aria-controls="project-sidebar" aria-expanded={layout.leftVisible} disabled={!data} onClick={() => changeLayout({ leftVisible: !layoutRef.current.leftVisible })}><Icon name="panel-left" /></button><button className={`icon-button ${layout.rightVisible || browserOpen ? 'panel-visible' : ''}`} aria-label={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} title={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} aria-controls={browserOpen ? 'browser-panel' : 'right-panel'} aria-expanded={layout.rightVisible || browserOpen} disabled={!data} onClick={() => { if (browserOpen) void closeBrowser(); else changeLayout({ rightVisible: !layoutRef.current.rightVisible }); }}><Icon name="panel-right" /></button><button className={`icon-button ${layout.bottomVisible ? 'panel-visible' : ''}`} aria-label={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} title={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} aria-controls="bottom-panel" aria-expanded={layout.bottomVisible} disabled={!data} onClick={() => changeLayout({ bottomVisible: !layoutRef.current.bottomVisible })}><Icon name="panel-bottom" /></button></div></div>
       </header>
       {(error || notice) && <div className={`banner ${error ? 'error' : 'notice'}`} role={error ? 'alert' : 'status'}><Icon name={error ? 'alert' : 'check'} /><span>{error || notice}</span>{updateDownloadedVersion && notice.includes('更新已下载') && <button className="secondary-button update-restart" onClick={() => { void restartToUpdate(); }}>重启并更新</button>}<button className="icon-button" aria-label="关闭提示" onClick={() => { setError(''); setNotice(''); }}><Icon name="close" /></button></div>}
-      <div className={`workspace-body ${inspector === 'git' ? 'with-git-inspector' : ''} ${inspector === 'jira' ? 'with-jira-inspector' : ''}`}>
+      <div className={`workspace-body ${browserOpen ? 'with-browser' : ''} ${inspector === 'git' ? 'with-git-inspector' : ''} ${inspector === 'jira' ? 'with-jira-inspector' : ''}`}>
         <main id="agent-conversation" className="conversation" tabIndex={-1} aria-label="Agent 会话">
           {session ? <>
 
-            {session.jiraIssue && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
+            {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
                {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 使用独立工作目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
                {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : row.type === 'error' ? '运行错误' : '精工Agent'}</strong><time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} />}</div></div></article>)}
@@ -777,18 +877,18 @@ export function App() {
             <div className="composer-container">
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
-              {session && <div className="read-access-strip" aria-label="会话资料读取范围"><span><Icon name="shield" />资料读取：{sessionReadAccess.mode === 'full' ? '全盘文档只读（自动跳过系统、凭据和链接）' : sessionReadAccess.directories.length ? '指定目录只读' : '外部资料读取已关闭'}</span><div className="read-access-actions"><button className="attachment-button" type="button" onClick={() => { void authorizeSessionDirectory(); }} disabled={running || !!busy} title="选择并授权只读资料目录">{busy === 'directory' ? '处理中…' : '选择目录'}</button>{sessionReadAccess.mode === 'restricted' && <button className="text-button" type="button" onClick={() => { void restoreSessionFullReadAccess(); }} disabled={running || !!busy}>恢复全盘</button>}</div>{sessionReadAccess.mode === 'restricted' && sessionReadAccess.directories.map(directory => <span className="read-access-grant" key={directory.id} title={directory.path}><span className="read-access-path">{directory.path}</span><button type="button" aria-label={`撤销目录 ${directory.path}`} title="撤销目录授权" onClick={() => { void revokeSessionDirectory(directory.id); }} disabled={running || !!busy}><Icon name="close" /></button></span>)}</div>}
+              {session && <div className="read-access-strip" aria-label="会话资料读取范围"><span><Icon name="shield" />项目外资料读取范围：{sessionReadAccess.mode === 'full' ? '全量只读（自动跳过系统、凭据和链接）' : sessionReadAccess.directories.length ? '指定目录只读' : '外部资料读取已关闭'}</span><div className="read-access-actions"><button className="attachment-button" type="button" onClick={() => { void authorizeSessionDirectory(); }} disabled={running || !!busy} title="选择并授权只读资料目录">{busy === 'directory' ? '处理中…' : '选择目录'}</button>{sessionReadAccess.mode === 'restricted' && <button className="text-button" type="button" onClick={() => { void restoreSessionFullReadAccess(); }} disabled={running || !!busy}>恢复全量读取</button>}</div>{sessionReadAccess.mode === 'restricted' && sessionReadAccess.directories.map(directory => <span className="read-access-grant" key={directory.id} title={directory.path}><span className="read-access-path">{directory.path}</span><button type="button" aria-label={`撤销目录 ${directory.path}`} title="撤销目录授权" onClick={() => { void revokeSessionDirectory(directory.id); }} disabled={running || !!busy}><Icon name="close" /></button></span>)}</div>}
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send}>
-                <textarea aria-label="输入任务" placeholder="向精工Agent描述您的任务…" value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} disabled={running} rows={3} maxLength={32000} />
+                <textarea aria-label="输入任务" placeholder="向精工Agent描述您的任务…" value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} rows={3} maxLength={32000} />
                 {conversationAttachments.length > 0 && <div className="composer-attachments" aria-label="待发送附件">{conversationAttachments.map(attachment => <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name={attachment.kind === 'image' ? 'box' : 'file'} /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}</div>}
-               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { const selectedProjectId = event.target.value; if (!selectedProjectId && session.projectId) void bindCurrentSession(''); else setBindProjectId(selectedProjectId); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => !projectBindingChanged && session.projectId ? void switchSessionBranch(event.target.value) : setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}{projectBindingChanged && <button className="attachment-button" type="button" disabled={running || !!busy || branchLoading} onClick={() => { void bindCurrentSession(bindProjectId); }}>{busy === 'bind-project' ? '切换中…' : !bindProjectId ? '解除关联' : session.projectId ? '切换项目' : '绑定项目'}</button>}</div>{running ? <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button> : <button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !sessionRuntimeHealth?.compatible || configurationChanged || projectBindingChanged || !!busy} aria-label="发送任务" title={projectBindingChanged ? '请先应用本地项目选择' : configurationChanged ? '请先应用会话设置' : '发送任务（Enter）'}><Icon name="arrow" /></button>}</div>
+               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { const selectedProjectId = event.target.value; if (!selectedProjectId && session.projectId) void bindCurrentSession(''); else setBindProjectId(selectedProjectId); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => !projectBindingChanged && session.projectId ? void switchSessionBranch(event.target.value) : setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}{projectBindingChanged && <button className="attachment-button" type="button" disabled={running || !!busy || branchLoading} onClick={() => { void bindCurrentSession(bindProjectId); }}>{busy === 'bind-project' ? '切换中…' : !bindProjectId ? '解除关联' : session.projectId ? '切换项目' : '绑定项目'}</button>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !sessionRuntimeHealth?.compatible || configurationChanged || projectBindingChanged || !!busy} aria-label="发送任务" title={projectBindingChanged ? '请先应用本地项目选择' : configurationChanged ? '请先应用会话设置' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
               </form>
               <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型')} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'}</span><Icon name="chevron" /></button>
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
               <div className="session-settings-heading"><strong>会话设置</strong><button type="button" className="icon-button" aria-label="关闭会话设置" onClick={() => { setSessionSettingsOpen(false); sessionSettingsTriggerRef.current?.focus(); }}><Icon name="close" /></button></div>
               <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => { const profile = data?.settings.providers.find(item => item.id === e.target.value); setDraftProvider(e.target.value); setDraftModel(profile?.models[0] || ''); }}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{data?.settings?.providers.map(item => <option value={item.id} key={item.id}>{item.name}{item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
               <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => setDraftModel(e.target.value)}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.includes(draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item}>{item}</option>)}</select></label>
-              <label>系统<select aria-label="会话适用系统" value={draftSystem} disabled={running || !!busy} onChange={e => setDraftSystem(e.target.value as ProductSystem)}>{['通用', 'MES5', 'MES6', 'WMS'].map(item => <option key={item}>{item}</option>)}</select></label>
+              <label>系统<select aria-label="会话适用系统" value={draftSystem} disabled={running || !!busy} onChange={e => setDraftSystem(e.target.value as ProductSystem)}>{['通用', 'MES5', 'MES6', 'WMS', '前端'].map(item => <option key={item}>{item}</option>)}</select></label>
               <label>推理强度<select aria-label="推理强度" value={draftReasoning} disabled={running || !!busy} onChange={event => setDraftReasoning(event.target.value as ReasoningEffort | '')}>{([{ value: '', label: '模型默认' }, { value: 'none', label: '无' }, { value: 'minimal', label: '最低' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' }] as const).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <button className="secondary-button" disabled={running || !!busy || !configurationChanged || !draftProvider || !draftModel} onClick={configure}>{busy === 'configure' ? '应用中…' : '应用设置'}</button>
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
@@ -799,13 +899,14 @@ export function App() {
           </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>让想法，进入代码。</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>每个会话使用独立目录，执行时遵循本机安全策略。</span></div></div>}
         </main>
 
-        <aside id="right-panel" className="inspector" aria-label="右侧任务与代码面板" hidden={!layout.rightVisible}>
-       <button type="button" className="panel-resize-handle inspector-resize-handle" role="separator" aria-label="调整右侧面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={380} aria-valuenow={Math.min(layout.rightWidth ?? 380, 380)} title="拖动调整右侧面板宽度" onPointerDown={event => beginResize('right', event)} onKeyDown={event => adjustResize('right', event)} onDoubleClick={() => changeLayout({ rightWidth: 380 })} />
-          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={inspector === 'jira' ? 'active' : ''} aria-pressed={inspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button><button id="agents-panel-tab" className={inspector === 'agents' ? 'active' : ''} aria-pressed={inspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button><button id="diff-panel-tab" className={inspector === 'diff' ? 'active' : ''} aria-pressed={inspector === 'diff'} aria-controls="diff-panel" disabled={!session?.projectId} onClick={() => setInspector('diff')}>代码变更{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="git-panel-tab" className={inspector === 'git' ? 'active' : ''} aria-pressed={inspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git</button><button id="performance-panel-tab" className={inspector === 'performance' ? 'active' : ''} aria-pressed={inspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={inspector === 'context' ? 'active' : ''} aria-pressed={inspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
-          <div id="jira-panel" className="inspector-panel jira-inspector-panel" role="region" aria-label="右侧 Jira 任务" hidden={inspector !== 'jira'}>{data?.settings && <JiraPanel compact api={api} settings={data.settings.jira} projects={data.projects} projectId={jiraAssociationId} onProjectChange={setJiraLocalProjectId} onConfigure={() => openSettings('jira')} onCreateIssue={sessionFromJira} creating={isJiraSessionCreating(busy)} />}</div>
-          <div id="agents-panel" className="inspector-panel" role="region" aria-labelledby="agents-panel-tab" hidden={inspector !== 'agents'}><AgentTasksPanel api={api} session={session} onError={text => setError(message(text))} /></div>
-          <div id="performance-panel" className="inspector-panel" role="region" aria-label="执行监控" hidden={inspector !== 'performance'}>{inspector === 'performance' && <PerformancePanel api={api} session={session} />}</div>
-          <div id="diff-panel" className="inspector-panel" role="region" aria-labelledby="diff-panel-tab" hidden={inspector !== 'diff'}>
+        {browserOpen && browserState && <BrowserPanel key={sessionId} api={api} state={browserState} suspended={showSettings || sessionSettingsOpen || !!fileContextMenu} onClose={() => { void closeBrowser(); }} onError={reason => setError(message(reason))} />}
+        <aside id="right-panel" className="inspector" aria-label="右侧任务与代码面板" hidden={!layout.rightVisible || browserOpen}>
+       <button type="button" className="panel-resize-handle inspector-resize-handle" role="separator" aria-label="调整右侧面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={840} aria-valuenow={Math.min(layout.rightWidth ?? 420, 840)} title="拖动调整右侧面板宽度" onPointerDown={event => beginResize('right', event)} onKeyDown={event => adjustResize('right', event)} onDoubleClick={() => changeLayout({ rightWidth: 420 })} />
+          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="diff-panel-tab" className={currentInspector === 'diff' ? 'active' : ''} aria-pressed={currentInspector === 'diff'} aria-controls="diff-panel" disabled={!session?.projectId} onClick={() => setInspector('diff')}>代码变更{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
+          <div id="jira-panel" className="inspector-panel jira-inspector-panel" role="region" aria-label="右侧 Jira 任务" hidden={currentInspector !== 'jira'}>{data?.settings && <JiraPanel compact api={api} settings={data.settings.jira} projects={data.projects} projectId={jiraAssociationId} onProjectChange={setJiraLocalProjectId} onConfigure={() => openSettings('jira')} onCreateIssue={sessionFromJira} creating={isJiraSessionCreating(busy)} />}</div>
+          {hasAgentTasks && <div id="agents-panel" className="inspector-panel" role="region" aria-labelledby="agents-panel-tab" hidden={currentInspector !== 'agents'}><AgentTasksPanel api={api} session={session} tasks={agentTasks.tasks} events={agentTasks.events} refreshTasks={agentTasks.refreshTasks} onError={text => setError(message(text))} /></div>}
+          <div id="performance-panel" className="inspector-panel" role="region" aria-label="执行监控" hidden={currentInspector !== 'performance'}>{currentInspector === 'performance' && <PerformancePanel api={api} session={session} />}</div>
+          <div id="diff-panel" className="inspector-panel" role="region" aria-labelledby="diff-panel-tab" hidden={currentInspector !== 'diff'}>
              {diffs.length ? <div className="diff-content"><GitChangesTree files={diffs} selectedPath={activeDiff?.path || ''} onSelect={path => { setSelectedFile(path); setDiffExpanded(true); }} onContextMenu={(file, x, y) => { setSelectedFile(file.path); setFileContextMenu({ file, x, y }); }} />{activeDiff && <DiffPreview key={sessionId} file={activeDiff} expanded={diffExpanded} onToggle={() => setDiffExpanded(value => !value)} />}</div> : <div className="inspector-empty"><div className="empty-icon"><Icon name="layers" /></div><strong>{diffBusy ? '正在读取 Git 差异' : session ? diffError ? '项目目录暂不可用' : '项目目录暂无变更' : '代码差异将在这里显示'}</strong><p>{session ? diffError || '此处展示会话目录与基准提交的真实差异。' : '选择项目并创建会话，即可查看文件变更。'}</p></div>}
             {fileContextMenu && <div className="file-context-menu" role="menu" aria-label={`文件 Git 操作：${fileContextMenu.file.path}`} style={{ left: Math.min(fileContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(fileContextMenu.y, Math.max(8, window.innerHeight - 210)) }}>
               <div className="file-context-heading">{fileContextMenu.file.path}</div>
@@ -819,8 +920,8 @@ export function App() {
             </div>}
              <div className="inspector-footnote"><Icon name="branch" /><span>{session ? '隔离目录 · 原始项目保持独立' : '每个会话使用独立 Git Worktree'}</span></div>
           </div>
-          <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={inspector !== 'git'}>{sessionProject && !projectBindingChanged && (!project || project.id === sessionProject.id) ? <GitPanel key={`${sessionId}-${sessionProject.id}-${session?.workspacePath}-${session?.system}`} sessionId={sessionId} project={sessionProject} jiraUrl={session?.jiraIssue?.url} documents={data?.settings?.documents || []} running={running} onChanged={async () => { await refresh(); await refreshDiff(sessionId); }} /> : project ? <div className="git-panel"><ProjectGitPanel key={`project-${project.id}`} project={project} disabled={running || !!busy} onChanged={async () => { await refresh(); }} /></div> : <div className="inspector-empty"><div className="empty-icon"><Icon name="branch" /></div><strong>选择本地项目后管理 Git</strong><p>点击左侧项目即可获取远程更新、拉取与推送项目代码。</p></div>}</div>
-          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={inspector !== 'context'}><div className="context-content"><div className="context-label">当前项目</div><strong>{project?.name || '尚未选择'}</strong><code>{project?.path || '通过左侧 + 添加本地 Git 项目'}</code><div className="context-label">会话目录</div><code>{session?.workspacePath || '新建会话后创建独立目录'}</code><div className="context-label">适用系统</div><div className="context-value"><Icon name="shield" />{session?.system || '通用'}</div><p className="context-hint">只加载通用及当前系统资料。代码、构建、测试、网络和数据库操作遵循当前 Runtime 配置和本机安全策略。</p><div className="context-label">模型中转站</div><div className="context-value">{configuredProvider?.name || '未选择'} · Responses</div><code>{configuredProvider?.baseUrl || '尚未配置中转站'}</code><div className="context-label">已启用资料</div>{data?.settings?.documents.filter(item => item.enabled && (item.system === '通用' || item.system === (session?.system || '通用'))).map(item => <div className="context-document" key={item.id}><Icon name="file" /><span>{item.name}<small>{item.system} · {item.kind === 'dictionary' ? '数据字典' : '开发要求'}</small></span></div>)}<button className="text-button" onClick={() => openSettings('documents')} disabled={!data}>管理数据字典</button><button className="text-button" onClick={() => openSettings('requirements')} disabled={!data}>管理开发要求与规范</button><div className="context-label">本机环境</div><div className="environment-row"><span>精工Agent引擎</span><b>{engineVersion(data?.runtime.version) || '检查中'}</b></div><div className="environment-row"><span>Git</span><b>{data?.gitVersion || '未检测到'}</b></div><div className="context-label">本地数据目录</div><code>{data?.dataDirectory || '正在初始化'}</code></div></div>
+          <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={currentInspector !== 'git'}>{sessionProject && !projectBindingChanged && (!project || project.id === sessionProject.id) ? <GitPanel key={`${sessionId}-${sessionProject.id}-${session?.workspacePath}-${session?.system}`} sessionId={sessionId} project={sessionProject} jiraUrl={session?.jiraIssue?.url} documents={data?.settings?.documents || []} running={running} onChanged={async () => { await refresh(); await refreshDiff(sessionId); }} /> : project ? <div className="git-panel"><ProjectGitPanel key={`project-${project.id}`} project={project} disabled={running || !!busy} onChanged={async () => { await refresh(); }} /></div> : <div className="inspector-empty"><div className="empty-icon"><Icon name="branch" /></div><strong>选择本地项目后管理 Git</strong><p>点击左侧项目即可获取远程更新、拉取与推送项目代码。</p></div>}</div>
+          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={currentInspector !== 'context'}><div className="context-content"><div className="context-label">当前项目</div><strong>{project?.name || '尚未选择'}</strong><code>{project?.path || '通过左侧 + 添加本地 Git 项目'}</code><div className="context-label">会话目录</div><code>{session?.workspacePath || '新建会话后创建独立目录'}</code><div className="context-label">适用系统</div><div className="context-value"><Icon name="shield" />{session?.system || '通用'}</div><p className="context-hint">只加载通用及当前系统资料。代码、构建、测试、网络和数据库操作遵循当前 Runtime 配置和本机安全策略。</p><div className="context-label">模型中转站</div><div className="context-value">{configuredProvider?.name || '未选择'} · Responses</div><code>{configuredProvider?.baseUrl || '尚未配置中转站'}</code><div className="context-label">已启用资料</div>{data?.settings?.documents.filter(item => item.enabled && (item.system === '通用' || item.system === (session?.system || '通用'))).map(item => <div className="context-document" key={item.id}><Icon name="file" /><span>{item.name}<small>{item.system} · {item.kind === 'dictionary' ? '数据字典' : '开发要求'}</small></span></div>)}<button className="text-button" onClick={() => openSettings('documents')} disabled={!data}>管理数据字典</button><button className="text-button" onClick={() => openSettings('requirements')} disabled={!data}>管理开发要求与规范</button><div className="context-label">本机环境</div><div className="environment-row"><span>精工Agent引擎</span><b>{engineVersion(data?.runtime.version) || '检查中'}</b></div><div className="environment-row"><span>Git</span><b>{data?.gitVersion || '未检测到'}</b></div><div className="context-label">本地数据目录</div><code>{data?.dataDirectory || '正在初始化'}</code></div></div>
         </aside>
       </div>
       <section id="bottom-panel" className="activity-panel" aria-label="运行输出和工具活动" hidden={!layout.bottomVisible}>

@@ -5,7 +5,7 @@ import type { LocalStore } from '../../../../packages/storage/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 
 export const DEFAULT_REQUIREMENTS_URL = 'https://github.com/zhuangxiaolong/jg_agent';
-const manifestSchema = z.object({ version: z.string().min(1).max(100), documents: z.array(z.object({ key: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(160), system: z.enum(['MES5', 'MES6', 'WMS', '通用']), path: z.string().min(1).max(500), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(100) }).strict();
+const manifestSchema = z.object({ version: z.string().min(1).max(100), documents: z.array(z.object({ key: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(160), system: z.enum(['MES5', 'MES6', 'WMS', '前端', '通用']), path: z.string().min(1).max(500), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(100) }).strict();
 export function shouldSyncRequirementsOnStartup(state: RequirementsSync): boolean {
   return state.automatic || (!state.version && !state.lastChecked);
 }

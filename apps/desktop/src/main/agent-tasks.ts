@@ -36,7 +36,7 @@ export function inferAutomaticAgentTaskPlan(prompt: string): AutomaticAgentTaskP
     // 同一角色可以覆盖多个工作面（例如前端与后端），按任务名去重以便并行拆分。
     if (plans.some(item => item.name === name)) return;
     plans.push({
-      role, name, description: `围绕以下会话需求进行${focus}，检查当前项目代码与现状并给出证据：\n${value}`,
+      role, name, description: `围绕本轮会话需求进行${focus}，检查当前项目代码与现状并给出证据；完整需求见任务输入。`,
       outputExpectations: outputs,
       acceptanceCriteria: ['结论必须引用实际工作区文件或现状证据', '交付分析结论、未覆盖项和风险，由主 Agent 汇总实施'],
     });
@@ -151,12 +151,22 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
 
 function terminal(status: AgentTaskStatus): boolean { return ['COMPLETED', 'CANCELLED', 'BLOCKED'].includes(status); }
 
+/** 分析结果只作为证据交回主会话，失败和取消不能包装成已完成。 */
+export function automaticAgentTaskSummary(tasks: readonly AgentTask[]): string {
+  const labels: Record<AgentTaskStatus, string> = { PENDING: '等待运行', WAITING: '等待依赖', RUNNING: '运行中', COMPLETED: '分析完成', FAILED: '失败', CANCELLED: '已取消', BLOCKED: '已阻塞或中断' };
+  return `自动子 Agent 分析结果（${tasks.length} 个工作面；分析结论不代表构建、测试或验收通过）：\n${tasks.map(task => {
+    const summary = task.status === 'COMPLETED' ? task.result?.summary : task.error || task.result?.error || task.result?.summary;
+    return `- ${task.name.replace(/^自动子Agent\[[a-f0-9]{12}\]\s*/, '')}【${labels[task.status]}】：${(summary || '无结果').slice(0, 3000)}`;
+  }).join('\n')}`;
+}
+
 export class AgentTaskRunner {
   private readonly active = new Map<string, ActiveTask>();
   private readonly cancellingSessions = new Set<string>();
   private readonly retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly circuits = new Map<string, TaskCircuitBreaker>();
   private readonly aggregatedAutomaticGroups = new Set<string>();
+  private readonly taskWaiters = new Set<() => void>();
   private closing = false;
 
   constructor(private readonly options: AgentTaskRunnerOptions) {}
@@ -164,6 +174,29 @@ export class AgentTaskRunner {
   get activeCount(): number { return this.active.size; }
 
   hasActiveSession(sessionId: string): boolean { return [...this.active.values()].some(item => item.task.sessionId === sessionId); }
+
+  /** 只等待本轮任务，已有历史任务不会阻塞主会话；取消和退出同样唤醒等待者。 */
+  waitForTasks(sessionId: string, taskIds: readonly string[], timeoutMs = 30 * 60000): Promise<AgentTask[]> {
+    const ids = new Set(taskIds);
+    return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const check = () => {
+        const tasks = this.options.store.listAgentTasks(sessionId).filter(task => ids.has(task.id));
+        if (!this.closing && tasks.some(task => !['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(task.status))) return;
+        this.taskWaiters.delete(check);
+        if (timer) clearTimeout(timer);
+        resolve(tasks);
+      };
+      this.taskWaiters.add(check);
+      timer = setTimeout(() => {
+        // 排队时间也计入上限，只取消本轮任务，不影响其他会话或历史任务。
+        void Promise.allSettled(this.options.store.listAgentTasks(sessionId)
+          .filter(task => ids.has(task.id) && !['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(task.status))
+          .map(task => this.cancel(sessionId, task.id))).then(check);
+      }, timeoutMs);
+      check();
+    });
+  }
 
   async startForSession(sessionId: string): Promise<void> {
     if (this.closing) return;
@@ -259,6 +292,7 @@ export class AgentTaskRunner {
     for (const task of this.options.store.listAgentTasks().filter(task => task.contractVersion && executionStatusOf(task) === 'RUNNING')) {
       this.options.store.transitionTaskLifecycle({ sessionId: task.sessionId, taskId: task.id, dimension: 'execution', to: 'INTERRUPTED', expectedStateVersion: task.stateVersion ?? 0, actor: 'platform-runner', reason: '应用退出时检测到未结束工程任务，等待人工恢复；不会重放在途工具' });
     }
+    for (const waiter of this.taskWaiters) waiter();
   }
 
   private saveTask(task: AgentTask): AgentTask {
@@ -317,6 +351,7 @@ export class AgentTaskRunner {
     const event: AgentTaskEvent = { id: randomUUID(), taskId: task.id, sessionId: task.sessionId, type, text: this.options.settings.redactContent(text).slice(0, 32000), createdAt: new Date().toISOString(), ...(requestId === undefined ? {} : { requestId }) };
     this.options.store.appendAgentTaskEvent(event);
     this.options.publish(event);
+    if (type === 'status') for (const waiter of this.taskWaiters) waiter();
   }
 
   private publishAutomaticSummary(task: AgentTask): void {
@@ -326,11 +361,7 @@ export class AgentTaskRunner {
     if (!group.length || group.some(item => !['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(item.status))) return;
     const key = `${task.sessionId}:${match[1]}`;
     this.aggregatedAutomaticGroups.add(key);
-    const lines = group.map(item => {
-      const summary = item.result?.summary || item.result?.error || item.error || '无结果';
-      return `- ${item.name.replace(new RegExp(`^${AUTOMATIC_AGENT_TASK_PREFIX}\\[[a-f0-9]{12}\\]\\s*`), '')}：${summary.slice(0, 3000)}`;
-    });
-    this.options.publishSessionMessage?.(task.sessionId, `自动子 Agent 已完成汇总（${group.length} 个工作面）：\n${lines.join('\n')}`);
+    this.options.publishSessionMessage?.(task.sessionId, automaticAgentTaskSummary(group));
   }
 
   private buildRuntime(task: AgentTask, session: Session, active: ActiveTask): RuntimeAdapter {
@@ -338,7 +369,7 @@ export class AgentTaskRunner {
     const kind = task.runtimeKind ?? session.runtimeKind ?? 'codex';
     if (kind !== 'codex' && kind !== 'jinggong') throw new Error('分析子 Agent 当前仅支持 Codex Runtime 或 Jinggong Runtime');
     const executable = kind === 'jinggong' ? this.options.jinggongExecutable : this.options.codexExecutable;
-    if (!existsSync(executable)) throw new Error(`${kind === 'jinggong' ? 'Jinggong' : 'Codex'} Runtime 尚未部署`);
+    if (!task.contractVersion && !existsSync(executable)) throw new Error(`${kind === 'jinggong' ? 'Jinggong' : 'Codex'} Runtime 尚未部署`);
     const provider = this.options.settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? this.options.settings.profiles()[0] : undefined);
     if (!provider || !provider.models.includes(task.model ?? session.model)) throw new Error('会话模型配置无效，无法启动分析子 Agent');
     const apiKey = this.options.settings.credential(provider.id).read(provider.baseUrl);
@@ -359,6 +390,14 @@ export class AgentTaskRunner {
     const runtimeOptions: RuntimeOptions = { executable, home: path.join(this.options.dataRoot, 'runtime', 'agent-tasks', task.id), baseUrl: provider.baseUrl, model: task.model ?? session.model, apiKey, shellToolEnabled: false, reasoningEffort: session.reasoningEffort, developerInstructions, dictionaries: documents.filter(item => item.kind === 'dictionary'), ...(contract && active.budget ? { toolGateway: async (request, execute) => {
       gateway ??= createAgentTaskToolGateway({ store: this.options.store, task, workspacePath: task.workspacePath ?? session.workspacePath, budget: active.budget!, assertActive: () => { if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive'); } });
       return gateway(request, execute);
+    }, executionMode: 'controlled_analysis', modelRequestGateway: request => {
+      if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive');
+      const current = this.options.store.listAgentTasks(task.sessionId).find(item => item.id === task.id);
+      if (!current || executionStatusOf(current) !== 'RUNNING' || current.contractVersion !== contract.contractVersion) throw new GovernanceError('task_state_changed');
+      active.budget!.reserveModelTurn();
+      this.options.store.appendTaskAuditEvent(task.sessionId, task.id, { eventType: 'model.turn_started', actor: 'platform-runner', correlationId: request.requestId, payload: { count: 1, scope: 'model_request', tokenUsage: 'unknown', costUsage: 'unknown' } });
+      // 新模型请求追加了审计版本；下一批工具使用最新版本，不能沿用旧快照。
+      gateway = undefined;
     } } : {}) };
     if (this.options.runtimeFactory) return this.options.runtimeFactory(kind, runtimeOptions);
     return kind === 'jinggong' ? createJinggongRuntimeAdapter(runtimeOptions) : createCodexRuntimeAdapter(runtimeOptions);
@@ -378,7 +417,7 @@ export class AgentTaskRunner {
         const snapshot = this.options.store.getTaskAuditSnapshot(task.sessionId, task.id);
         if (snapshot.pendingToolCalls.length || snapshot.toolEvents.some(event => event.eventType === 'tool.unknown_outcome')) throw new GovernanceError('unknown_tool_outcome_requires_manual_review');
         this.options.store.appendTaskAuditEvent(task.sessionId, task.id, { eventType: 'budget.inherited', actor: 'platform-runner', payload: { policy: inherited.policy, sources: inherited.sources } });
-        assertRuntimeGovernance(task.runtimeKind ?? 'codex', { strictModelRequests: true, strictTools: true, strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined });
+        assertRuntimeGovernance(task.runtimeKind ?? 'codex', { strictModelRequests: true, strictTools: true, strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined }, 'controlled_analysis');
         budget = new TaskBudgetGuard(inherited.policy, { startedAt: task.startedAt ? Date.parse(task.startedAt) : undefined, initial: { modelTurns: snapshot.budgetEvents.filter(event => event.eventType === 'model.turn_started').length, toolCalls: snapshot.toolEvents.filter(event => event.eventType === 'tool.started').length } });
         budget.check(); this.circuit(task).assertCanExecute();
       } catch (error) { if (error instanceof GovernanceError && error.code === 'circuit_open') this.deferCircuit(task); else this.blockGovernance(task, error); return; }
@@ -405,10 +444,6 @@ export class AgentTaskRunner {
       const prompt = `任务名称：${running.name}\n任务角色：${ANALYSIS_ROLES[running.role]}\n任务描述：${running.description}${running.input ? `\n补充输入：\n${running.input}` : ''}\n\n请按分析职责完成任务，直接输出结论与证据，供主 Agent 汇总实施。`;
       this.options.settings.assertCleanText(prompt);
       this.record(running, 'user', prompt);
-      if (active.budget) {
-        active.budget.reserveModelTurn();
-        this.options.store.appendTaskAuditEvent(running.sessionId, running.id, { eventType: 'model.turn_started', actor: 'platform-runner', payload: { count: 1, scope: 'platform_turn', tokenUsage: 'unknown', costUsage: 'unknown' } });
-      }
       active.submittedTurn = true;
       await active.adapter.sendTurn(active.threadId, prompt, workspacePath);
     } catch (error) {
@@ -422,7 +457,7 @@ export class AgentTaskRunner {
     const task = this.options.store.listAgentTasks(active.task.sessionId).find(item => item.id === active.task.id) ?? active.task;
     const safeText = this.options.settings.redactContent(event.text);
     if (event.type === 'error') active.failure = safeText;
-    if (safeText) active.output = `${active.output}${safeText}`.slice(-12000);
+    if (safeText && (event.type === 'message' || event.type === 'delta')) active.output = `${active.output}${safeText}`.slice(-12000);
     this.record(task, event.type, safeText, event.requestId);
     if (event.type === 'status') {
       const status = event.text === 'interrupted' && task.contractVersion && !active.terminationStatus ? 'INTERRUPTED' : active.terminationStatus === 'INTERRUPTED' ? 'INTERRUPTED' : terminalTaskStatus(event.text, active.terminationStatus);
@@ -462,6 +497,7 @@ export class AgentTaskRunner {
     if (status === 'INTERRUPTED' && current.contractVersion) {
       const interrupted = this.options.store.transitionTaskLifecycle({ sessionId: current.sessionId, taskId: current.id, expectedStateVersion: current.stateVersion ?? 0, dimension: 'execution', to: 'INTERRUPTED', actor: 'platform-runner', reason: error ?? 'Runtime 已中断，等待人工确认，不自动重放工具' });
       this.record(interrupted, 'status', interrupted.error ?? '工程任务已中断，等待人工恢复');
+      this.publishAutomaticSummary(interrupted);
       this.schedule(); return;
     }
     if (status === 'INTERRUPTED') status = 'FAILED';

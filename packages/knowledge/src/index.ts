@@ -12,7 +12,7 @@ export { MAX_DOCUMENT_CHARACTERS, MAX_DICTIONARY_CHARACTERS } from './limits';
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv', '.sql']);
 export const SUPPORTED_DOCUMENT_TEXT_EXTENSIONS = Object.freeze([...TEXT_EXTENSIONS, '.pdf', '.docx', '.xlsx', '.pptx']);
 const SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET = new Set(SUPPORTED_DOCUMENT_TEXT_EXTENSIONS);
-const SYSTEMS = new Set<ProductSystem>(['MES5', 'MES6', 'WMS', '通用']);
+const SYSTEMS = new Set<ProductSystem>(['MES5', 'MES6', 'WMS', '前端', '通用']);
 
 export interface DocumentTextSnapshot {
   name: string;

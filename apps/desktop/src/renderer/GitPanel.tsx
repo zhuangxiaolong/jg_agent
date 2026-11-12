@@ -79,7 +79,7 @@ export function GitPanel({ sessionId, project, running, onChanged, documents, ji
       const { runId } = await api.startVerification(sessionId, profileId);
       if (current.current !== sessionId) return;
       setActiveVerificationRun(runId); setVerificationBusy(true);
-      setNotice(profileId === 'tests' ? '测试已启动，等待真实命令结果。' : '类型检查已启动，等待真实命令结果。');
+      setNotice(profileId === 'tests' ? '测试已启动，等待真实命令结果。' : profileId === 'build' ? '构建已启动，等待真实命令结果。' : '类型检查已启动，等待真实命令结果。');
     } catch (reason) { if (current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
     finally { if (current.current === sessionId) setVerificationPending(false); }
   }
@@ -109,11 +109,12 @@ export function GitPanel({ sessionId, project, running, onChanged, documents, ji
       <p className="git-hint">由桌面主进程执行固定的类型检查或测试命令并采集结果；Agent 文本不作为验证证据。</p>
       {verificationError && <div className="form-error" role="alert"><Icon name="alert" />{verificationError}</div>}
       <div className="verification-actions">
+        <button className="secondary-button" disabled={disabled} onClick={() => void startVerification('build')}>{verificationPending ? '正在启动…' : '运行构建'}</button>
         <button className="secondary-button" disabled={disabled} onClick={() => void startVerification('typecheck')}>{verificationPending ? '正在启动…' : '运行类型检查'}</button>
         <button className="secondary-button" disabled={disabled} onClick={() => void startVerification('tests')}>{verificationPending ? '正在启动…' : '运行测试'}</button>
         {verificationBusy && <button className="text-button" disabled={verificationPending} onClick={() => void cancelVerification()}>取消验证</button>}
       </div>
-      {verificationRuns.length > 0 && <div className="verification-history" aria-label="验证历史">{verificationRuns.map(run => <button className={`verification-history-item${verificationReport?.summary.runId === run.runId ? ' selected' : ''}`} key={run.runId} onClick={() => void openVerificationRun(run.runId)}><span><strong>{run.runType === 'test' ? '测试' : '类型检查'}</strong><em className={`verification-status status-${run.status}`}>{verificationStatusLabel(run.status)}</em></span><time>{new Date(run.startedAt).toLocaleString('zh-CN')}</time><small>{run.processStatus === 'running' ? '执行中' : `退出码 ${run.exitCode ?? '无'}`} · {Math.round(run.durationMs / 1000)} 秒</small></button>)}</div>}
+      {verificationRuns.length > 0 && <div className="verification-history" aria-label="验证历史">{verificationRuns.map(run => <button className={`verification-history-item${verificationReport?.summary.runId === run.runId ? ' selected' : ''}`} key={run.runId} onClick={() => void openVerificationRun(run.runId)}><span><strong>{run.runType === 'test' ? '测试' : run.runType === 'build' ? '构建' : '类型检查'}</strong><em className={`verification-status status-${run.status}`}>{verificationStatusLabel(run.status)}</em></span><time>{new Date(run.startedAt).toLocaleString('zh-CN')}</time><small>{run.processStatus === 'running' ? '执行中' : `退出码 ${run.exitCode ?? '无'}`} · {Math.round(run.durationMs / 1000)} 秒</small></button>)}</div>}
       {verificationReport && <div className="verification-report"><div className="verification-report-heading"><strong>验证报告</strong><span>{verificationStatusLabel(verificationReport.summary.status)} · {verificationReport.summary.runId.slice(0, 8)}</span></div><div className="verification-artifacts"><button className="text-button" onClick={() => void openVerificationArtifact(verificationReport.summary.runId, 'stdout.log')}>查看标准输出</button><button className="text-button" onClick={() => void openVerificationArtifact(verificationReport.summary.runId, 'stderr.log')}>查看错误输出</button></div><pre>{verificationArtifact || verificationReport.markdown}</pre></div>}
       {verificationBusy && <p className="git-hint">运行 ID：{activeVerificationRun || '正在分配'}。验证完成后会自动保存历史报告。</p>}
       {!verificationRuns.length && !verificationBusy && <p className="git-hint">尚无真实验证记录。</p>}

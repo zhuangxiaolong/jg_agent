@@ -1,6 +1,7 @@
 import type { RuntimeHealth, RuntimeKind } from '../../domain/src/index';
 import { CODEX_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, CodexRuntime, type RuntimeEvent, type RuntimeOptions } from './index';
 import { CLAUDE_AGENT_SDK_RUNTIME_VERSION } from './claude-adapter';
+import { ControlledAnalysisRuntime } from './controlled-analysis';
 
 export const JINGGONG_RUNTIME_VERSION = '0.1.0';
 export const JINGGONG_RUNTIME_USER_AGENT_PREFIX = 'jinggong_runtime/';
@@ -16,6 +17,8 @@ export interface RuntimeAdapter {
   startSession(cwd: string): Promise<string>;
   resumeSession(threadId: string, cwd: string, nativeSessionId?: string): Promise<string>;
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths?: string[]): Promise<void>;
+  /** true 已追加到当前轮；false 确定未提交可排队；异常不得自动重投。 */
+  steerTurn?(threadId: string, prompt: string, cwd: string): Promise<boolean>;
   cancelRun(threadId: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -31,11 +34,13 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   startSession(cwd: string): Promise<string> { return this.runtime.startSession(cwd); }
   resumeSession(threadId: string, cwd: string, _nativeSessionId?: string): Promise<string> { return this.runtime.resumeSession(threadId, cwd); }
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
+  steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
   close(): Promise<void> { return this.runtime.close(); }
 }
 
 export function createCodexRuntimeAdapter(options: RuntimeOptions): RuntimeAdapter {
+  if (options.executionMode === 'controlled_analysis') return new ControlledAnalysisRuntime('codex', options);
   return new CodexRuntimeAdapter(new CodexRuntime(options));
 }
 
@@ -50,6 +55,7 @@ export class JinggongRuntimeAdapter implements RuntimeAdapter {
   startSession(cwd: string): Promise<string> { return this.runtime.startSession(cwd); }
   resumeSession(threadId: string, cwd: string, _nativeSessionId?: string): Promise<string> { return this.runtime.resumeSession(threadId, cwd); }
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
+  steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
   close(): Promise<void> { return this.runtime.close(); }
 }
@@ -76,6 +82,7 @@ class UnavailableRuntimeAdapter implements RuntimeAdapter {
 }
 
 export function createJinggongRuntimeAdapter(options: RuntimeOptions): RuntimeAdapter {
+  if (options.executionMode === 'controlled_analysis') return new ControlledAnalysisRuntime('jinggong', options);
   return new JinggongRuntimeAdapter(new CodexRuntime({ ...options, runtimeVersion: JINGGONG_RUNTIME_VERSION, runtimeDisplayName: 'Jinggong Runtime', expectedUserAgentPrefix: JINGGONG_RUNTIME_USER_AGENT_PREFIX }));
 }
 

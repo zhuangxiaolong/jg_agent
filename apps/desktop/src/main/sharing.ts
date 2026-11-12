@@ -7,7 +7,7 @@ import { sessionDisplayTitle } from '../../../../packages/domain/src/session-tit
 const timestamp = z.string().datetime({ offset: true });
 const memory = z.object({ title: z.string().min(1).max(120), content: z.string().min(1).max(12000), createdAt: timestamp }).strict();
 const event = z.object({ type: z.enum(['user', 'delta', 'message', 'tool', 'status', 'error', 'approval']), text: z.string().max(2 * 1024 * 1024), createdAt: timestamp }).strict();
-const schema = z.object({ format: z.literal('jinggong-share'), version: z.literal(1), exportedAt: timestamp, session: z.object({ title: z.string().min(1).max(500), system: z.enum(['MES5', 'MES6', 'WMS', '通用']), createdAt: timestamp, events: z.array(event).max(20000) }).strict().optional(), memories: z.array(memory).max(100) }).strict();
+const schema = z.object({ format: z.literal('jinggong-share'), version: z.literal(1), exportedAt: timestamp, session: z.object({ title: z.string().min(1).max(500), system: z.enum(['MES5', 'MES6', 'WMS', '前端', '通用']), createdAt: timestamp, events: z.array(event).max(20000) }).strict().optional(), memories: z.array(memory).max(100) }).strict();
 export type ShareBundle = z.infer<typeof schema>;
 export const MAX_SHARE_BYTES = 32 * 1024 * 1024;
 

@@ -11,6 +11,7 @@ export function JiraAssigneePicker({ issueKey, projectKey, users, selected, disa
   const [query, setQuery] = useState(''), [open, setOpen] = useState(false), [loading, setLoading] = useState(false);
   const [results, setResults] = useState(users), [error, setError] = useTransientError(), [active, setActive] = useState(-1);
   const unresolved = !!query.trim() && !selected;
+  useEffect(() => { if (selected && query !== selected.displayName) setQuery(selected.displayName); }, [selected]);
   useEffect(() => onUnresolvedChange(unresolved), [unresolved, onUnresolvedChange]);
   useEffect(() => {
     const version = ++request.current;

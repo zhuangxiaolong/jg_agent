@@ -1055,7 +1055,7 @@ export class LocalStore {
       rightVisible: typeof value?.rightVisible === 'boolean' ? value.rightVisible : true,
       bottomVisible: typeof value?.bottomVisible === 'boolean' ? value.bottomVisible : false,
       leftWidth: Number.isInteger(value?.leftWidth) && value.leftWidth! >= 180 && value.leftWidth! <= 520 ? value.leftWidth : 220,
-      rightWidth: Number.isInteger(value?.rightWidth) && value.rightWidth! >= 260 && value.rightWidth! <= 680 ? value.rightWidth : 420,
+      rightWidth: Number.isInteger(value?.rightWidth) && value.rightWidth! >= 260 && value.rightWidth! <= 840 ? value.rightWidth : 420,
       bottomHeight: Number.isInteger(value?.bottomHeight) && value.bottomHeight! >= 100 && value.bottomHeight! <= 480 ? value.bottomHeight : 180,
       ...(Number.isInteger(value?.composerHeight) && value.composerHeight! >= 80 && value.composerHeight! <= 400 ? { composerHeight: value.composerHeight } : {})
     };
@@ -1064,7 +1064,7 @@ export class LocalStore {
   saveLayout(layout: LayoutPreferences): void {
     if (!layout || [layout.leftVisible, layout.rightVisible, layout.bottomVisible].some(value => typeof value !== 'boolean')) throw new Error('面板显示状态必须为布尔值');
     const leftWidth = layout.leftWidth ?? 220, rightWidth = layout.rightWidth ?? 420, bottomHeight = layout.bottomHeight ?? 180;
-    if (!Number.isInteger(leftWidth) || leftWidth < 180 || leftWidth > 520 || !Number.isInteger(rightWidth) || rightWidth < 260 || rightWidth > 680 || !Number.isInteger(bottomHeight) || bottomHeight < 100 || bottomHeight > 480) throw new Error('面板尺寸超出允许范围');
+    if (!Number.isInteger(leftWidth) || leftWidth < 180 || leftWidth > 520 || !Number.isInteger(rightWidth) || rightWidth < 260 || rightWidth > 840 || !Number.isInteger(bottomHeight) || bottomHeight < 100 || bottomHeight > 480) throw new Error('面板尺寸超出允许范围');
     const value: LayoutPreferences = { leftVisible: layout.leftVisible, rightVisible: layout.rightVisible, bottomVisible: layout.bottomVisible, leftWidth, rightWidth, bottomHeight };
     if (layout.composerHeight !== undefined) {
       if (!Number.isInteger(layout.composerHeight) || layout.composerHeight < 80 || layout.composerHeight > 400) throw new Error('输入框尺寸超出允许范围');

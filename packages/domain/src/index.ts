@@ -226,7 +226,7 @@ export interface JiraFlowInput { key: string; projectKey?: string; transitionId:
 export interface JiraSearchInput { date: string; startAt?: number; onlyMine?: boolean; scope?: 'daily' | 'recent'; projectKey?: string }
 export interface JiraSearchPage { issues: JiraIssue[]; startAt: number; maxResults: number; total: number; isLast: boolean; jql: string; timeZone: string; fetchedAt: string }
 export interface JiraSavedQuery { id: string; input: JiraSearchInput; page: JiraSearchPage; savedAt: string }
-export type ProductSystem = 'MES5' | 'MES6' | 'WMS' | '通用';
+export type ProductSystem = 'MES5' | 'MES6' | 'WMS' | '前端' | '通用';
 export interface ManagedDocument { id: string; kind: 'dictionary' | 'requirement'; system: ProductSystem; name: string; content: string; digest: string; createdAt: string; enabled: boolean; remote?: { source: string; key: string; version: string; digest: string } }
 export interface Memory { id: string; title: string; content: string; createdAt: string; source?: 'session'; sessionId?: string; projectId?: string; sourceEventId?: string }
 export interface UpdateStatus { state: UpdateState; version?: string; progress?: number; message?: string }
@@ -234,15 +234,18 @@ export interface RequirementsSync { url: string; automatic: boolean; version?: s
 export interface ShareExportInput { kind: 'session' | 'memories'; sessionId?: string; memoryIds?: string[] }
 export interface ShareImportResult { sessions: number; memories: number; sessionId?: string }
 export interface BrowserAction { action: 'open' | 'snapshot' | 'click' | 'fill' | 'select' | 'press' | 'evaluate' | 'screenshot' | 'back' | 'forward' | 'reload' | 'tab'; url?: string; ref?: string; selector?: string; frame?: string; value?: string; script?: string; key?: string; tabId?: string }
+export interface BrowserTabState { id: string; title: string; url: string; active: boolean; canGoBack?: boolean; canGoForward?: boolean; loading?: boolean }
+export interface BrowserPanelState { sessionId: string; visible: boolean; tabs: BrowserTabState[]; downloads: string[] }
+export interface BrowserViewport { sessionId: string; visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }
 export interface SettingsSnapshot { preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
 export interface GitCommit { hash: string; shortHash: string; author: string; date: string; message: string }
 export interface GitState { branch: string; commits: GitCommit[]; remotes: string[]; dirty: boolean }
 export interface RequirementResult { documentId: string; name: string; status: 'pass' | 'fail' | 'review'; details: string[] }
-export type VerificationProfileId = 'typecheck' | 'tests';
+export type VerificationProfileId = 'build' | 'typecheck' | 'tests';
 export type VerificationStatus = 'passed' | 'failed' | 'not_run' | 'indeterminate' | 'stale';
 export type VerificationProcessStatus = 'not_started' | 'running' | 'completed' | 'cancelled' | 'timed_out' | 'crashed' | 'launch_failed';
 export interface VerificationRunSummary {
-  runId: string; projectId: string; projectName: string; sessionId: string; runType: 'test' | 'typecheck';
+  runId: string; projectId: string; projectName: string; sessionId: string; runType: 'build' | 'test' | 'typecheck';
   status: VerificationStatus; processStatus: VerificationProcessStatus; exitCode: number | null;
   startedAt: string; finishedAt: string; durationMs: number; headSha?: string; fingerprintBefore?: string; fingerprintAfter?: string;
   stdoutBytes: number; stderrBytes: number; stdoutTruncated: boolean; stderrTruncated: boolean; limitations: string[];
@@ -291,7 +294,7 @@ export interface DesktopApi {
   listAgentTaskEvents(sessionId: string, taskId: string): Promise<AgentTaskEvent[]>;
   createAgentTask(input: { sessionId: string; name: string; role: AgentTaskRole; description: string; input?: string; workspaceMode?: AgentTaskWorkspaceMode; outputExpectations?: string[]; acceptanceCriteria?: string[]; dependencyIds?: string[]; timeoutMs?: number; maxAttempts?: number }): Promise<AgentTask>;
   cancelAgentTask(sessionId: string, taskId: string): Promise<void>;
-  sendTurn(sessionId: string, prompt: string, attachmentIds?: string[]): Promise<void>;
+  sendTurn(sessionId: string, prompt: string, attachmentIds?: string[]): Promise<void | { queued: boolean; steered?: boolean }>;
   refreshRequirementAdmission(sessionId: string): Promise<Session>;
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
@@ -312,6 +315,11 @@ export interface DesktopApi {
   notifyCompletion(sessionTitle: string): Promise<void>;
   copyText(text: string): Promise<void>;
   openBrowser(sessionId: string, url?: string): Promise<void>;
+  closeBrowser(sessionId: string): Promise<void>;
+  browserState(sessionId: string): Promise<BrowserPanelState>;
+  browserAction(sessionId: string, action: BrowserAction): Promise<{ text: string; imageUrl?: string }>;
+  setBrowserViewport(input: BrowserViewport): Promise<void>;
+  onBrowserState(listener: (state: BrowserPanelState) => void): () => void;
   exportShare(input: ShareExportInput): Promise<string | null>;
   importShare(projectId?: string): Promise<ShareImportResult | null>;
   saveRequirementsSync(input: { url: string; automatic: boolean }): Promise<RequirementsSync>;
@@ -339,7 +347,7 @@ export interface DesktopApi {
   searchJiraIssues(input: JiraSearchInput): Promise<JiraSearchPage>;
   listJiraQueries(): Promise<JiraSavedQuery[]>;
   getJiraIssue(key: string, projectKey?: string): Promise<JiraIssue>;
-  getJiraWorkflow(key: string, projectKey?: string): Promise<{ transitions: JiraTransition[]; assignees: JiraAssignee[]; testResult: string; sessionId?: string }>;
+  getJiraWorkflow(key: string, projectKey?: string): Promise<{ transitions: JiraTransition[]; assignees: JiraAssignee[]; reporter?: JiraAssignee; testResult: string; sessionId?: string }>;
   searchJiraAssignees(key: string, query: string, projectKey?: string): Promise<JiraAssignee[]>;
   selectJiraTestImages(): Promise<JiraTestImage[]>;
   transitionJira(input: JiraFlowInput): Promise<{ message: string; issue?: JiraIssue }>;

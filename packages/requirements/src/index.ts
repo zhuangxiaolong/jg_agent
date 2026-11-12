@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { requiresRequirementAdmission } from '../../domain/src/jira-requirements';
 import type {
   JiraIssue,
   ProductSystem,
@@ -45,7 +46,7 @@ export interface RequirementTemplate {
 }
 
 const taskTypes = ['bug', 'feature', 'integration', 'schema', 'report', 'ui', 'config', 'refactor', 'unknown'] as const;
-const systems = ['MES5', 'MES6', 'WMS', '通用', 'unknown'] as const;
+const systems = ['MES5', 'MES6', 'WMS', '前端', '通用', 'unknown'] as const;
 const blockingStages = ['design', 'implementation', 'testing', 'release', 'none'] as const;
 const riskLevels = ['critical', 'high', 'medium', 'low'] as const;
 const itemStatuses = ['confirmed', 'missing', 'ambiguous', 'assumption', 'not_applicable'] as const;
@@ -430,6 +431,7 @@ export function calculateRequirementAdmission(
 
 /** Recomputes the deterministic gate from the persisted record before allowing a code write. */
 export function requirementAdmissionAllowsWrites(admission: RequirementAdmission | undefined, issue: JiraIssue): boolean {
+  if (!requiresRequirementAdmission(issue)) return true;
   if (!admission || admission.status !== 'ready' || !admission.implementationAllowed) return false;
   if (hashRequirementSnapshot(issue) !== admission.snapshotHash) return false;
   try {

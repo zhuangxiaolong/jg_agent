@@ -9,6 +9,12 @@ export function selectedAgentTask(tasks: readonly AgentTask[], sessionId: string
   return tasks.find(task => task.sessionId === sessionId && task.id === taskId);
 }
 
+/** 新活动任务或实时结束的任务只展开一次，历史结果仍可由会话标签查看。 */
+export function agentTasksToReveal(tasks: readonly AgentTask[], sessionId: string, revealedTaskIds: ReadonlySet<string>, liveEvents: readonly AgentTaskEvent[] = []): AgentTask[] {
+  const liveTaskIds = new Set(liveEvents.filter(event => event.sessionId === sessionId).map(event => event.taskId));
+  return agentTasksForSession(tasks, sessionId).filter(task => (['PENDING', 'WAITING', 'RUNNING'].includes(task.status) || liveTaskIds.has(task.id)) && !revealedTaskIds.has(task.id));
+}
+
 /** 拉取历史日志时保留请求期间到达的实时事件，并丢弃其它任务事件。 */
 export function mergeAgentTaskEvents(history: readonly AgentTaskEvent[], live: readonly AgentTaskEvent[], sessionId: string, taskId: string): AgentTaskEvent[] {
   const rows = new Map<string, AgentTaskEvent>();

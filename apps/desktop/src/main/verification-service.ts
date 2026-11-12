@@ -84,7 +84,7 @@ export interface VerificationRunResult {
   markdown: string;
 }
 
-export type VerificationProfileId = 'typecheck' | 'tests';
+export type VerificationProfileId = 'build' | 'typecheck' | 'tests';
 
 export interface VerificationRunSummary {
   record: VerificationRunRecord;
@@ -107,6 +107,29 @@ function hashBytes(value: string | Uint8Array): string {
 export async function verificationProfile(profileId: VerificationProfileId, workspacePath: string): Promise<Pick<VerificationRunRequest, 'runType' | 'executable' | 'args' | 'testReportPath' | 'timeoutMs' | 'environment'>> {
   const repositoryRoot = await realpathDirectory(workspacePath);
   const node = process.execPath;
+  if (profileId === 'build') {
+    const solutionFiles = await findSolutionFiles(repositoryRoot);
+    if (solutionFiles.length === 1) {
+      return {
+        runType: 'build', executable: 'dotnet',
+        args: ['build', solutionFiles[0]], timeoutMs: 2 * 60 * 60 * 1000,
+        environment: {},
+      };
+    }
+    if (solutionFiles.length > 1) throw new Error('当前工作区存在多个解决方案，无法安全选择构建目标');
+    const packageFile = path.join(repositoryRoot, 'package.json');
+    try {
+      const packageJson = JSON.parse(await readFile(packageFile, 'utf8')) as { scripts?: Record<string, unknown> };
+      if (typeof packageJson.scripts?.build === 'string' && packageJson.scripts.build.trim()) {
+        return {
+          runType: 'build', executable: process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm',
+          args: process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd run build'] : ['run', 'build'], timeoutMs: 60 * 60 * 1000,
+          environment: {},
+        };
+      }
+    } catch { /* 没有可用 package.json 时继续检查 .NET 解决方案。 */ }
+    throw new Error('当前工作区未识别到固定构建入口（唯一 .sln/.slnx 或 package.json scripts.build）');
+  }
   if (profileId === 'typecheck') {
     const tsc = path.join(repositoryRoot, 'node_modules', 'typescript', 'bin', 'tsc');
     if (!(await lstat(tsc).then(info => info.isFile() && !info.isSymbolicLink()).catch(() => false))) throw new Error('当前工作区未安装 TypeScript，无法启动类型检查');
@@ -134,6 +157,25 @@ export async function verificationProfile(profileId: VerificationProfileId, work
     };
   }
   throw new Error('验证配置不存在');
+}
+
+async function findSolutionFiles(root: string): Promise<string[]> {
+  const found: string[] = [];
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (depth > 2 || found.length > 1) return;
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (found.length > 1) return;
+      if (entry.isFile() && /\.(?:sln|slnx)$/i.test(entry.name)) {
+        const candidate = path.join(directory, entry.name);
+        if (await lstat(candidate).then(info => info.isFile() && !info.isSymbolicLink()).catch(() => false)) found.push(candidate);
+      } else if (entry.isDirectory() && !entry.isSymbolicLink() && !['.git', 'node_modules', 'bin', 'obj', 'dist', 'release'].includes(entry.name.toLowerCase())) {
+        await visit(path.join(directory, entry.name), depth + 1);
+      }
+    }
+  };
+  await visit(root, 0);
+  return found;
 }
 
 export async function listVerificationHistory(evidenceRoot: string, projectId: string, sessionId: string, limit = 20): Promise<VerificationRunSummary[]> {

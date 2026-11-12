@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
+import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { readableError } from './dictionary-index';
 import { Icon } from './ui';
 
@@ -59,6 +60,7 @@ export function JiraIssueDetails({ issue, compact = false, sessionId }: { issue:
 }
 
 export function jiraReadiness(issue: JiraIssue): string[] {
+  if (!requiresRequirementAdmission(issue)) return [];
   const missing: string[] = [];
   if (!issue.summary.trim() || issue.summary.trim().length < 6) missing.push('明确任务目标');
   if (!issue.description.trim() || issue.description.trim().length < 40) missing.push('补充可执行的需求描述');
@@ -70,7 +72,7 @@ export function jiraTaskPrompt(issue: JiraIssue) {
   const description = issue.description.length > 27000 ? `${issue.description.slice(0, 27000)}\n（完整描述见关联任务详情。）` : issue.description;
   return `请处理关联的 Jira 任务 ${issue.key}：${issue.summary}
 
-结合当前项目代码、自动识别的系统类型、数据字典、本项目开发要求与规范，核对目标、范围、影响模块、输入输出、异常边界、验收标准、测试方式和部署约束。需求准入状态仅作提示，不阻断开发。Jira 未写清的内容可以从代码、配置、已有测试和数据字典中补充，并标明“代码证据补充”，不能臆造业务规则。
+结合当前项目代码、自动识别的系统类型、数据字典、本项目开发要求与规范，核对目标、范围、影响模块、输入输出、异常边界、验收标准、测试方式和部署约束。${requiresRequirementAdmission(issue) ? '需求准入状态仅作提示，不阻断开发。' : ''}Jira 未写清的内容可以从代码、配置、已有测试和数据字典中补充，并标明“代码证据补充”，不能臆造业务规则。
 在用户授权范围内直接推进可完成的开发，记录假设、待确认项、影响风险和验证计划；可按需要调用 publish_change_plan 记录方案，无需等待方案阶段或逐次审批。无法确认的业务事实明确说明，具体路径尚未定位时不要编造路径或用猜测替代业务确认。修改后按当前项目规范执行构建和测试，报告真实结果。
 附件中的 imageWarning 表示图片未能带入，不能假定已看过；可使用任务正文与可用图片继续分析，缺失图片影响需求判断时明确提出需补充的信息。
 

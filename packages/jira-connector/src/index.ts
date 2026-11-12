@@ -194,6 +194,14 @@ export class JiraConnector {
     if (!Array.isArray(data)) throw new Error('Jira 经办人格式无效');
     return data.filter((item: any) => item.active !== false && (typeof item.accountId === 'string' || typeof item.name === 'string')).map((item: any) => ({ id: this.text(item.accountId || item.name), displayName: this.text(item.displayName || item.name), field: item.accountId ? 'accountId' : 'name' }));
   }
+  async reporter(key: string): Promise<JiraAssignee | undefined> {
+    if (!ISSUE_KEY.test(key)) throw new Error('Jira 任务编号无效');
+    const data = await this.get(`issue/${encodeURIComponent(key)}`, new URLSearchParams({ fields: 'reporter' }));
+    const item = data?.fields?.reporter;
+    if (!object(item) || item.active === false) return undefined;
+    const id = this.text(item.accountId || item.name), displayName = this.text(item.displayName || item.name);
+    return id && displayName ? { id, displayName, field: item.accountId ? 'accountId' : 'name' } : undefined;
+  }
   async uploadTestImage(key: string, name: string, bytes: Uint8Array, mimeType: string): Promise<{ id: string; name: string }> {
     if (!ISSUE_KEY.test(key) || !name || /[\r\n/\\]/.test(name)) throw new Error('Jira 附件参数无效');
     validateJiraImage(bytes, mimeType);

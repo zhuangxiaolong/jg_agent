@@ -64,7 +64,7 @@ export function verificationHistorySummary(review: VerificationHistoryReview): V
   const limitations = Array.isArray(record.limitations) ? record.limitations.filter(item => typeof item === 'string') : [];
   return {
     runId: text(record.runId), projectId: text(record.projectId), projectName: text(record.projectName, '历史项目'), sessionId: text(record.sessionId),
-    runType: record.runType === 'test' ? 'test' : 'typecheck', status: review.status, processStatus,
+    runType: record.runType === 'test' ? 'test' : record.runType === 'build' ? 'build' : 'typecheck', status: review.status, processStatus,
     exitCode: Number.isInteger(record.exitCode) ? record.exitCode : null,
     startedAt: text(record.startedAt), finishedAt: text(record.finishedAt), durationMs: count(record.durationMs),
     ...(typeof record.headSha === 'string' ? { headSha: record.headSha } : {}),
