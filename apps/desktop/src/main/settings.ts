@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
-import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
@@ -100,27 +100,37 @@ export class SettingsService {
   }
   async fetchProviderModels(value: unknown): Promise<ProviderModel[]> {
     this.assertIdle();
-    const id = profileIdSchema.parse(value);
-    const profile = this.profiles().find(item => item.id === id);
-    if (!profile) throw new Error('模型中转站不存在');
-    const key = this.credential(profile.id).read(profile.baseUrl);
+    const input = providerModelsSchema.parse(value);
+    const id = typeof input === 'string' ? input : input.id;
+    const profile = id ? this.profiles().find(item => item.id === id) : undefined;
+    if (id && !profile) throw new Error('模型中转站不存在');
+    const baseUrl = (typeof input === 'string' ? profile!.baseUrl : input.baseUrl).replace(/\/$/, '');
+    const suppliedKey = typeof input === 'string' ? undefined : input.apiKey;
+    this.assertCleanText(baseUrl);
+    if (!suppliedKey && profile && profile.baseUrl.replace(/\/$/, '') !== baseUrl) throw new Error('更换模型服务地址时请重新输入该服务的 API Key，避免把旧密钥发送到新地址');
+    const key = suppliedKey ?? (profile ? this.credential(profile.id).read(baseUrl) : undefined);
     if (!key) throw new Error('请先配置该中转站 API Key');
-    const endpoint = new URL(profile.baseUrl.replace(/\/$/, '') + '/models');
-    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-    if (!response.ok) throw new Error(`获取模型列表失败（HTTP ${response.status}）`);
-    const payload = await response.json() as { data?: unknown };
-    if (!Array.isArray(payload.data)) throw new Error('中转站返回的模型列表格式无效');
-    const models: ProviderModel[] = [];
-    for (const item of payload.data) {
-      if (!item || typeof item !== 'object') continue;
-      const record = item as { id?: unknown; name?: unknown; owned_by?: unknown };
-      if (typeof record.id !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(record.id)) continue;
-      const name = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : typeof record.owned_by === 'string' && record.owned_by.trim() ? record.owned_by.trim() : record.id;
-      models.push({ id: record.id, name: name.slice(0, 240) });
+    if (baseUrl.includes(key)) throw new Error('中转站地址不能包含 API Key');
+    try {
+      const endpoint = new URL(baseUrl + '/models');
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`获取模型列表失败（HTTP ${response.status}）`);
+      const payload = await response.json() as { data?: unknown };
+      if (!Array.isArray(payload.data)) throw new Error('中转站返回的模型列表格式无效');
+      const models: ProviderModel[] = [];
+      for (const item of payload.data) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as { id?: unknown; name?: unknown; owned_by?: unknown };
+        if (typeof record.id !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(record.id) || record.id.includes(key)) continue;
+        const name = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : typeof record.owned_by === 'string' && record.owned_by.trim() ? record.owned_by.trim() : record.id;
+        models.push({ id: record.id, name: redact(name, key).slice(0, 240) });
+      }
+      const unique = [...new Map(models.map(item => [item.id, item])).values()].slice(0, 100);
+      if (!unique.length) throw new Error('中转站未返回可用模型');
+      return unique;
+    } catch (error) {
+      throw new Error(redact(error instanceof Error ? error.message : String(error), key));
     }
-    const unique = [...new Map(models.map(item => [item.id, item])).values()].slice(0, 100);
-    if (!unique.length) throw new Error('中转站未返回可用模型');
-    return unique;
   }
   deleteProfile(value: unknown): void {
     this.assertIdle(); const id = profileIdSchema.parse(value);

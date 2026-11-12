@@ -31,7 +31,7 @@ function inside(root: string, target: string): boolean {
   return part.length > 0 && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part);
 }
 
-/** 仅对应用管理的 agent 分支开放变更；提交、拉取与推送由主进程人工确认后调用。 */
+/** 受管会话与已登记项目分别校验身份；变更操作由主进程人工确认后调用。 */
 export class GitConnector {
   constructor(private readonly rootWorkspaces: string, private readonly gitExecutable = 'git') {}
 
@@ -286,7 +286,11 @@ export class GitConnector {
 
   async state(workspacePath: string): Promise<GitState> {
     const workspace = await this.workspace(workspacePath);
-    const branch = (await this.run(workspace, ['branch', '--show-current'])).text.trim();
+    return this.repositoryState(workspace);
+  }
+
+  private async repositoryState(workspace: string): Promise<GitState> {
+    const branch = (await this.run(workspace, ['branch', '--show-current'])).text.trim() || '(detached)';
     const raw = (await this.run(workspace, ['log', '-50', '--format=%H%x00%h%x00%an%x00%aI%x00%s%x00'])).text;
     const fields = raw.split('\0');
     const commits: GitState['commits'] = [];
@@ -297,6 +301,64 @@ export class GitConnector {
     const remotes = (await this.run(workspace, ['remote'])).text.split(/\r?\n/).filter(Boolean);
     const dirty = Boolean((await this.run(workspace, [...await this.filterOverrides(workspace), 'status', '--porcelain=v1', '-z', '--untracked-files=all'])).text);
     return { branch, commits, remotes, dirty };
+  }
+
+  private async projectRepository(project: Project): Promise<Project> {
+    let ancestor = resolve(project.path);
+    while (true) {
+      if ((await lstat(ancestor)).isSymbolicLink()) throw new Error('项目及祖先目录不允许目录联接或符号链接');
+      const parent = dirname(ancestor);
+      if (parent === ancestor) break;
+      ancestor = parent;
+    }
+    const current = await this.register(project.path);
+    if (current.id !== project.id || !samePath(current.path, project.path)) throw new Error('项目仓库身份已变化，请重新选择项目');
+    return current;
+  }
+
+  /** 项目仓库操作独立校验已登记项目，不放宽受管工作区的身份检查。 */
+  async projectState(project: Project): Promise<GitState> {
+    const current = await this.projectRepository(project);
+    return this.repositoryState(current.path);
+  }
+
+  async fetchProject(project: Project, remote: string): Promise<void> {
+    const current = await this.projectRepository(project);
+    const state = await this.repositoryState(current.path);
+    const { url, transport } = await this.remoteTarget(current.path, remote, state.remotes, '获取');
+    const overrides = await this.mutationOverrides(current.path);
+    await this.projectRepository(project);
+    try {
+      await this.run(current.path, [...overrides, ...transport, 'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance', '--refmap=', url, `refs/heads/*:refs/remotes/${remote}/*`]);
+    } catch (error) {
+      if (/^https?:/i.test(url)) throw new Error('HTTP(S) 获取失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
+      throw error;
+    }
+  }
+
+  async pushProject(project: Project, remote: string): Promise<void> {
+    const current = await this.projectRepository(project);
+    const state = await this.repositoryState(current.path);
+    if (state.branch === '(detached)') throw new Error('项目处于分离 HEAD 状态，请先切换到本地分支');
+    if (state.dirty) throw new Error('请先提交或处理项目未提交变更，再推送项目分支');
+    const { url, transport } = await this.remoteTarget(current.path, remote, state.remotes, '推送');
+    const overrides = await this.mutationOverrides(current.path);
+    await this.projectRepository(project);
+    const latest = await this.repositoryState(current.path);
+    if (latest.dirty || latest.branch !== state.branch || latest.commits[0]?.hash !== state.commits[0]?.hash) throw new Error('推送检查期间项目分支或 HEAD 已变化，请确认后重试');
+    try {
+      await this.run(current.path, [...overrides, ...transport, 'push', '--no-verify', '--no-follow-tags', '--recurse-submodules=no', url, `refs/heads/${state.branch}:refs/heads/${state.branch}`]);
+    } catch (error) {
+      if (/^https?:/i.test(url)) throw new Error('HTTP(S) 推送失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
+      throw error;
+    }
+  }
+
+  async pullProject(project: Project, remote: string): Promise<void> {
+    const current = await this.projectRepository(project);
+    const state = await this.repositoryState(current.path);
+    if (state.branch === '(detached)') throw new Error('项目处于分离 HEAD 状态，请先切换到本地分支');
+    await this.pullRepository(current.path, remote, state, () => this.projectRepository(project));
   }
 
   /** 返回不含远程地址的仓库身份，任务工作区用它校验跨项目误配。 */
@@ -516,7 +578,7 @@ export class GitConnector {
     return hash;
   }
 
-  private async remoteTarget(workspace: string, remote: string, remotes: string[], operation: '推送' | '拉取'): Promise<{ url: string; transport: string[] }> {
+  private async remoteTarget(workspace: string, remote: string, remotes: string[], operation: '推送' | '拉取' | '获取'): Promise<{ url: string; transport: string[] }> {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(remote)) throw new Error('远程仓库名称无效');
     if (!remotes.includes(remote)) throw new Error('所选远程仓库不存在');
     const rewrites = (await this.run(workspace, ['config', '--name-only', '--get-regexp', '^url\.'], { allowMissing: true })).text;
@@ -536,9 +598,11 @@ export class GitConnector {
     } else {
       let parsed: URL;
       try { parsed = new URL(url); } catch { throw new Error('仅支持 HTTPS、SSH 或本地 Bare 仓库'); }
-      if (!['https:', 'ssh:'].includes(parsed.protocol) || parsed.password || (parsed.protocol === 'https:' && parsed.username) || parsed.search || parsed.hash) throw new Error('远程地址协议不受支持或包含凭据');
+      // 内网 Git 服务常使用 HTTP。允许不带嵌入式凭据的 HTTP/HTTPS，认证仍由
+      // Git 的外部凭据管理器或 SSH Agent 负责；URL 本身不能携带账号、口令、查询参数或片段。
+      if (!['http:', 'https:', 'ssh:'].includes(parsed.protocol) || parsed.password || (['http:', 'https:'].includes(parsed.protocol) && parsed.username) || parsed.search || parsed.hash) throw new Error('远程地址协议不受支持或包含凭据');
     }
-    return { url, transport: ['-c', 'core.sshCommand=ssh', '-c', 'core.askPass=', '-c', 'credential.helper=', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', `protocol.file.allow=${local ? 'always' : 'never'}`] };
+    return { url, transport: ['-c', 'core.sshCommand=ssh', '-c', 'core.askPass=', '-c', 'credential.helper=', '-c', 'protocol.allow=never', '-c', 'protocol.http.allow=always', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', `protocol.file.allow=${local ? 'always' : 'never'}`] };
   }
 
   async push(workspacePath: string, remote: string): Promise<void> {
@@ -559,7 +623,11 @@ export class GitConnector {
   async pull(workspacePath: string, remote: string): Promise<void> {
     const workspace = await this.workspace(workspacePath);
     const current = await this.state(workspace);
-    if (current.dirty) throw new Error('请先提交或处理未提交变更，再拉取当前 agent 分支');
+    await this.pullRepository(workspace, remote, current, () => this.workspace(workspace));
+  }
+
+  private async pullRepository(workspace: string, remote: string, current: GitState, validateIdentity: () => Promise<unknown>): Promise<void> {
+    if (current.dirty) throw new Error('请先提交或处理未提交变更，再拉取当前分支');
     const { url, transport } = await this.remoteTarget(workspace, remote, current.remotes, '拉取');
     const overrides = [...await this.mutationOverrides(workspace), '-c', 'submodule.recurse=false', '-c', 'merge.verifySignatures=false', '-c', 'gc.auto=0'];
     const branch = `refs/heads/${current.branch}`;
@@ -568,12 +636,12 @@ export class GitConnector {
     const network = async (args: string[]) => {
       try { return await this.run(workspace, [...overrides, ...transport, ...args]); }
       catch (error) {
-        if (/^https:/i.test(url)) throw new Error('HTTPS 拉取失败。当前版本未接入 HTTPS 凭据认证，请改用已配置 SSH Agent 的 SSH 远程仓库，或由人工使用 Git Credential Manager 完成拉取。');
+        if (/^https?:/i.test(url)) throw new Error('HTTP(S) 拉取失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
         throw error;
       }
     };
     const advertised = (await network(['ls-remote', '--heads', url, branch])).text.trim();
-    if (!advertised) throw new Error('远程仓库不存在与当前 agent 分支同名的分支，请先推送该分支或由人工确认');
+    if (!advertised) throw new Error('远程仓库不存在与当前分支同名的分支，请先推送该分支或由人工确认');
     if (!new RegExp(`^[a-f0-9]{40,64}\\t${branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(advertised)) throw new Error('远程同名分支响应异常，已停止拉取');
     try {
       // 显式 URL 与独立临时 ref 避免应用仓库自定义 fetch refspec 或改动其他分支。
@@ -582,7 +650,7 @@ export class GitConnector {
       if (target === oldHead) return;
       if ((await this.run(workspace, ['merge-base', '--is-ancestor', oldHead, target], { allowMissing: true })).code !== 0) {
         if ((await this.run(workspace, ['merge-base', '--is-ancestor', target, oldHead], { allowMissing: true })).code === 0) return;
-        throw new Error('远程同名 agent 分支与本地已分叉，无法仅快进拉取；请人工处理，未合并或覆盖本地提交');
+        throw new Error('远程同名分支与本地已分叉，无法仅快进拉取；请人工处理，未合并或覆盖本地提交');
       }
       const changed = (await this.run(workspace, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', oldHead, target, '--'])).text.split('\0').filter(Boolean);
       for (const file of changed) {
@@ -597,9 +665,9 @@ export class GitConnector {
         const entry = (await this.run(workspace, ['ls-tree', '-z', target, '--', file])).text;
         if (entry && !/^(100644|100755) blob [a-f0-9]{40,64}\t/.test(entry)) throw new Error('远程变更包含链接、子模块或特殊文件，请人工审核后拉取');
       }
-      await this.workspace(workspace);
-      const latest = await this.state(workspace);
-      if (latest.dirty || latest.commits[0]?.hash !== oldHead) throw new Error('拉取检查期间工作区或 HEAD 已变化，请确认后重试');
+      await validateIdentity();
+      const latest = await this.repositoryState(workspace);
+      if (latest.dirty || latest.branch !== current.branch || latest.commits[0]?.hash !== oldHead) throw new Error('拉取检查期间工作区、分支或 HEAD 已变化，请确认后重试');
       // Git 自身仅快进更新工作树、索引与 HEAD；禁止合并提交和自动暂存。
       try {
         await this.run(workspace, [...overrides, 'merge', '--ff-only', '--no-edit', '--no-autostash', '--no-gpg-sign', '--no-overwrite-ignore', '--no-stat', '--quiet', target]);

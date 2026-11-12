@@ -65,7 +65,7 @@ async function launch() {
   if (process.env.JINGGONG_TEST_NO_NODE) env.PATH = `${process.env.SystemRoot}\\System32;C:\\Program Files\\Git\\cmd`;
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow(); page.on('request', request => { if (/^https?:/.test(request.url())) rendererRequests.push(request.url()); });
-  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
   return page;
 }
 async function databaseRecord(table, id) {
@@ -88,7 +88,7 @@ try {
   let page = await launch();
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   await app.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, repo);
-  await page.getByRole('button', { name: '选择本地项目', exact: true }).click();
+  await page.getByRole('button', { name: '添加项目目录', exact: true }).click();
   await expect.poll(async () => (await page.evaluate(() => window.jinggong.bootstrap())).projects.length).toBe(1);
   const original = (await page.evaluate(() => window.jinggong.bootstrap())).projects[0];
   await page.getByRole('button', { name: `修改项目显示名称 ${original.name}`, exact: true }).click();
@@ -179,10 +179,8 @@ try {
   git(session.workspacePath, ['push', 'origin', session.branch]);
   git(root, ['clone', '--branch', session.branch, remote, colleague]); git(colleague, ['config', 'user.name', '合成协作者']); git(colleague, ['config', 'user.email', 'colleague@example.invalid']);
   await writeFile(path.join(colleague, 'remote.txt'), '远程真实提交\n'); git(colleague, ['add', '--', 'remote.txt']); git(colleague, ['commit', '-m', '增加远程验收文件']); git(colleague, ['push', 'origin', session.branch]);
-  const remoteHead = git(colleague, ['rev-parse', 'HEAD']), beforePull = git(session.workspacePath, ['rev-parse', 'HEAD']);
+  const remoteHead = git(colleague, ['rev-parse', 'HEAD']);
   await app.evaluate(({ dialog }) => { globalThis.v04Confirmations = []; dialog.showMessageBox = async (_window, options) => { globalThis.v04Confirmations.push({ title: options.title, message: options.message }); return { response: 0, checkboxChecked: false }; }; });
-  await page.getByRole('button', { name: '拉取分支', exact: true }).click(); await page.getByRole('alert').filter({ hasText: '已取消拉取' }).waitFor(); assert.equal(git(session.workspacePath, ['rev-parse', 'HEAD']), beforePull);
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async (_window, options) => { globalThis.v04Confirmations.push({ title: options.title, message: options.message }); return { response: 1, checkboxChecked: false }; }; });
   await page.getByRole('button', { name: '拉取分支', exact: true }).click(); await page.getByText('已快进拉取远程同名 Agent 分支。', { exact: true }).waitFor();
   assert.equal(git(session.workspacePath, ['rev-parse', 'HEAD']), remoteHead); assert.equal(await readFile(path.join(session.workspacePath, 'remote.txt'), 'utf8'), '远程真实提交\n');
   assert.equal(git(repo, ['rev-parse', 'HEAD']), sourceHead); assert.equal(git(repo, ['branch', '--show-current']), 'main'); assert.equal(git(repo, ['status', '--porcelain']), '');
@@ -192,8 +190,8 @@ try {
   const localDiverged = git(session.workspacePath, ['rev-parse', 'HEAD']);
   await page.getByRole('button', { name: '刷新 Git 状态', exact: true }).click(); await expect(page.getByRole('button', { name: '拉取分支', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '拉取分支', exact: true }).click(); await page.getByRole('alert').filter({ hasText: '已分叉' }).waitFor(); assert.equal(git(session.workspacePath, ['rev-parse', 'HEAD']), localDiverged);
-  confirmationInputs.push(...await app.evaluate(() => globalThis.v04Confirmations)); assert.ok(confirmationInputs.every(item => item.title === '确认拉取代码' && item.message.includes(session.branch)));
-  checks.push('真实Bare远程与协作clone：UI取消拉取不变，确认后ff-only快进同名agent分支，源main不变；脏工作区禁用，真实分叉报错且本地HEAD未合并/覆盖');
+  confirmationInputs.push(...await app.evaluate(() => globalThis.v04Confirmations)); assert.ok(confirmationInputs.every(item => item.title !== '确认拉取代码'), '拉取不应弹出确认框');
+  checks.push('真实Bare远程与协作clone：拉取无需确认即可ff-only快进同名agent分支，源main不变；脏工作区禁用，真实分叉报错且本地HEAD未合并/覆盖');
 
   const snapshot = await page.evaluate(() => window.jinggong.bootstrap()); assert.equal(snapshot.closeToTray, true);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
@@ -235,7 +233,7 @@ try {
   const imageFile = path.join(data, 'attachments/jira', `${imageHash}.png`), heldImage = `${imageFile}.held`;
   await rename(imageFile, heldImage);
   try {
-    await page.reload(); await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor(); await page.locator('.session-jira-link>summary').click();
+    await page.reload(); await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor(); await page.locator('.session-jira-link>summary').click();
     await page.locator('.session-jira-link').getByRole('alert').filter({ hasText: '图片加载失败：Jira 图片缓存缺失' }).waitFor(); assert.equal(await page.locator('.session-jira-link').getByRole('button', { name: '查看图片 合成验收图.png', exact: true }).count(), 0);
   } finally { await rename(heldImage, imageFile); }
   await page.locator('.session-jira-link').getByRole('button', { name: '重试图片', exact: true }).click(); await page.locator('.session-jira-link').getByRole('button', { name: '查看图片 合成验收图.png', exact: true }).waitFor();

@@ -68,7 +68,7 @@ async function launch() {
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow(); page.on('request', request => { if (/^https?:/.test(request.url())) rendererRequests.push(request.url()); });
   await page.bringToFront();
-  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ state: 'attached', timeout: 30000 });
+  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor({ state: 'attached', timeout: 30000 });
   await expect(page.getByRole('button', { name: /^(隐藏|显示)右侧面板$/, exact: true })).toBeEnabled();
   return page;
 }
@@ -94,8 +94,10 @@ try {
   checks.push('未配置 Jira 时主会话工作区与右侧 Jira 同时可见，自动状态明确提示配置，未发送任何 HTTP');
 
   await app.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, repo);
-  await page.getByRole('button', { name: '选择本地项目', exact: true }).click();
-  await page.getByRole('button', { name: '新建 Agent 会话', exact: true }).click();
+  await page.getByRole('button', { name: '添加项目目录', exact: true }).click();
+  await page.locator('.project-item').waitFor();
+  await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
+  await page.getByRole('dialog').getByRole('button', { name: '创建会话', exact: true }).click();
   await page.getByRole('textbox', { name: '输入任务', exact: true }).waitFor();
   const firstSession = (await snapshot(page)).sessions[0];
   assert.equal(firstSession.mode, 'develop'); assert.equal((await databaseRecord('sessions', firstSession.id)).mode, 'develop');
@@ -114,6 +116,7 @@ try {
   await page.locator('.breadcrumbs').click();
   await expect.poll(async () => (await databaseRecord('sessions', firstSession.id)).mode).toBe('develop');
   await page.locator('.project-new-session').click();
+  await page.getByRole('dialog').getByRole('button', { name: '创建会话', exact: true }).click();
   await expect.poll(async () => (await snapshot(page)).sessions.length, { timeout: 30000 }).toBe(2);
   const currentSession = (await snapshot(page)).sessions.find(item => item.id !== firstSession.id);
   assert.equal(currentSession.mode, 'develop');

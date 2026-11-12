@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { PluginManagerService } from '../apps/desktop/src/main/plugin-manager';
@@ -134,6 +134,7 @@ function codexRunner(state: Map<string, Array<Record<string, unknown>>>, options
   failRemove?: (home: string) => boolean;
   failPluginAdd?: (home: string, pluginId: string) => boolean;
   failMarketplaceAdd?: (home: string) => boolean;
+  failMarketplaceRemove?: (home: string) => boolean;
   malformedList?: (home: string, attempt: number) => boolean;
   sourcePath?: (home: string, pluginId: string) => string;
 } = {}) {
@@ -147,6 +148,7 @@ function codexRunner(state: Map<string, Array<Record<string, unknown>>>, options
       return { code: 0, stdout: JSON.stringify({ installed: state.get(home) ?? [], available: [] }), stderr: '' };
     }
     if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add' && options.failMarketplaceAdd?.(home)) return { code: 1, stdout: '', stderr: 'simulated marketplace update failure' };
+    if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'remove' && options.failMarketplaceRemove?.(home)) return { code: 1, stdout: '', stderr: '' };
     if (args[0] === 'plugin' && args[1] === 'remove' && options.failRemove?.(home)) return { code: 1, stdout: '', stderr: 'simulated remove failure' };
     let failAfterAdd = false;
     if (args[0] === 'plugin' && args[1] === 'add') {
@@ -170,6 +172,85 @@ async function makeEnabledService(root: string, store: LocalStore, runner: Retur
   await service.enablePlugin(imported.plugin.id, true);
   return { service, plugin: imported.plugin };
 }
+
+test('首次空 Codex Profile 只读取状态并保留独立空 Home，不卸载未存在的 Marketplace', async () => {
+  const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-empty-profile-'));
+  const store = await LocalStore.open(join(root, 'agent.db'));
+  const state = new Map<string, Array<Record<string, unknown>>>();
+  const mock = codexRunner(state, { failMarketplaceRemove: () => true });
+  try {
+    const { service } = await makeEnabledService(root, store, mock.runner);
+    const homes: string[] = [];
+    for (const id of ['empty-first', 'empty-second']) {
+      const session: Session = { id, title: id, workspacePath: root, branch: 'main', status: 'idle', createdAt: new Date().toISOString(), model: 'test' };
+      store.saveSession(session);
+      const profileId = `session-${session.id}`;
+      await service.updateSessionPluginSelection({ sessionId: session.id, profileId, pluginIds: [], skillIds: [] });
+      const home = service.homeForProfile(profileId);
+      homes.push(home);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const sync = await service.syncCodexProfile(profileId);
+        assert.equal(sync.profileId, profileId);
+        assert.equal(sync.installed, 0);
+        assert.deepEqual(sync.errors, []);
+      }
+      assert.equal((await lstat(home)).isDirectory(), true);
+      await assert.rejects(() => lstat(join(home, 'marketplace', 'codex-local')), { code: 'ENOENT' });
+      assert.deepEqual(store.listRuntimePluginBindings().filter(binding => binding.profileId === profileId), []);
+    }
+    assert.notEqual(homes[0], homes[1]);
+    assert.equal(mock.calls.length, 4);
+    assert.ok(mock.calls.every(call => homes.includes(call.home) && call.args[0] === 'plugin' && call.args[1] === 'list'));
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('已有空 Marketplace 的 Codex Profile 仍执行卸载', async () => {
+  const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-empty-marketplace-'));
+  const store = await LocalStore.open(join(root, 'agent.db'));
+  const mock = codexRunner(new Map());
+  try {
+    const service = new PluginManagerService({ store, dataRoot: join(root, 'data'), executable: process.execPath, environment: home => ({ ...process.env, CODEX_HOME: home }), commandRunner: mock.runner });
+    const home = service.homeForProfile('plugin-manager');
+    const marketplace = join(home, 'marketplace', 'codex-local');
+    await mkdir(marketplace, { recursive: true });
+    const sync = await service.syncCodexProfile('plugin-manager');
+    assert.equal(sync.installed, 0);
+    assert.ok(mock.calls.some(call => call.home === home && call.args[0] === 'plugin' && call.args[1] === 'marketplace' && call.args[2] === 'remove'));
+    await assert.rejects(() => lstat(marketplace), { code: 'ENOENT' });
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('已有 Codex Profile 卸载 Marketplace 返回空错误时仍失败并恢复目录与绑定', async () => {
+  const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-empty-remove-error-'));
+  const store = await LocalStore.open(join(root, 'agent.db'));
+  const state = new Map<string, Array<Record<string, unknown>>>();
+  try {
+    const { service, plugin } = await makeEnabledService(root, store, codexRunner(state).runner);
+    await service.installForCodex(plugin.id, 'plugin-manager');
+    const home = service.homeForProfile('plugin-manager');
+    const manifest = join(home, 'marketplace', 'codex-local', '.agents', 'plugins', 'marketplace.json');
+    const previousManifest = await readFile(manifest, 'utf8');
+    const binding = store.listRuntimePluginBindings(plugin.id).find(item => item.profileId === 'plugin-manager')!;
+    const failing = codexRunner(state, { failMarketplaceRemove: profile => profile === home });
+    const failingService = new PluginManagerService({ store, dataRoot: join(root, 'data'), executable: process.execPath, environment: profile => ({ ...process.env, CODEX_HOME: profile }), commandRunner: failing.runner });
+
+    await assert.rejects(() => failingService.enablePlugin(plugin.id, false), /Codex Marketplace 卸载失败/);
+    assert.equal(await readFile(manifest, 'utf8'), previousManifest);
+    assert.equal((await failingService.getPluginDetail(plugin.id)).plugin.enabled, true);
+    assert.equal(store.getRuntimePluginBinding(binding.id)?.installState, 'installed');
+    assert.deepEqual((state.get(home) ?? []).map(item => item.pluginId), [binding.nativePluginId]);
+    assert.ok(failing.calls.some(call => call.args[0] === 'plugin' && call.args[1] === 'marketplace' && call.args[2] === 'add'));
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('Codex Marketplace 更新失败时恢复旧目录和已安装插件', async () => {
   const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-rollback-cli-'));
@@ -285,6 +366,8 @@ test('Codex 回读只校准受控 Profile 的已登记绑定，列表异常时�
     const sync = await service.syncCodexProfile(`session-${session.id}`);
     assert.equal(sync.installed, 0);
     assert.equal(store.getRuntimePluginBinding(prior.id)?.installState, 'not-installed');
+    await service.syncCodexProfile(`session-${session.id}`);
+    assert.equal(mock.calls.filter(call => call.args[0] === 'plugin' && call.args[1] === 'marketplace' && call.args[2] === 'remove').length, 2, '有历史绑定的 Profile 不能使用首次空 Profile 的快捷路径');
     assert.ok(mock.calls.every(call => call.home.startsWith(join(root, 'data', 'plugins', 'profiles'))));
   } finally {
     store.close();

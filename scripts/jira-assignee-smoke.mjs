@@ -35,7 +35,7 @@ let app;
 try {
   const env = { ...process.env, JINGGONG_TEST_DATA: path.join(root, 'data') }; delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ args: ['.'], env }); const page = await app.firstWindow(); page.setDefaultTimeout(15000);
-  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor();
+  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor();
   await page.evaluate(url => window.jinggong.saveJira({ baseUrl: url, account: 'fixture', password: 'synthetic-only', projectKey: 'TEST', dateFieldId: '11116' }), `http://127.0.0.1:${server.address().port}/jira`);
   await page.reload(); await page.getByRole('button', { name: '查看 Jira 任务 TEST-1', exact: true }).click();
   await page.locator('.jira-workflow > summary').click();

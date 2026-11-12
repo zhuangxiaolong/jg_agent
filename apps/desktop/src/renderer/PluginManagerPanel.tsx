@@ -1,3 +1,4 @@
+import { useTransientError } from './use-transient-error';
 import { useEffect, useState } from 'react';
 import type { PluginDetail, PluginManagerApi, PluginRecord, PluginSkillRecord } from '../../../../packages/domain/src';
 import { Icon } from './ui';
@@ -17,7 +18,7 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
   const [sourcePath, setSourcePath] = useState('');
   const [mcpSecrets, setMcpSecrets] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useTransientError();
   const [notice, setNotice] = useState('');
 
   async function refresh(nextId = selectedId) {

@@ -1,3 +1,4 @@
+import { useTransientError } from './use-transient-error';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { JiraAssignee } from '../../../../packages/domain/src';
 import { readableError } from './dictionary-index';
@@ -8,7 +9,7 @@ export function JiraAssigneePicker({ issueKey, projectKey, users, selected, disa
 }) {
   const listId = useId(), request = useRef(0);
   const [query, setQuery] = useState(''), [open, setOpen] = useState(false), [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(users), [error, setError] = useState(''), [active, setActive] = useState(-1);
+  const [results, setResults] = useState(users), [error, setError] = useTransientError(), [active, setActive] = useState(-1);
   const unresolved = !!query.trim() && !selected;
   useEffect(() => onUnresolvedChange(unresolved), [unresolved, onUnresolvedChange]);
   useEffect(() => {

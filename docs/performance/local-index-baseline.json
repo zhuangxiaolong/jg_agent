@@ -1,0 +1,59 @@
+{
+  "recordedAt": "2026-11-11T10:38:33.694Z",
+  "kind": "local_index_microbenchmark",
+  "sourceRoot": "packages/agent-runtime",
+  "sourceFingerprint": "7b55fd92af56076910b6a3ad80e90bc503efde77a53da53475b40369cc4fbb54",
+  "sourceStable": true,
+  "environment": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "logicalCpus": 32,
+    "memoryGiB": 64,
+    "nodeVersion": "v24.19.0"
+  },
+  "samples": [
+    {
+      "repeat": 1,
+      "coldMs": 263.5928,
+      "warmMs": 168.90999999999997,
+      "restartMs": 201.74120000000005,
+      "coldParsed": 6,
+      "warmParsed": 0,
+      "restartParsed": 0,
+      "fileCount": 6
+    },
+    {
+      "repeat": 2,
+      "coldMs": 212.64340000000004,
+      "warmMs": 202.9013,
+      "restartMs": 211.7465000000002,
+      "coldParsed": 6,
+      "warmParsed": 0,
+      "restartParsed": 0,
+      "fileCount": 6
+    },
+    {
+      "repeat": 3,
+      "coldMs": 232.1178,
+      "warmMs": 180.05549999999994,
+      "restartMs": 202.05639999999994,
+      "coldParsed": 6,
+      "warmParsed": 0,
+      "restartParsed": 0,
+      "fileCount": 6
+    }
+  ],
+  "medians": {
+    "coldMs": 232.1178,
+    "warmMs": 180.05549999999994,
+    "restartMs": 202.05639999999994
+  },
+  "limitations": [
+    "仅同一真实源码目录的本地索引微基准，不是模型任务端到端基线",
+    "未执行10个真实开发任务各3次",
+    "模型首token/模型等待/token用量暂不可测量",
+    "不能据此声称整体任务提速15%-25%"
+  ]
+}

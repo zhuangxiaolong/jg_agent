@@ -36,11 +36,11 @@ async function launch() {
     ? { executablePath: path.resolve(process.env.JINGGONG_TEST_EXE), args: [] } : { args: ['.'] }), env });
   page = await app.firstWindow();
   page.setDefaultTimeout(15000);
-  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
 }
 async function openDocuments() {
-  await page.getByRole('button', { name: '打开模型设置', exact: true }).click();
-  await page.getByRole('button', { name: '数据字典', exact: true }).click();
+  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '数据字典', exact: true }).click();
 }
 async function selectFile(file) {
   await app.evaluate(({ dialog }, filename) => {

@@ -36,7 +36,7 @@ Runtime 使用应用自己的 `CODEX_HOME`，从不复制、读取或修改用�
 
 本机 `windowsSandbox/readiness` 仍可能返回 `notConfigured`，这只表示没有额外的 OS 沙箱边界，不影响精工 Agent 默认的完整开发执行策略。真实 Runtime 测试已验证固定版本、完整开发会话、命令执行、HTTP、SQLite、旧会话恢复和 CLI 独立调用。
 
-所有 turn 的原生执行策略固定为完整访问；CLI 显式开启 Shell，关闭 Code Mode、子 Agent、插件、Hooks、Apps、Computer Use、图像、全局记忆和工作区依赖功能，并关闭 web_search。当前 turn 的命令和文件变更请求按完整开发配置接受；动态项目工具仍受主进程的 Worktree、规则、路径和凭据检查约束。
+所有 turn 的原生执行策略固定为完整访问；CLI 显式开启 Shell，关闭 Code Mode、子 Agent、插件、Hooks、Apps、Computer Use、图像、全局记忆和工作区依赖功能，并开启实时 `web_search=live`。命令行和工作区执行仍通过 turn 的 `networkAccess=false` 沙箱边界约束，网页搜索走 Runtime 原生能力；动态项目工具仍受主进程的 Worktree、规则、路径和凭据检查约束。
 
 跨进程 `thread/resume` 会重新传入完整访问参数；`turn/start` 每轮覆盖为 `dangerFullAccess`，不能因旧会话或旧配置回落到只读。已加入真实跨进程恢复与发送字段回归。
 

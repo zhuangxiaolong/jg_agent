@@ -8,6 +8,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   return result.value;
 }
 const api: DesktopApi = {
+  performance: {
+    report: id => invoke('performance:report', id),
+    settings: patch => invoke('performance:settings', patch),
+    reset: () => invoke('performance:reset'),
+    export: id => invoke('performance:export', id),
+    clear: id => invoke('performance:clear', id),
+    indexStatus: id => invoke('performance:index-status', id),
+    rebuildIndex: id => invoke('performance:index-rebuild', id),
+    testPlan: (id, fullRequested) => invoke('performance:test-plan', id, fullRequested),
+  },
   pluginManager: {
     selectPluginPath: sourceType => invoke('plugin:select-path', sourceType),
     importPlugin: input => invoke('plugin:import', input),
@@ -78,6 +88,10 @@ const api: DesktopApi = {
   refreshRequirementAdmission: id => invoke('session:requirement-refresh', id),
   resolveRequirementItem: (id, itemId, action, valueText, reason) => invoke('session:requirement-resolve', id, { itemId, action, valueText, reason }),
   pickAttachments: id => invoke('session:pick-attachments', id),
+  authorizeSessionDirectory: id => invoke('session:authorize-directory', id),
+  revokeSessionDirectory: (id, grantId) => invoke('session:revoke-directory', id, grantId),
+  restoreSessionFullReadAccess: id => invoke('session:restore-full-read-access', id),
+  onSessionReadAccessChanged: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('session:read-access-changed', callback); return () => { ipcRenderer.removeListener('session:read-access-changed', callback); }; },
   cancelRun: id => invoke('session:cancel', id),
   getDiff: id => invoke('session:diff', id),
   getFileDiff: (id, file) => invoke('session:file-diff', id, file),
@@ -100,7 +114,7 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('app:update-status', wrapped);
   },
   saveModelProvider: input => invoke('settings:provider-save', input),
-  fetchProviderModels: providerId => invoke('settings:provider-models', providerId),
+  fetchProviderModels: input => invoke('settings:provider-models', input),
   deleteModelProvider: id => invoke('settings:provider-delete', id),
   saveJira: input => invoke('settings:jira', input),
   saveClaudeCredential: apiKey => invoke('settings:claude-credential', apiKey),
@@ -127,6 +141,10 @@ const api: DesktopApi = {
   saveMemory: input => invoke('settings:memory-save', input),
   deleteMemory: id => invoke('settings:memory-delete', id),
   getGitState: id => invoke('git:state', id),
+  getProjectGitState: id => invoke('git:project-state', id),
+  fetchProjectChanges: (id, remote) => invoke('git:project-fetch', id, remote),
+  pullProjectChanges: (id, remote) => invoke('git:project-pull', id, remote),
+  pushProjectChanges: (id, remote) => invoke('git:project-push', id, remote),
   startVerification: (sessionId, profileId) => invoke('verification:start', sessionId, profileId),
   cancelVerification: (sessionId, runId) => invoke('verification:cancel', sessionId, runId),
   listVerificationRuns: sessionId => invoke('verification:list', sessionId),
@@ -145,6 +163,7 @@ const api: DesktopApi = {
   saveProvider: input => invoke('provider:save', input),
   backup: () => invoke('app:backup'),
   onEvent: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('agent:event', callback); return () => { ipcRenderer.removeListener('agent:event', callback); }; },
+  onSessionTitleChanged: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('session:title-changed', callback); return () => { ipcRenderer.removeListener('session:title-changed', callback); }; },
   onAgentTaskEvent: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('agent-task:event', callback); return () => { ipcRenderer.removeListener('agent-task:event', callback); }; },
 };
 contextBridge.exposeInMainWorld('jinggong', Object.freeze(api));

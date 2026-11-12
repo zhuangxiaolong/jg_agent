@@ -84,6 +84,9 @@ async function inspectLayout(width, height) {
 try {
   const repos = await Promise.all([fixture('项目A'), fixture('项目B')]);
   await launch();
+  // 先保留未选中项目的会话，使添加项目后的重载仍可验证独立会话入口。
+  await page.keyboard.press('Control+n');
+  await expect(picker()).toBeVisible();
   const projects = [];
   for (const repo of repos) {
     await app.evaluate(({ dialog }, repo) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] }); }, repo);
@@ -103,7 +106,7 @@ try {
   await expect(page.locator('#bottom-panel')).toBeHidden();
   const standalonePath = session.workspacePath;
   await writeFile(path.join(standalonePath, '保留的独立文件.txt'), '独立目录内容需要保留\n', 'utf8');
-  checks.push('Ctrl+N 在选中项目时仍直接创建独立会话，无创建弹窗/工作区关联/mode 字段；底部面板默认隐藏');
+  checks.push('Ctrl+N 在未选中项目时直接创建独立会话，无创建弹窗/工作区关联/mode 字段；底部面板默认隐藏');
   await picker().selectOption(projectA.id);
   await expect(branchPicker()).toBeEnabled();
   await branchPicker().selectOption('feature');
@@ -135,14 +138,19 @@ try {
   checks.push('已绑定会话可切换另一本地项目，原脏 Worktree/未跟踪文件保留，Runtime 元数据清空并记录恢复路径');
   await writeFile(path.join(secondProjectPath, '项目B保留文件.txt'), '项目B的文件同样保留\n', 'utf8');
   await picker().selectOption('');
-  await page.getByRole('button', { name: '解除关联', exact: true }).click();
   await waitForBinding(id, undefined);
   session = await currentSession(id);
   assert.equal(await realpath(session.workspacePath), await realpath(standalonePath)); assert.equal(session.branch, undefined); assert.equal(session.baseBranch, undefined);
   assert.equal(await readFile(path.join(standalonePath, '保留的独立文件.txt'), 'utf8'), '独立目录内容需要保留\n');
   assert.equal(await readFile(path.join(secondProjectPath, '项目B保留文件.txt'), 'utf8'), '项目B的文件同样保留\n');
   await expect(branchPicker()).toHaveCount(0);
-  checks.push('可改回不关联项目并恢复原独立目录，旧项目文件保留且分支字段清空');
+  await expect(page.getByRole('button', { name: '解除关联', exact: true })).toHaveCount(0);
+  checks.push('选择不关联项目后自动解除绑定并恢复原独立目录，旧项目文件保留且分支字段清空');
+  await page.reload();
+  await waitForBinding(id, undefined);
+  assert.equal((await currentSession(id)).workspacePath, session.workspacePath);
+  await expect(page.locator('.standalone-sessions .session-item.selected')).toHaveCount(1);
+  checks.push('自动解除后刷新页面仍为独立会话，项目绑定与独立目录持久化保持');
   await picker().selectOption(projectA.id);
   await expect(branchPicker()).toBeEnabled();
   await page.getByRole('button', { name: '绑定项目', exact: true }).click();
@@ -169,8 +177,12 @@ try {
   const task = await page.evaluate(id => window.jinggong.createAgentTask({ sessionId: id, name: '绑定保护验收', role: 'requirement', description: '用于验证已有子任务后绑定保持不变', outputExpectations: ['记录绑定保持不变'], acceptanceCriteria: ['不能跨项目重绑'], maxAttempts: 1 }), id);
   await page.waitForFunction(async ({ id, taskId }) => !(await window.jinggong.listAgentTasks(id)).some(item => item.id === taskId && ['PENDING', 'RUNNING', 'WAITING'].includes(item.status)), { id, taskId: task.id });
   await assert.rejects(() => page.evaluate(id => window.jinggong.bindSessionProject(id, ''), id), /已有子 Agent 任务/);
+  await picker().selectOption('');
+  await expect(page.getByRole('alert')).toContainText('已有子 Agent 任务');
+  await expect(picker()).toBeEnabled();
+  await expect(picker()).toHaveValue(projectA.id);
   assert.equal((await currentSession(id)).workspacePath, session.workspacePath);
-  checks.push('会话已有子 Agent 任务时拒绝修改绑定，原目录与任务依赖保持不变');
+  checks.push('会话已有子 Agent 任务时拒绝自动解除并显示原项目，原目录与任务依赖保持不变');
   const report = { date: new Date().toISOString(), passed: true, checks, executable: process.env.JINGGONG_TEST_EXE || '开发 Electron', testData: root, firstProjectPath, secondProjectPath, currentPath: session.workspacePath };
   await writeFile('test-results/session-flow-smoke.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));

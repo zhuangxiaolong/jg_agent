@@ -1,3 +1,4 @@
+import { useTransientError } from './use-transient-error';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
 import { Icon } from './ui';
@@ -7,6 +8,7 @@ import { playCompletionSound } from './completion-sound';
 import { RequirementsSyncPanel } from './RequirementsSyncPanel';
 import { PluginManagerPanel } from './PluginManagerPanel';
 import { SessionDataSettings } from './SessionDataSettings';
+import './provider-models.css';
 
 export type SettingsTab = 'providers' | 'appearance' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions';
 type Tab = SettingsTab;
@@ -29,7 +31,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
   const [tab, setTab] = useState<Tab>(initialTab);
   useEffect(() => setSnapshot(settings), [settings]);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useTransientError();
   const [notice, setNotice] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -81,10 +83,10 @@ function updateText(status: UpdateStatus): string {
   return status.message || ({ disabled: '在线更新不可用', idle: '等待检查', checking: '正在检查更新…', available: '发现新版本', downloading: '正在下载更新…', downloaded: '更新已下载', 'not-available': '当前已是最新版本', error: '更新检查失败' } as Record<string, string>)[status.state];
 }
 
-const runtimeOptions: { kind: RuntimeKind; name: string; description: string }[] = [
-  { kind: 'jinggong', name: 'Jinggong Runtime', description: '精工维护的独立执行引擎，可选使用。' },
-  { kind: 'codex', name: 'Codex Runtime', description: '兼容现有 Codex App Server 会话，可在会话中选择。' },
-  { kind: 'claude_agent_sdk', name: 'Claude Agent SDK Runtime', description: '通过官方 Claude Agent SDK 运行，使用模型中转站中的地址、模型和凭据。' },
+const runtimeOptions: { kind: RuntimeKind; name: string; description: string; positioning: string }[] = [
+  { kind: 'jinggong', name: 'Jinggong Runtime', description: '精工维护的独立执行引擎，可选使用。', positioning: '精工项目开发、受控文件工具和本地研发流程。' },
+  { kind: 'codex', name: 'Codex Runtime', description: '兼容现有 Codex App Server 会话，可在会话中选择。', positioning: 'Codex 会话兼容与通用代码任务。' },
+  { kind: 'claude_agent_sdk', name: 'Claude Agent SDK Runtime', description: '通过官方 Claude Agent SDK 运行，使用模型中转站中的地址、模型和凭据。', positioning: 'Claude Agent SDK 能力与 Anthropic-compatible 模型服务。' },
 ];
 
 function RuntimeSettings({ snapshot, api, pending }: Operations & { snapshot: SettingsSnapshot }) {
@@ -137,12 +139,13 @@ function RuntimeSettings({ snapshot, api, pending }: Operations & { snapshot: Se
       {runtimeOptions.map(option => {
         const current = health[option.kind];
         return <div className="runtime-choice" key={option.kind}>
-          <span className="runtime-choice-body"><strong>{option.name}</strong><small>{option.description}</small><span className={`runtime-health ${current?.compatible ? 'ready' : 'unready'}`}><span className="status-dot" />{healthText(current)}</span>{current?.upstreamCommit && <small className="runtime-provenance">上游 commit：{current.upstreamCommit}</small>}</span>
+          <span className="runtime-choice-body"><strong>{option.name}</strong><small>{option.description}</small><small className="runtime-position">定位：{option.positioning}</small><span className={`runtime-health ${current?.compatible ? 'ready' : 'unready'}`}><span className="status-dot" />{healthText(current)}</span>{current?.upstreamCommit && <small className="runtime-provenance">上游 commit：{current.upstreamCommit}</small>}</span>
           <button type="button" className="icon-button runtime-check" aria-label={`检查 ${option.name}`} title={`检查 ${option.name}`} disabled={pending || checking === option.kind} onClick={event => { event.preventDefault(); void check(option.kind); }}><Icon name="refresh" /></button>
         </div>;
       })}
     </div>
     <div className="runtime-note"><Icon name="shield" /><p>运行时不会静默回退。运行时未就绪时，新会话会明确提示原因；请先检查对应组件和凭据后再创建新会话。</p></div>
+    <div className="runtime-note runtime-roadmap-note"><Icon name="box" /><p>Grok Runtime：下一版本兼容，当前版本暂不开放选择。</p></div>
     <div className="settings-form" aria-label="Claude 连接测试">
       <h4>Claude Agent SDK 连接测试</h4><p className="field-hint">连接测试使用默认中转站“{snapshot.providers[0]?.name || '未配置'}”的地址、首个模型和 API Key。实际会话使用该会话选择的中转站配置。</p>
       <div className="settings-actions"><button type="button" disabled={pending || checking === 'claude_agent_sdk' || !snapshot.providers[0]?.models[0] || !snapshot.providers[0]?.hasKey} onClick={() => void testClaudeConnection()}>{checking === 'claude_agent_sdk' ? '正在测试…' : '测试 Claude 连接'}<Icon name="refresh" /></button></div>
@@ -223,11 +226,13 @@ function Providers({ profiles, pending, act, api, onSaved }: Operations & { prof
   const [fetchingModels, setFetchingModels] = useState(false);
   const [key, setKey] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const selectedModelIds = new Set(models.split(/[\r\n,]+/).map(value => value.trim()).filter(Boolean));
+  let canFetchModels = false;
+  try { const url = validateUrl(baseUrl); canFetchModels = !!key.trim() || (!!initial?.hasKey && url === initial.baseUrl.replace(/\/$/, '')); } catch { /* 地址填写完整后再启用获取。 */ }
   function choose(profile?: ProviderProfile) { setSelected(profile?.id || ''); setName(profile?.name || ''); setBaseUrl(profile?.baseUrl || ''); setModels(profile?.models.join('\n') || ''); setCatalog(profile?.modelCatalog || profile?.models.map(id => ({ id, name: id })) || []); setKey(''); setDeleting(false); }
   async function fetchModels() {
-    if (!selected) throw new Error('请先保存中转站配置，再获取模型列表。');
     setFetchingModels(true);
-    try { const rows = await api.fetchProviderModels(selected); setCatalog(rows); setModels(rows.map(item => item.id).join('\n')); }
+    try { const rows = await api.fetchProviderModels({ ...(selected ? { id: selected } : {}), baseUrl: validateUrl(baseUrl), ...(key.trim() ? { apiKey: key.trim() } : {}) }); setCatalog(rows); setModels(rows.map(item => item.id).join('\n')); }
     finally { setFetchingModels(false); }
   }
   async function save(event: FormEvent) {
@@ -240,16 +245,16 @@ function Providers({ profiles, pending, act, api, onSaved }: Operations & { prof
       if ((!initial?.hasKey || url !== initial.baseUrl.replace(/\/$/, '')) && !key.trim()) throw new Error('新增或更换中转站地址时，请填写独立 API Key。');
       await api.saveModelProvider({ ...(selected ? { id: selected } : {}), name: name.trim(), baseUrl: url, models: ids, modelCatalog: catalog.filter(item => ids.includes(item.id)), ...(key.trim() ? { apiKey: key.trim() } : {}) });
     }, '模型配置已保存。');
-    setKey(''); if (ok) onSaved();
+    if (ok) { setKey(''); onSaved(); }
   }
   return <section aria-label="模型中转站管理"><div className="section-heading"><div><h3>连接您的模型</h3><p>为不同中转站分别配置模型与加密凭据。</p></div><button className="secondary-button" onClick={() => choose()} disabled={pending}><Icon name="plus" />新增中转站</button></div>
     {profiles.length > 0 && <div className="provider-pills" aria-label="已配置中转站">{profiles.map(profile => <button key={profile.id} className={selected === profile.id ? 'selected' : ''} onClick={() => choose(profile)} disabled={pending}>{profile.name}<span>{profile.models.length} 个模型</span></button>)}</div>}
     <form className="settings-form" onSubmit={save}><label htmlFor="provider-name">中转站名称</label><input id="provider-name" value={name} onChange={e => setName(e.target.value)} required maxLength={80} disabled={pending} autoComplete="off" placeholder="例如：研发主中转" />
       <label htmlFor="provider-url">API Base URL<span>HTTPS</span></label><input id="provider-url" type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://gateway.example/v1" autoComplete="off" required disabled={pending} /><p className="field-hint">需支持 OpenAI Responses API 和流式输出。</p>
-      <label htmlFor="provider-model">模型 ID<span>每行一个，可配置多个</span></label><textarea id="provider-model" value={models} onChange={e => { setModels(e.target.value); setCatalog(e.target.value.split(/[\r\n,]+/).map(id => id.trim()).filter(Boolean).map(id => ({ id, name: catalog.find(item => item.id === id)?.name || id }))); }} rows={3} required disabled={pending} placeholder="填写实际模型 ID，每行一个" />
-      <div className="settings-actions model-fetch-actions"><button type="button" className="secondary-button" onClick={() => void act(fetchModels, '已从中转站获取模型列表，默认已全选。')} disabled={pending || fetchingModels || !selected || !initial?.hasKey}>{fetchingModels ? '正在获取模型…' : '从中转站获取模型列表'}<Icon name="refresh" /></button></div>
-      {catalog.length > 0 && <div className="provider-model-table" aria-label="模型列表"><div className="provider-model-row provider-model-header"><span>启用</span><span>模型 ID</span><span>模型名称</span></div>{catalog.map(item => { const checked = models.split(/[\r\n,]+/).map(value => value.trim()).includes(item.id); return <label className="provider-model-row" key={item.id}><input type="checkbox" checked={checked} onChange={event => { const ids = new Set(models.split(/[\r\n,]+/).map(value => value.trim()).filter(Boolean)); event.target.checked ? ids.add(item.id) : ids.delete(item.id); const next = [...ids]; setModels(next.join('\n')); }} disabled={pending} /><code>{item.id}</code><span>{item.name}</span></label>; })}</div>}
       <label htmlFor="provider-key">API Key{initial?.hasKey && <span className="saved-secret"><Icon name="check" />已加密保存</span>}</label><input id="provider-key" type="password" value={key} onChange={e => setKey(e.target.value)} autoComplete="new-password" spellCheck={false} required={!initial?.hasKey} disabled={pending} placeholder={initial?.hasKey ? '留空保留密钥；更换地址时必须重新填写' : '请输入独立 API Key'} />
+      <div className="settings-actions model-fetch-actions"><button type="button" className="secondary-button" onClick={() => void act(fetchModels, '已从中转站获取模型列表，默认已全选。')} disabled={pending || fetchingModels || !canFetchModels}>{fetchingModels ? '正在获取模型…' : '从中转站获取模型列表'}<Icon name="refresh" /></button></div>
+      <label htmlFor="provider-model">模型 ID<span>每行一个，可配置多个</span></label><textarea id="provider-model" value={models} onChange={e => { setModels(e.target.value); setCatalog(e.target.value.split(/[\r\n,]+/).map(id => id.trim()).filter(Boolean).map(id => ({ id, name: catalog.find(item => item.id === id)?.name || id }))); }} rows={3} required disabled={pending} placeholder="填写实际模型 ID，每行一个" />
+      {catalog.length > 0 && <><div className="provider-model-selection" aria-label="模型批量选择"><button type="button" className="secondary-button" disabled={pending || fetchingModels} onClick={() => setModels([...new Set([...catalog.map(item => item.id), ...selectedModelIds])].join('\n'))}>全选</button><button type="button" className="secondary-button" disabled={pending || fetchingModels} onClick={() => setModels([...selectedModelIds].filter(id => !catalog.some(item => item.id === id)).concat(catalog.filter(item => !selectedModelIds.has(item.id)).map(item => item.id)).join('\n'))}>反选</button><small>已启用 {catalog.filter(item => selectedModelIds.has(item.id)).length} / {catalog.length}</small></div><div className="provider-model-table"><table aria-label="模型列表"><thead><tr><th scope="col">启用</th><th scope="col">模型 ID</th><th scope="col">模型名称</th></tr></thead><tbody>{catalog.map(item => <tr key={item.id}><td><input type="checkbox" aria-label={`启用模型 ${item.id}`} checked={selectedModelIds.has(item.id)} onChange={event => { const ids = new Set(selectedModelIds); event.target.checked ? ids.add(item.id) : ids.delete(item.id); setModels([...ids].join('\n')); }} disabled={pending || fetchingModels} /></td><td><code>{item.id}</code></td><td>{item.name}</td></tr>)}</tbody></table></div></>}
       <div className="credential-note"><Icon name="shield" /><p>密码和密钥只写入安全存储，保存后不回显。模型是否支持完整 Agent 能力，需通过真实会话验证。</p></div>
       <div className="settings-actions">{selected && <button type="button" className="danger-button" onClick={() => setDeleting(true)} disabled={pending}>删除中转站</button>}<button className="primary-button" type="submit" disabled={pending}>{pending ? '正在保存…' : '保存配置'}<Icon name="check" /></button></div>
       {deleting && <div className="delete-confirm"><span>确认删除“{initial?.name}”？历史会话仍保留来源记录。</span><button type="button" onClick={() => setDeleting(false)} disabled={pending}>保留</button><button type="button" className="danger-button" disabled={pending} onClick={async () => { if (await act(() => api.deleteModelProvider(selected), '中转站已删除。')) choose(); }}>确认删除</button></div>}

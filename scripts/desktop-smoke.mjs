@@ -123,7 +123,7 @@ try {
   const session = boot.sessions[0];
   assert.equal(session.runtimeKind, 'codex', '会话应使用会话运行时入口显式选择的 Codex Runtime');
   assert.equal(Object.hasOwn(session, 'mode'), false);
-  const sessionDisplay = boot.projects[0].name;
+  const sessionDisplay = '新会话';
   assert.equal(session.system, 'MES5');
   const uploadImage = path.join(root, '会话图片.png');
   const uploadFile = path.join(root, '会话资料.md');
@@ -151,9 +151,9 @@ try {
   await page.locator('.project-item').click();
   await expect(page.locator('.session-item')).toBeVisible();
   await expect(page.locator('.session-name')).toContainText(sessionDisplay);
-  await expect(page.locator('.session-name')).toContainText('· 会话 ');
+  await expect(page.locator('.session-name')).not.toContainText('会话 20');
   await expect(page.locator('.breadcrumb-session')).toContainText(sessionDisplay);
-  await expect(page.locator('.breadcrumb-session')).toContainText('· 会话 ');
+  await expect(page.locator('.breadcrumb-session')).not.toContainText('会话 20');
   await expect(page.locator('.session-item')).not.toContainText('隔离开发');
   checks.push('本地项目默认折叠，标题可展开/收起，展开不打断当前会话');
   assert.equal(await page.locator('.project-rename-button, .project-delete-button, .session-rename-button, .session-delete-button').count(), 0);
@@ -239,6 +239,32 @@ try {
   assert.equal(await page.getByLabel('会话适用系统', { exact: true }).inputValue(), 'MES5');
   await page.locator('.session-settings-trigger').click();
   assert.notEqual(session.workspacePath, repo);
+  const sendProgress = async items => app.evaluate(({ BrowserWindow }, { sessionId, items }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    items.forEach((item, index) => contents.send('agent:event', { ...item, sessionId, createdAt: new Date(Date.now() + index).toISOString() }));
+  }, { sessionId: session.id, items });
+  await sendProgress([{ id: 'smoke-progress-user', type: 'user', text: '离线进度交互验收' }, { id: 'smoke-progress-running', type: 'status', text: 'running' }, { id: 'smoke-progress-read', type: 'tool', text: '执行命令：rg -n name src' }]);
+  const progress = page.locator('.working-summary');
+  await expect(progress).toHaveAttribute('aria-expanded', 'false');
+  await expect(progress).toContainText('正在执行：rg -n name src');
+  await progress.click();
+  await expect(progress).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#working-details')).toContainText('正在执行：rg -n name src');
+  await sendProgress([{ id: 'smoke-progress-delta-1', type: 'delta', text: '正在核对' }, { id: 'smoke-progress-delta-2', type: 'delta', text: '最新调用链。' }]);
+  await expect(progress).toContainText('回复进展：正在核对最新调用链。');
+  await expect(progress).toHaveAttribute('aria-expanded', 'true');
+  await page.screenshot({ path: 'test-results/desktop-running-progress.png' });
+  await progress.click();
+  await expect(page.locator('#working-details')).toHaveCount(0);
+  await progress.click();
+  await expect(progress).toHaveAttribute('aria-expanded', 'true');
+  await sendProgress([{ id: 'smoke-progress-end', type: 'status', text: 'interrupted' }]);
+  await expect(progress).toHaveCount(0);
+  await sendProgress([{ id: 'smoke-progress-next-user', type: 'user', text: '下一轮进度验收' }, { id: 'smoke-progress-next-running', type: 'status', text: 'running' }]);
+  await expect(progress).toHaveAttribute('aria-expanded', 'false');
+  await expect(progress).toContainText('正在准备运行环境…');
+  await sendProgress([{ id: 'smoke-progress-next-end', type: 'status', text: 'interrupted' }]);
+  checks.push('实际测试包运行中指示器随工具和连续文本事件更新，点击展开/收起，终态移除，下轮清空旧进度；事件为离线测试注入，未调用模型');
   await page.evaluate(() => {
     globalThis.__completionToneCount = 0;
     window.AudioContext = class {
@@ -291,6 +317,8 @@ try {
   await page.locator('.session-item').click();
   await expect(page.getByLabel('会话已完成，尚未查看', { exact: true })).toHaveCount(0);
   checks.push('完成事件产生蓝点，折叠项目仍提示，点击会话后清除，重复完成不重复播放声音');
+  await expect(page.locator('.banner.notice').filter({ hasText: '已完成。' })).toHaveCount(0, { timeout: 4000 });
+  checks.push('完成横幅无需点击，在约 3 秒后自动关闭');
   await app.evaluate(({ BrowserWindow }, sessionId) => {
     const contents = BrowserWindow.getAllWindows()[0].webContents;
     const base = new Date().toISOString();

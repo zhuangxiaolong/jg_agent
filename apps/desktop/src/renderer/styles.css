@@ -5,6 +5,7 @@
 @import url('./dock-layout.css');
 @import url('./ui-redesign.css');
 @import url('./agent-tasks.css');
+@import url('./diff-preview.css');
 
 /* 品牌区保持单行标题，同时为侧栏内容留出稳定空间。 */
 .dock-layout .brand { gap: 7px; min-width: 0; }

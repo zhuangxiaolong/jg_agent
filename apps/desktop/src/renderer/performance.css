@@ -1,0 +1,15 @@
+.performance-panel { padding: 16px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.performance-panel header { display: flex; flex-direction: column; margin-bottom: 14px; }
+.performance-panel small { opacity: .7; }
+.performance-panel dl { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 7px 12px; }
+.performance-panel dd { margin: 0; }
+.performance-panel dt { opacity: .7; }
+.performance-panel details { margin: 14px 0; }
+.performance-panel summary { cursor: pointer; font-weight: 600; }
+.performance-settings label { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0; align-items: center; }
+.performance-settings input[type=number] { width: 90px; }
+.performance-index { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border); padding: 12px 0; }
+.performance-timeline { padding-left: 20px; }
+.performance-timeline li { padding: 6px 0; }
+.performance-timeline span, .performance-timeline small { display: block; }
+.performance-actions { display: flex; flex-wrap: wrap; gap: 10px; }

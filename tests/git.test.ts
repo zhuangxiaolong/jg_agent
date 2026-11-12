@@ -391,7 +391,7 @@ test('拉取复用远程传输安全边界，拒绝危险地址/重写/链接且
   try {
     await assert.rejects(connector.pull(workspace.path, '--all'), /名称/);
     await assert.rejects(connector.pull(workspace.path, 'missing'), /不存在/);
-    for (const url of ['ext::sh -c echo unsafe', 'file:///C:/unsafe.git', 'http://example.invalid/repo.git', 'https://user:synthetic-password@example.invalid/repo.git', 'ssh://user:synthetic-password@example.invalid/repo.git', 'https://example.invalid/repo.git?token=synthetic-value']) {
+    for (const url of ['ext::sh -c echo unsafe', 'file:///C:/unsafe.git', 'https://user:synthetic-password@example.invalid/repo.git', 'ssh://user:synthetic-password@example.invalid/repo.git', 'https://example.invalid/repo.git?token=synthetic-value']) {
       await git(source, ['remote', 'set-url', 'origin', url]);
       await assert.rejects(connector.pull(workspace.path, 'origin'), (error: unknown) => {
         assert(error instanceof Error);
@@ -401,6 +401,13 @@ test('拉取复用远程传输安全边界，拒绝危险地址/重写/链接且
         return true;
       });
     }
+    await git(source, ['remote', 'set-url', 'origin', 'http://example.invalid/repo.git']);
+    await assert.rejects(connector.pull(workspace.path, 'origin'), (error: unknown) => {
+      assert(error instanceof Error);
+      assert.match(error.message, /HTTP\(S\) 拉取失败/);
+      assert(!error.message.includes('example.invalid'));
+      return true;
+    });
     await git(source, ['remote', 'set-url', 'origin', remote]);
     await git(source, ['config', 'url.ext::unsafe.insteadOf', remote]);
     await assert.rejects(connector.pull(workspace.path, 'origin'), /重写/);
@@ -442,5 +449,131 @@ test('快进拉取不得覆盖本地被忽略文件，HEAD/索引和来源 main 
     assert.equal((await git(workspace.path, ['rev-parse', 'HEAD'])).stdout.trim(), mainHash);
     assert.equal((await git(workspace.path, ['diff', '--cached', '--name-only'])).stdout, '');
     assert.equal((await git(source, ['rev-parse', 'main'])).stdout.trim(), mainHash);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('项目仓库直接获取和快进拉取 main，保持会话 Agent 分支不变并禁用 Hook/Filter', async () => {
+  const { root, source, peer, workspace, mainHash, connector } = await pullFixture('project-pull');
+  try {
+    const project = await connector.register(source);
+    const initial = await connector.projectState(project);
+    assert.equal(initial.branch, 'main');
+    assert.deepEqual(initial.remotes, ['origin']);
+    assert.equal(initial.commits[0]?.hash, mainHash);
+    await git(peer, ['checkout', 'main']);
+    await writeFile(join(peer, 'src', '代码.txt'), '项目主分支远程更新\n');
+    await writeFile(join(peer, '项目 新增.txt'), '在项目原目录可见\n');
+    await git(peer, ['add', '--all']);
+    await git(peer, ['commit', '-m', '推进项目主分支']);
+    await git(peer, ['push', 'origin', 'main']);
+    const remoteHead = (await git(peer, ['rev-parse', 'HEAD'])).stdout.trim();
+    await writeFile(join(source, '未跟踪.txt'), '获取远程信息应保留本地文件\n');
+    await connector.fetchProject(project, 'origin');
+    assert.equal((await git(source, ['rev-parse', 'origin/main'])).stdout.trim(), remoteHead);
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), mainHash);
+    assert.equal(await readFile(join(source, '未跟踪.txt'), 'utf8'), '获取远程信息应保留本地文件\n');
+    assert.equal(await readFile(join(source, 'src', '代码.txt'), 'utf8'), '原始内容\n');
+    await rm(join(source, '未跟踪.txt'));
+    await writeFile(join(source, '.git', 'hooks', 'post-merge'), '#!/bin/sh\nprintf HOOK_RAN > project-hook-ran.txt\n');
+    await git(source, ['config', 'filter.poc.smudge', 'sh -c "printf FILTER_RAN > project-filter-ran.txt; cat"']);
+    await git(source, ['config', '--add', 'remote.origin.fetch', '+refs/heads/main:refs/heads/unrelated']);
+    await connector.pullProject(project, 'origin');
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), remoteHead);
+    assert.equal((await git(source, ['branch', '--show-current'])).stdout.trim(), 'main');
+    assert.equal(await readFile(join(source, 'src', '代码.txt'), 'utf8'), '项目主分支远程更新\n');
+    assert.equal(await readFile(join(source, '项目 新增.txt'), 'utf8'), '在项目原目录可见\n');
+    assert.equal((await connector.projectState(project)).dirty, false);
+    assert.equal((await git(workspace.path, ['rev-parse', 'HEAD'])).stdout.trim(), mainHash);
+    assert.equal(await readFile(join(workspace.path, 'src', '代码.txt'), 'utf8'), '原始内容\n');
+    assert.equal((await git(source, ['for-each-ref', '--format=%(refname)', 'refs/heads/unrelated', 'refs/jinggong-pull'])).stdout, '');
+    for (const name of ['project-hook-ran.txt', 'project-filter-ran.txt']) await assert.rejects(readFile(join(source, name)), { code: 'ENOENT' });
+    await connector.pullProject(project, 'origin');
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), remoteHead);
+    await assert.rejects(connector.pull(source, 'origin'), /仅允许/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('项目推送只更新实际当前同名分支，拒绝脏目录、分离 HEAD 和伪造项目身份', async () => {
+  const { root, source, remote, workspace, mainHash, connector } = await pullFixture('project-push');
+  try {
+    const project = await connector.register(source);
+    await assert.rejects(connector.projectState({ ...project, id: 'forged' }), /身份/);
+    await assert.rejects(connector.fetchProject({ ...project, id: 'forged' }, 'origin'), /身份/);
+    await writeFile(join(source, '项目提交.txt'), '待推送项目内容\n');
+    await assert.rejects(connector.pushProject(project, 'origin'), /未提交/);
+    await git(source, ['add', '--all']);
+    await git(source, ['commit', '-m', '提交项目当前分支']);
+    const head = (await git(source, ['rev-parse', 'HEAD'])).stdout.trim();
+    await connector.pushProject(project, 'origin');
+    assert.equal((await git(remote, ['rev-parse', 'refs/heads/main'])).stdout.trim(), head);
+    assert.equal((await git(remote, ['rev-parse', `refs/heads/${workspace.branch}`])).stdout.trim(), mainHash);
+    assert.equal((await git(workspace.path, ['rev-parse', 'HEAD'])).stdout.trim(), mainHash);
+    await git(source, ['checkout', '--detach']);
+    assert.equal((await connector.projectState(project)).branch, '(detached)');
+    await assert.rejects(connector.pushProject(project, 'origin'), /分离 HEAD/);
+    await assert.rejects(connector.pullProject(project, 'origin'), /分离 HEAD/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('项目拉取拒绝未提交、暂存、分叉及不存在的同名分支，不覆盖本地提交', async () => {
+  const { root, source, peer, connector } = await pullFixture('project-guards');
+  try {
+    const project = await connector.register(source);
+    await writeFile(join(source, '本地内容.txt'), '保留本地内容\n');
+    await assert.rejects(connector.pullProject(project, 'origin'), /未提交变更/);
+    await git(source, ['add', '--all']);
+    await assert.rejects(connector.pullProject(project, 'origin'), /未提交变更/);
+    await git(source, ['commit', '-m', '保留项目本地提交']);
+    const localHead = (await git(source, ['rev-parse', 'HEAD'])).stdout.trim();
+    await connector.pullProject(project, 'origin');
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), localHead);
+    await git(peer, ['checkout', 'main']);
+    await writeFile(join(peer, '远程分叉.txt'), '独立提交\n');
+    await git(peer, ['add', '--all']);
+    await git(peer, ['commit', '-m', '远程项目分叉']);
+    await git(peer, ['push', 'origin', 'main']);
+    await assert.rejects(connector.pullProject(project, 'origin'), /分叉.*仅快进/);
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), localHead);
+    assert.equal(await readFile(join(source, '本地内容.txt'), 'utf8'), '保留本地内容\n');
+    assert.equal((await git(source, ['for-each-ref', '--format=%(refname)', 'refs/jinggong-pull'])).stdout, '');
+    await git(source, ['checkout', '-b', 'local-only']);
+    await assert.rejects(connector.pullProject(project, 'origin'), /不存在.*同名/);
+    assert.equal((await connector.projectState(project)).branch, 'local-only');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('项目远程操作复用传输校验，项目拉取保护被忽略文件和硬链接', async () => {
+  const { root, source, peer, remote, mainHash, connector } = await pullFixture('project-safety');
+  try {
+    const project = await connector.register(source);
+    for (const operation of [() => connector.fetchProject(project, '--all'), () => connector.pullProject(project, 'missing'), () => connector.pushProject(project, 'missing')]) await assert.rejects(operation(), /名称|不存在/);
+    await git(source, ['remote', 'set-url', 'origin', 'https://user:synthetic-secret@example.invalid/repo.git']);
+    for (const operation of [() => connector.fetchProject(project, 'origin'), () => connector.pullProject(project, 'origin'), () => connector.pushProject(project, 'origin')]) {
+      await assert.rejects(operation(), (error: unknown) => error instanceof Error && /凭据/.test(error.message) && !error.message.includes('synthetic-secret'));
+    }
+    await git(source, ['remote', 'set-url', 'origin', remote]);
+    await git(source, ['config', 'url.ext::unsafe.insteadOf', remote]);
+    await assert.rejects(connector.fetchProject(project, 'origin'), /重写/);
+    await git(source, ['config', '--unset-all', 'url.ext::unsafe.insteadOf']);
+    await git(peer, ['checkout', 'main']);
+    await writeFile(join(peer, 'src', '代码.txt'), '硬链接目标不得被改写\n');
+    await writeFile(join(peer, '本地忽略.txt'), '远程同名内容\n');
+    await git(peer, ['add', '--all']);
+    await git(peer, ['commit', '-m', '增加需保护路径']);
+    await git(peer, ['push', 'origin', 'main']);
+    const external = join(root, '外部原件.txt');
+    await writeFile(external, '原始内容\n');
+    await rm(join(source, 'src', '代码.txt'));
+    await link(external, join(source, 'src', '代码.txt'));
+    assert.equal((await connector.projectState(project)).dirty, false);
+    await assert.rejects(connector.pullProject(project, 'origin'), /硬链接/);
+    assert.equal(await readFile(external, 'utf8'), '原始内容\n');
+    await rm(join(source, 'src', '代码.txt'));
+    await writeFile(join(source, 'src', '代码.txt'), '原始内容\n');
+    await writeFile(join(source, '.git', 'info', 'exclude'), '本地忽略.txt\n');
+    await writeFile(join(source, '本地忽略.txt'), '本地不可丢失内容\n');
+    await assert.rejects(connector.pullProject(project, 'origin'), /被忽略文件/);
+    assert.equal(await readFile(join(source, '本地忽略.txt'), 'utf8'), '本地不可丢失内容\n');
+    assert.equal((await git(source, ['rev-parse', 'HEAD'])).stdout.trim(), mainHash);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

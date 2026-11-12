@@ -17,6 +17,7 @@ export const providerSchema = z.object({
   apiKey: z.string().min(1).max(8192).optional()
 }).strict();
 export const modelProfileSchema = z.object({ id: profileIdSchema.optional(), name: z.string().trim().min(1).max(80), baseUrl: httpsUrlSchema, models: z.array(modelSchema).min(1).max(50).refine(values => new Set(values).size === values.length, '模型不能重复'), modelCatalog: z.array(z.object({ id: modelSchema, name: z.string().trim().min(1).max(240) }).strict()).max(100).optional(), apiKey: z.string().min(1).max(8192).optional() }).strict();
+export const providerModelsSchema = z.union([profileIdSchema, z.object({ id: profileIdSchema.optional(), baseUrl: httpsUrlSchema, apiKey: z.string().trim().min(1, '请填写 API Key').max(8192).refine(value => !/[\x00-\x1f\x7f]/.test(value), 'API Key 不能包含控制字符').optional() }).strict()]);
 export const preferencesSchema = z.object({ theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']), style: z.enum(['jinggong', 'minimal']), completionSound: z.enum(['chime', 'bright', 'soft', 'off']).default('chime'), updateMode: z.enum(['automatic', 'manual']).default('automatic') }).strict();
 export const layoutSchema = z.object({
   leftVisible: z.boolean(), rightVisible: z.boolean(), bottomVisible: z.boolean(),

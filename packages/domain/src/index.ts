@@ -57,6 +57,9 @@ export interface SessionPluginSnapshot {
   effectiveScope: SessionPluginEffectiveScope; pluginIds: string[]; skillIds: string[];
   plugins: SessionPluginSnapshotEntry[]; snapshotHash: string; createdAt: string;
 }
+
+export interface SessionReadDirectoryGrant { id: string; path: string }
+export interface SessionReadAccess { mode: 'full' | 'restricted'; directories: SessionReadDirectoryGrant[] }
 export type PluginAuditAction = 'import' | 'trust' | 'install' | 'uninstall' | 'enable' | 'disable' | 'mcp-test' | 'mcp-enable' | 'mcp-disable' | 'mcp-credential-save' | 'mcp-credential-clear' | 'runtime-sync' | 'session-selection';
 export interface PluginAuditRecord {
   id: string; action: PluginAuditAction; pluginId?: string; runtimeKind?: RuntimeKind;
@@ -122,7 +125,7 @@ export interface RequirementAcceptanceCriterion { id: string; criterionKey: stri
 export interface RequirementSnapshot { id: string; issueKey: string; jiraUpdated?: string; contentHash: string; fetchedAt: string; issue: JiraIssue }
 export interface RequirementAnalysis { taskType: RequirementTaskType; projectGeneration: ProductSystem | 'unknown'; summary: string; items: RequirementCheckItem[]; acceptanceCriteria: RequirementAcceptanceCriterion[] }
 export interface RequirementAdmission { id: string; status: RequirementAdmissionStatus; implementationAllowed: boolean; projectGeneration: ProductSystem | 'unknown'; taskType: RequirementTaskType; snapshotHash: string; templateVersion: string; ruleVersion: string; checkedAt: string; items: RequirementCheckItem[]; resolutions: RequirementResolution[]; acceptanceCriteria: RequirementAcceptanceCriterion[]; stageBlockers: RequirementBlockingStage[] }
-export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; runtimeCapabilitiesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean }
+export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; runtimeCapabilitiesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
 export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string }
@@ -178,6 +181,7 @@ export interface FileDiff { path: string; status: string; diff: string; binary?:
 export interface ProviderSettings { baseUrl: string; model: string; hasKey: boolean }
 export interface ProviderModel { id: string; name: string }
 export interface ProviderProfile { id: string; name: string; baseUrl: string; models: string[]; modelCatalog?: ProviderModel[]; hasKey: boolean }
+export type ProviderModelsInput = string | { id?: string; baseUrl: string; apiKey?: string };
 export type CompletionSound = 'chime' | 'bright' | 'soft' | 'off';
 export type UpdateMode = 'automatic' | 'manual';
 export type UpdateState = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error';
@@ -247,8 +251,18 @@ export interface VerificationRunSummary {
 export interface VerificationRunDetail { summary: VerificationRunSummary; markdown: string; artifacts: string[] }
 export interface VerificationRunEvent { runId: string; sessionId: string; state: 'started' | 'completed'; status?: VerificationStatus; processStatus?: VerificationProcessStatus; exitCode?: number | null }
 export interface RuntimeHealth { available: boolean; version: string; compatible: boolean; detail: string; kind?: RuntimeKind; capabilitiesVersion?: number; upstreamCommit?: string; buildNumber?: string; sandbox?: 'verified' | 'unverified' }
-export interface Bootstrap { projects: Project[]; sessions: Session[]; provider: ProviderSettings; runtime: RuntimeHealth; runtimes?: Partial<Record<RuntimeKind, RuntimeHealth>>; dataDirectory: string; gitVersion: string; settings: SettingsSnapshot; layout: LayoutPreferences; closeToTray: boolean }
+export interface Bootstrap { projects: Project[]; sessions: Session[]; activeSessionIds?: string[]; provider: ProviderSettings; runtime: RuntimeHealth; runtimes?: Partial<Record<RuntimeKind, RuntimeHealth>>; dataDirectory: string; gitVersion: string; settings: SettingsSnapshot; layout: LayoutPreferences; closeToTray: boolean }
 export interface DesktopApi {
+  performance?: {
+    report(sessionId: string): Promise<import('../../performance/src/types').PerformanceReport>;
+    settings(patch: Partial<import('../../performance/src/types').PerformanceSettings>): Promise<import('../../performance/src/types').PerformanceSettings>;
+    reset(): Promise<import('../../performance/src/types').PerformanceSettings>;
+    export(sessionId: string): Promise<string>;
+    clear(sessionId: string): Promise<void>;
+    indexStatus(sessionId: string): Promise<{ status: string; fileCount: number; updatedAt?: string; error?: string }>;
+    rebuildIndex(sessionId: string): Promise<void>;
+    testPlan(sessionId: string, fullRequested?: boolean): Promise<import('../../performance/src/test-policy').TestPlan>;
+  };
   /** Plugin Manager IPC 能力，当前构建未接入时保持未定义。 */
   pluginManager?: PluginManagerApi;
   bootstrap(): Promise<Bootstrap>;
@@ -281,6 +295,10 @@ export interface DesktopApi {
   refreshRequirementAdmission(sessionId: string): Promise<Session>;
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
+  authorizeSessionDirectory(sessionId: string): Promise<Session>;
+  revokeSessionDirectory(sessionId: string, grantId: string): Promise<Session>;
+  restoreSessionFullReadAccess(sessionId: string): Promise<Session>;
+  onSessionReadAccessChanged?(listener: (session: Pick<Session, 'id' | 'readAccess'>) => void): () => void;
   cancelRun(sessionId: string): Promise<void>;
   getDiff(sessionId: string): Promise<FileDiff[]>;
   getFileDiff(sessionId: string, file: string): Promise<FileDiff>;
@@ -304,7 +322,7 @@ export interface DesktopApi {
   saveUpdateUrl(url: string): Promise<string>;
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
   saveModelProvider(input: { id?: string; name: string; baseUrl: string; models: string[]; modelCatalog?: ProviderModel[]; apiKey?: string }): Promise<ProviderProfile>;
-  fetchProviderModels(providerId: string): Promise<ProviderModel[]>;
+  fetchProviderModels(input: ProviderModelsInput): Promise<ProviderModel[]>;
   deleteModelProvider(id: string): Promise<void>;
   saveJira(input: { baseUrl: string; account: string; password?: string; projectKey?: string; dateFieldId?: string }): Promise<JiraSettings>;
   saveClaudeCredential(apiKey: string): Promise<ClaudeRuntimeSettings>;
@@ -332,6 +350,10 @@ export interface DesktopApi {
   saveMemory(input: { title: string; content: string }): Promise<Memory>;
   deleteMemory(id: string): Promise<void>;
   getGitState(sessionId: string): Promise<GitState>;
+  getProjectGitState(target: string | { projectId: string }): Promise<GitState>;
+  fetchProjectChanges(target: string | { projectId: string }, remote: string): Promise<void>;
+  pullProjectChanges(target: string | { projectId: string }, remote: string): Promise<void>;
+  pushProjectChanges(target: string | { projectId: string }, remote: string): Promise<void>;
   startVerification(sessionId: string, profileId: VerificationProfileId): Promise<{ runId: string }>;
   cancelVerification(sessionId: string, runId: string): Promise<void>;
   listVerificationRuns(sessionId: string): Promise<VerificationRunSummary[]>;
@@ -350,5 +372,6 @@ export interface DesktopApi {
   saveProvider(input: { baseUrl: string; model: string; apiKey?: string }): Promise<ProviderSettings>;
   backup(): Promise<string | null>;
   onEvent(listener: (event: AgentEvent) => void): () => void;
+  onSessionTitleChanged(listener: (session: Pick<Session, 'id' | 'title' | 'titleSource'>) => void): () => void;
   onAgentTaskEvent(listener: (event: AgentTaskEvent) => void): () => void;
 }

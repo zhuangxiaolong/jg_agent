@@ -1,0 +1,13 @@
+.diff-content { overflow: hidden; }
+.diff-content > .file-list { flex: 1 1 0; min-height: 0; max-height: none; }
+.diff-preview { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; max-height: calc(100% - 80px); border-top: 1px solid var(--line); }
+.diff-preview > .diff-preview-toggle { flex: 0 0 auto; width: 100%; min-height: 40px; text-align: left; }
+.diff-preview-toggle > .icon { flex: 0 0 auto; }
+.diff-preview-toggle > .icon:first-child.expanded { transform: rotate(90deg); }
+.diff-preview-toggle > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-preview-toggle > small { flex: 0 0 auto; color: var(--muted); }
+.diff-preview-toggle:hover, .diff-preview-toggle:focus-visible { background: var(--surface-2); color: var(--text); }
+.diff-preview-toggle:focus-visible { outline: 1px solid var(--muted); outline-offset: -2px; }
+.diff-preview > .diff-resize-handle { position: relative; inset: auto; width: 100%; height: 8px; flex: 0 0 8px; cursor: row-resize; }
+.diff-preview > .diff-resize-handle::after { top: 3px; bottom: auto; left: calc(50% - 24px); width: 48px; height: 2px; }
+.diff-preview > .diff-view { min-width: 0; overscroll-behavior: contain; }

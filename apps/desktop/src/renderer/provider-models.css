@@ -1,0 +1,11 @@
+.provider-model-table { width: 100%; overflow-x: auto; margin-top: 14px; border: 1px solid var(--line); border-radius: 6px; }
+.provider-model-table table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.provider-model-table th, .provider-model-table td { padding: 10px 12px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.provider-model-table th { color: var(--text-secondary); font-weight: 600; background: var(--surface-2); }
+.provider-model-table tr:last-child td { border-bottom: 0; }
+.provider-model-table th:first-child, .provider-model-table td:first-child { width: 62px; text-align: center; }
+.provider-model-table th:nth-child(2), .provider-model-table td:nth-child(2) { width: 45%; }
+.provider-model-table td code { font-size: 11px; white-space: normal; }
+.provider-model-table input[type="checkbox"] { display: inline-block; width: 15px; height: 15px; margin: 0; vertical-align: middle; accent-color: var(--accent); }
+.provider-model-selection { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.provider-model-selection small { margin-left: auto; color: var(--muted); }

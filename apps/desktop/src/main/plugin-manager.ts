@@ -634,7 +634,21 @@ export class PluginManagerService {
     }
     const initialLive = await this.readCodexPluginList(profileId);
     const selectedIds = new Set(plugins.map(plugin => plugin.id));
-    const previousBindings = this.store.listRuntimePluginBindings().filter(binding => binding.runtimeKind === 'codex' && binding.profileId === profileId && (binding.installState === 'installed' || binding.installState === 'disabled'));
+    const profileBindings = this.store.listRuntimePluginBindings().filter(binding => binding.runtimeKind === 'codex' && binding.profileId === profileId);
+    const previousBindings = profileBindings.filter(binding => binding.installState === 'installed' || binding.installState === 'disabled');
+    if (!plugins.length && !initialLive.length && !profileBindings.length) {
+      let marketplaceExists = true;
+      try { await lstat(this.marketplaceRoot(profileId)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        marketplaceExists = false;
+      }
+      if (!marketplaceExists) {
+        const result: RuntimePluginSyncResult = { profileId, installed: 0, errors: [], syncedAt: timestamp() };
+        this.audit(audit(undefined, 'runtime-sync', 'success', { profileId, installed: 0, errorCount: 0 }, undefined, 'codex'));
+        return result;
+      }
+    }
     const transaction = await this.beginMarketplaceUpdate(profileId, plugins);
     let committed = false;
     try {

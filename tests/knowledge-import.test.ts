@@ -5,10 +5,21 @@ import { link, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { strToU8, zipSync } from 'fflate';
-import { importDocumentFile } from '../packages/knowledge/src/index';
+import { importDocumentFile, readDocumentTextFile } from '../packages/knowledge/src/index';
 
 const contentTypes = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>';
 const zip = (files: Record<string, string>) => zipSync(Object.fromEntries(Object.entries({ '[Content_Types].xml': contentTypes, ...files }).map(([name, value]) => [name, strToU8(value)])));
+const pptxPresentation = '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId1"/></p:sldIdLst></p:presentation>';
+const pptxRelationships = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>';
+const pptxSlide = (text: string) => `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`;
+
+function simplePdf(text: string): Buffer {
+  const objects = [`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`, `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`, `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`, `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`, `5 0 obj\n<< /Length ${text.length + 11} >>\nstream\nBT /F1 12 Tf (${text}) Tj ET\nendstream\nendobj\n`];
+  let output = '%PDF-1.4\n'; const offsets = [0];
+  for (const object of objects) { offsets.push(Buffer.byteLength(output, 'latin1')); output += object; }
+  const start = Buffer.byteLength(output, 'latin1'); output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
+  return Buffer.from(output, 'latin1');
+}
 
 test('导入 UTF-8 原文保留内容、系统、SHA256来源及密码Token示例；格式、编码、容量错误明确拒绝', async () => {
   const root = await mkdtemp(join(tmpdir(), '精工知识导入 '));
@@ -35,8 +46,66 @@ test('导入 UTF-8 原文保留内容、系统、SHA256来源及密码Token示�
     await assert.rejects(importDocumentFile(file, 'requirement', 'MES6'), /80000.*未.*截断/);
     await writeFile(file, Buffer.alloc(8 * 1024 * 1024 + 1));
     await assert.rejects(importDocumentFile(file, 'requirement', 'MES6'), /8 MiB/);
-    await assert.rejects(importDocumentFile(join(root, '不支持.pdf'), 'dictionary', 'MES6'), /当前支持/);
+    await writeFile(join(root, '不支持.pdf'), Buffer.from('not-pdf'));
+    await assert.rejects(importDocumentFile(join(root, '不支持.pdf'), 'dictionary', 'MES6'), /PDF/);
     await assert.rejects(importDocumentFile(file, 'invalid' as never, 'MES6'), /类型/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('通用文档正文快照提取 PDF 与 PPTX，保留页/幻灯片边界且不绑定知识库凭据策略', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-document-text-'));
+  try {
+    const pdf = join(root, '简历.pdf'); await writeFile(pdf, simplePdf('Password field is a job requirement example'));
+    const pdfSnapshot = await readDocumentTextFile(pdf);
+    assert.match(pdfSnapshot.content, /Password field is a job requirement example/);
+    assert.equal(pdfSnapshot.extension, '.pdf');
+    const importedPdf = await importDocumentFile(pdf, 'requirement', 'MES6');
+    assert.match(importedPdf.content, /Password field is a job requirement example/);
+    const pptx = join(root, '汇报.pptx');
+    await writeFile(pptx, zip({
+      'ppt/presentation.xml': pptxPresentation,
+      'ppt/_rels/presentation.xml.rels': pptxRelationships,
+      'ppt/slides/slide1.xml': pptxSlide('MES 实施计划'),
+      'ppt/slides/slide2.xml': pptxSlide('WMS 上线验收'),
+      'ppt/slides/slide3.xml': pptxSlide('孤立页面不得读入'),
+      'ppt/slides/_rels/slide2.xml.rels': '<Relationships><Relationship Id="note1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide2.xml"/></Relationships>',
+      'ppt/notesSlides/notesSlide2.xml': pptxSlide('第二页对应备注'),
+      'ppt/notesSlides/notesSlide3.xml': pptxSlide('孤立备注不得读入')
+    }));
+    const pptSnapshot = await readDocumentTextFile(pptx);
+    assert.match(pptSnapshot.content, /幻灯片：ppt\/slides\/slide1\.xml/);
+    assert.match(pptSnapshot.content, /MES 实施计划/);
+    assert.match(pptSnapshot.content, /WMS 上线验收/);
+    assert.ok(pptSnapshot.content.indexOf('WMS 上线验收') < pptSnapshot.content.indexOf('MES 实施计划'), '使用 presentation.xml 的真实页序，不按部件文件编号排序');
+    assert.match(pptSnapshot.content, /第二页对应备注/);
+    assert.doesNotMatch(pptSnapshot.content, /孤立页面|孤立备注/);
+    const legacyXls = join(root, '旧工作簿.xls'); await writeFile(legacyXls, Buffer.from('binary placeholder'));
+    await assert.rejects(readDocumentTextFile(legacyXls), /旧版 DOC\/XLS\/PPT.*另存为新格式/);
+    const legacyPpt = join(root, '旧演示文稿.ppt'); await writeFile(legacyPpt, Buffer.from('binary placeholder'));
+    await assert.rejects(readDocumentTextFile(legacyPpt), /旧版 DOC\/XLS\/PPT.*另存为新格式/);
+    const legacyDoc = join(root, '旧文档.doc'); await writeFile(legacyDoc, Buffer.from('binary placeholder'));
+    await assert.rejects(readDocumentTextFile(legacyDoc), /旧版 DOC\/XLS\/PPT.*另存为新格式/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('PPTX 拒绝缺失、重复、外部和逃逸的幻灯片关系', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-pptx-relations-'));
+  const file = join(root, '异常.pptx');
+  const valid = { 'ppt/presentation.xml': pptxPresentation, 'ppt/_rels/presentation.xml.rels': pptxRelationships, 'ppt/slides/slide1.xml': pptxSlide('第一页面'), 'ppt/slides/slide2.xml': pptxSlide('第二页面') };
+  try {
+    const cases = [
+      { ...valid, 'ppt/_rels/presentation.xml.rels': '' },
+      { ...valid, 'ppt/presentation.xml': pptxPresentation.replace('r:id="rId2"', 'r:id="missing"') },
+      { ...valid, 'ppt/presentation.xml': pptxPresentation.replace('r:id="rId2"', 'r:id="rId1"') },
+      { ...valid, 'ppt/_rels/presentation.xml.rels': pptxRelationships.replace('Id="rId2"', 'Id="rId1"') },
+      { ...valid, 'ppt/_rels/presentation.xml.rels': pptxRelationships.replace('Target="slides/slide2.xml"', 'Target="slides/slide1.xml"') },
+      { ...valid, 'ppt/_rels/presentation.xml.rels': pptxRelationships.replace('Target="slides/slide2.xml"', 'Target="../../outside.xml"'), 'outside.xml': pptxSlide('外部内容') },
+      { ...valid, 'ppt/_rels/presentation.xml.rels': pptxRelationships.replace('Target="slides/slide2.xml"', 'TargetMode="External" Target="https://example.invalid/slide.xml"') },
+    ];
+    for (const files of cases) {
+      await writeFile(file, zip(files));
+      await assert.rejects(readDocumentTextFile(file), /PPTX|Office/);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

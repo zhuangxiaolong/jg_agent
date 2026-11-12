@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createSdkMcpServer, tool, type SDKUserMessage, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeAgentSdkRuntimeAdapter, CLAUDE_AGENT_SDK_RUNTIME_VERSION, claudeRelayBaseUrl, normalizeClaudeSdkMessage, type ClaudeSdkModule, type ClaudeSdkQueryOptions } from '../packages/agent-runtime/src/claude-adapter';
+import type { AuthorizedDirectoryPolicy } from '../packages/agent-runtime/src/authorized-directory-broker';
 
 test('Claude 复用通用中转站时避免重复追加 /v1，保留自定义前缀', () => {
   assert.equal(claudeRelayBaseUrl('https://relay.example.invalid/v1'), 'https://relay.example.invalid');
@@ -131,6 +133,90 @@ test('Claude Runtime 自动继续普通工具请求', async () => {
     await adapter.close();
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('Claude 授权模式仅启用 MCP broker，动态撤销目录并限制项目写入范围', async () => {
+  const root = join(tmpdir(), `claude-directory-tools-${Date.now()}`);
+  const cwd = join(root, 'workspace');
+  const documents = join(root, '资料');
+  await mkdir(cwd, { recursive: true }); await mkdir(documents);
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  await writeFile(join(documents, '验收.txt'), 'MES WMS 文档解析内容');
+  let policy: AuthorizedDirectoryPolicy = { mode: 'restricted', directories: [{ id: 'grant-1', path: documents }] };
+  let definitions: SdkMcpToolDefinition<any>[] = [];
+  const invoked: string[] = [];
+  const writes: string[] = [];
+  const invoke = async (name: string, input: Record<string, unknown>) => {
+    const definition = definitions.find(item => item.name === name);
+    assert.ok(definition, name);
+    return definition.handler(input, {});
+  };
+  const parseResult = (result: Awaited<ReturnType<typeof invoke>>) => {
+    const content = result.content?.[0];
+    assert.ok(content && content.type === 'text');
+    return content.text as string;
+  };
+  const sdk: ClaudeSdkModule = {
+    tool,
+    createSdkMcpServer(options) { definitions = options.tools ?? []; return createSdkMcpServer(options); },
+    query({ options, prompt }) {
+      assert.equal(options.permissionMode, 'default');
+      assert.equal(options.allowDangerouslySkipPermissions, undefined);
+      assert.deepEqual(options.tools, []);
+      assert.equal(options.strictMcpConfig, true);
+      assert.equal(options.additionalDirectories, undefined, '外部资料目录不扩大 SDK 目录权限');
+      assert.ok(options.mcpServers?.jinggong_files);
+      assert.match(options.systemPrompt?.append ?? '', /不可信资料/);
+      return { async *[Symbol.asyncIterator]() {
+        assert.notEqual(typeof prompt, 'string', 'SDK MCP 使用流式用户输入');
+        const messages: SDKUserMessage[] = [];
+        for await (const item of prompt as AsyncIterable<SDKUserMessage>) messages.push(item);
+        assert.equal(messages[0].message.content, '读取授权资料并修改工作区文件');
+        for (const toolName of ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'mcp__other__read']) {
+          assert.equal((await options.canUseTool!(toolName, {}, { toolName, input: {}, signal: new AbortController().signal })).behavior, 'deny');
+        }
+        assert.equal((await options.canUseTool!('mcp__jinggong_files__read_authorized_document', {}, { toolName: 'mcp__jinggong_files__read_authorized_document', input: {}, signal: new AbortController().signal })).behavior, 'allow');
+        assert.match(parseResult(await invoke('list_authorized_directories', {})), /grant-1/);
+        assert.match(parseResult(await invoke('read_authorized_document', { grantId: 'grant-1', path: '验收.txt' })), /MES WMS 文档解析内容/);
+        policy = { mode: 'restricted', directories: [] };
+        assert.equal((await invoke('read_authorized_document', { grantId: 'grant-1', path: '验收.txt' })).isError, true);
+        policy = { mode: 'full', directories: [{ id: 'full-fixture', path: documents }] };
+        assert.match(parseResult(await invoke('list_authorized_directories', {})), /full/);
+        assert.match(parseResult(await invoke('read_authorized_document', { grantId: 'full-fixture', path: '验收.txt' })), /MES WMS/);
+        assert.equal((await invoke('write_project_file', { path: '交付.txt', content: '工作区写入' })).isError, undefined);
+        assert.equal((await invoke('write_project_file', { path: '../资料/越界.txt', content: '不可写外部资料' })).isError, true);
+        yield { type: 'result', subtype: 'success' };
+      } };
+    },
+  };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({
+    model: 'claude-test', apiKey: 'sk-test-secret', executablePath, sdkLoader: async () => sdk,
+    additionalDirectories: [documents], authorizedDirectories: () => policy,
+    beforeWrite: async filename => { writes.push(filename); },
+    toolGateway: async (request, execute) => { invoked.push(request.toolName); return execute(); },
+  });
+  try {
+    const thread = await adapter.startSession(cwd);
+    await adapter.sendTurn(thread, '读取授权资料并修改工作区文件', cwd);
+    assert.equal(await readFile(join(cwd, '交付.txt'), 'utf8'), '工作区写入');
+    assert.deepEqual(writes, ['交付.txt']);
+    assert.ok(invoked.includes('read_authorized_document'));
+    assert.equal((await invoke('list_authorized_directories', {})).isError, true, '任务结束后旧 MCP handler 不能再读取');
+  } finally { await adapter.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('Claude SDK 缺少自定义工具能力时授权会话明确失败，不退回原生绕过权限', async () => {
+  const cwd = join(tmpdir(), `claude-no-mcp-${Date.now()}`);
+  await mkdir(cwd, { recursive: true });
+  const executablePath = join(cwd, 'claude.exe'); await writeFile(executablePath, 'fixture');
+  let queryCalled = false;
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, authorizedDirectories: () => ({ mode: 'restricted', directories: [] }), sdkLoader: async () => ({ query() { queryCalled = true; throw new Error('不应调用'); } }) });
+  try {
+    const thread = await adapter.startSession(cwd);
+    await assert.rejects(adapter.sendTurn(thread, '读取资料', cwd), /缺少受控文档 MCP 工具能力/);
+    assert.equal(queryCalled, false);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
 });
 
 test('Claude Adapter 未配置 API Key 时拒绝真实模型调用且不静默回退', async () => {

@@ -73,6 +73,23 @@ test('SQLite 项目、会话、事件与模型元数据落盘，重启恢复中�
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('会话只读目录策略重启后保留且空范围不扩大权限，非法授权记录被拒绝', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-read-access-'));
+  const filename = join(root, 'agent.db');
+  let store: LocalStore | undefined;
+  const session: Session = { id: 'read-access-session', title: '受限资料会话', workspacePath: join(root, 'session'), status: 'idle', createdAt: '2026-11-11T00:00:00.000Z', model: 'test-model', readAccess: { mode: 'full', directories: [] } };
+  try {
+    store = await LocalStore.open(filename);
+    store.saveSession(session);
+    store.saveSession({ ...session, readAccess: { mode: 'restricted', directories: [{ id: 'grant-1', path: join(root, '资料') }] } });
+    store.close(); store = await LocalStore.open(filename);
+    assert.deepEqual(store.getSession(session.id)?.readAccess, { mode: 'restricted', directories: [{ id: 'grant-1', path: join(root, '资料') }] });
+    store.saveSession({ ...session, readAccess: { mode: 'restricted', directories: [] } });
+    assert.deepEqual(store.getSession(session.id)?.readAccess, { mode: 'restricted', directories: [] });
+    assert.throws(() => store!.saveSession({ ...session, readAccess: { mode: 'restricted', directories: [{ id: '../grant', path: join(root, '资料') }] } }), /授权记录无效/);
+  } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('外键失败和磁盘写入失败不会造成内存、磁盘状态分叉', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-storage-fail-'));
   const path = join(root, 'agent.db');

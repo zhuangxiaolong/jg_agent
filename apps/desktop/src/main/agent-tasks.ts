@@ -30,7 +30,7 @@ export interface AutomaticAgentTaskPlan {
 /** 根据用户本轮需求识别工作面，供会话发送时自动生成子 Agent 任务。 */
 export function inferAutomaticAgentTaskPlan(prompt: string): AutomaticAgentTaskPlan[] {
   const value = prompt.trim();
-  if (!value || (value.length < 40 && !/(开发|实现|修复|修改|新增|优化|重构|设计|梳理|排查|诊断|测试|接口|页面|代码|需求|bug|feature)/i.test(value))) return [];
+  if (!value || (value.length < 40 && !/(开发|实现|修复|修改|新增|优化|重构|设计|梳理|排查|诊断|分析|测试|接口|页面|代码|需求|子\s*agent|sub[- ]?agent|bug|feature)/i.test(value))) return [];
   const plans: AutomaticAgentTaskPlan[] = [];
   const add = (role: AgentTask['role'], name: string, focus: string, outputs: string[]): void => {
     // 同一角色可以覆盖多个工作面（例如前端与后端），按任务名去重以便并行拆分。
@@ -49,7 +49,9 @@ export function inferAutomaticAgentTaskPlan(prompt: string): AutomaticAgentTaskP
     add('requirement', '需求拆分分析', '需求拆分', ['提炼目标、约束和验收条件', '按模块列出建议执行顺序']);
     if (value.length >= 100) add('testing', '验证工作面分析', '测试范围分析', ['给出可执行的验证清单', '标注现有测试覆盖与缺口']);
   }
-  return plans.slice(0, 4);
+  // 简单任务由主 Agent 直接处理；仅独立工作面或用户明确请求时才拆分。
+  if (plans.length < 2 && !/(子\s*agent|sub[- ]?agent|多代理|并行分析)/i.test(value)) return [];
+  return plans.slice(0, 3);
 }
 
 export interface AgentTaskRunnerOptions {

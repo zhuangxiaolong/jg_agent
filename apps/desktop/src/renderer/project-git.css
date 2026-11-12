@@ -1,0 +1,11 @@
+.project-git-section { padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.project-git-section .git-panel-heading { margin-bottom: 8px; }
+.project-git-context { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-bottom: 14px; }
+.project-git-context>code { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.project-git-context>span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.project-git-context .icon { width: 13px; height: 13px; flex-shrink: 0; }
+.project-git-context small { margin-left: auto; color: var(--muted); }
+.project-git-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.project-git-actions .secondary-button { flex: 1; padding: 9px 8px; font-size: 10px; white-space: nowrap; }
+.project-git-history>summary { color: var(--text-secondary); cursor: pointer; font-size: 10px; }
+.project-git-history[open]>summary { margin-bottom: 14px; }

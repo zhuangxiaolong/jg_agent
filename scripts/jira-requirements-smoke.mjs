@@ -64,7 +64,7 @@ async function launch() {
   if (process.env.JINGGONG_TEST_NO_NODE) env.PATH = `${process.env.SystemRoot}\\System32;C:\\Program Files\\Git\\cmd`;
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env });
   const page = await app.firstWindow();
-  await page.getByText('精工智能开发平台引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor({ timeout: 30000 });
   return page;
 }
 async function assertBrand(page) { assert.ok(!/\bCodex\b/i.test(await page.locator('body').innerText()), '界面固定文案不应出现底层产品名'); }
@@ -87,7 +87,7 @@ try {
   let page = await launch();
   await assertBrand(page);
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
-  await page.getByRole('button', { name: '打开模型设置', exact: true }).click();
+  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
   let dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Jira 连接', exact: true }).click();
   await page.locator('#jira-url').fill(`${baseUrl}/projects/NEWDEVGROUP?selectedItem=tasks#top`);
@@ -118,7 +118,7 @@ try {
   state.modelSecretInDescription = false;
   checks.push('带引号与反斜杠的已存模型key若出现在Jira原始描述，真实主进程IPC在交给Renderer/SQLite之前拒绝；未请求模型');
 
-  await page.getByRole('button', { name: 'Jira 任务', exact: true }).click();
+  await page.locator('#jira-panel-tab').click();
   await page.locator('details.jira-query-controls > summary').click();
   await expect(page.getByLabel('Jira 项目范围', { exact: true })).toHaveValue('*');
   await expect(page.getByLabel('Jira 查询范围', { exact: true })).toHaveValue('daily');
@@ -226,7 +226,9 @@ try {
   assert.equal(git(['rev-parse', 'HEAD']), sourceHead); assert.equal(git(['status', '--porcelain']), '');
   checks.push('只替换原生目录选择输入：配置默认NEWDEVGROUP但查询CD时详情/创建绑定CD范围；条件改变后创建禁用且改回仍须刷新；创建再次GET CD-435新快照到SQLite，真实agent Worktree隔离源main，携带prompt但idle未发送');
 
-  await page.getByRole('button', { name: '开发要求与规范', exact: true }).click();
+  await page.getByRole('button', { name: '打开全局设置', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '开发要求与规范', exact: true }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('文档适用系统', { exact: true }).selectOption('通用');
   const upload = path.join(root, '上传开发要求.md');
@@ -289,7 +291,7 @@ try {
     for (const secret of [jiraPassword, modelSentinel]) assert.ok(!bytes.includes(Buffer.from(secret)) && !bytes.includes(Buffer.from(secret, 'utf16le')));
   }
   assert.equal(git(['rev-parse', 'HEAD']), sourceHead); assert.equal(git(['status', '--porcelain']), ''); assert.equal(git(['branch', '--show-current']), 'main');
-  await page.getByRole('button', { name: 'Jira 任务', exact: true }).click();
+  await page.locator('#jira-panel-tab').click();
   await page.locator('details.jira-query-controls > summary').click();
   await expect(page.getByLabel('Jira 项目范围', { exact: true })).toHaveValue('*');
   await expect(page.getByLabel('Jira 查询范围', { exact: true })).toHaveValue('daily');

@@ -19,3 +19,11 @@ test('会话工具事件压缩为用户可读摘要并隐藏内部噪声', () =>
   assert.equal(compactAgentEvent({ type: 'tool', text: 'item/reasoning: completed' }), null);
   assert.equal(compactAgentEvent({ type: 'message', text: '正式分析结果' }), '正式分析结果');
 });
+
+test('主时间线隐藏成功的日常命令并保留验证、写入与失败结果', () => {
+  const event = (command: string, code = 0) => compactAgentEvent({ type: 'tool', text: `命令执行完成：${command}\n退出码：${code}\n输出` });
+  for (const command of ['rg -n "GetCondition" src', 'Get-Content src/main.ts', 'git status --short', 'Get-Location', 'git diff --stat']) assert.equal(event(command), null);
+  for (const command of ['dotnet build JZ.IMS.sln', 'npm run build', 'npm test', 'node scripts/desktop-smoke.mjs', 'git pull --ff-only origin main']) assert.match(event(command)!, /^命令已完成：/);
+  assert.match(event('rg -n "pattern" src', 2)!, /^命令执行失败/);
+  assert.equal(compactAgentEvent({ type: 'error', text: '连接失败' }), '连接失败');
+});

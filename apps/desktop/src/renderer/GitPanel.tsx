@@ -1,8 +1,10 @@
+import { useTransientError } from './use-transient-error';
 import { useEffect, useRef, useState } from 'react';
-import type { GitState, ManagedDocument, RequirementResult, VerificationProfileId, VerificationRunDetail, VerificationRunSummary } from '../../../../packages/domain/src';
+import type { GitState, ManagedDocument, Project, RequirementResult, VerificationProfileId, VerificationRunDetail, VerificationRunSummary } from '../../../../packages/domain/src';
 import { Icon } from './ui';
+import { ProjectGitPanel } from './ProjectGitPanel';
 
-export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: { sessionId: string; running: boolean; onChanged: () => Promise<void>; documents: ManagedDocument[]; jiraUrl?: string }) {
+export function GitPanel({ sessionId, project, running, onChanged, documents, jiraUrl }: { sessionId: string; project: Project; running: boolean; onChanged: () => Promise<void>; documents: ManagedDocument[]; jiraUrl?: string }) {
   const api = window.jinggong;
   const [state, setState] = useState<GitState | null>(null);
   const [message, setMessage] = useState('');
@@ -14,7 +16,8 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
   const [reviewed, setReviewed] = useState<string[]>([]);
   const [checked, setChecked] = useState(false);
   const [pending, setPending] = useState('');
-  const [error, setError] = useState('');
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [error, setError] = useTransientError();
   const [notice, setNotice] = useState('');
   const [verificationRuns, setVerificationRuns] = useState<VerificationRunSummary[]>([]);
   const [verificationBusy, setVerificationBusy] = useState(false);
@@ -22,12 +25,12 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
   const [activeVerificationRun, setActiveVerificationRun] = useState('');
   const [verificationReport, setVerificationReport] = useState<VerificationRunDetail | null>(null);
   const [verificationArtifact, setVerificationArtifact] = useState('');
-  const [verificationError, setVerificationError] = useState('');
+  const [verificationError, setVerificationError] = useTransientError();
   const current = useRef(sessionId);
   current.current = sessionId;
   const blocked = requirements.some(item => item.status === 'fail');
   const missingReview = requirements.some(item => item.status === 'review' && !reviewed.includes(item.documentId));
-  const disabled = !!pending || running || verificationBusy || verificationPending;
+  const disabled = !!pending || projectBusy || running || verificationBusy || verificationPending;
   async function load() {
     const next = await api.getGitState(sessionId);
     if (current.current !== sessionId) return;
@@ -97,6 +100,8 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
     catch (reason) { if (current.current === sessionId) setVerificationError(reason instanceof Error ? reason.message : String(reason)); }
   }
   return <div className="git-panel" aria-label="Git 管理">
+    <ProjectGitPanel sessionId={sessionId} project={project} disabled={disabled} onBusyChange={setProjectBusy} onChanged={onChanged} />
+    <div className="git-section-label">会话工作区<span>隔离分支</span></div>
     <div className="git-panel-heading"><span><Icon name="branch" />{state?.branch || '读取分支中…'}</span><button className="icon-button" aria-label="刷新 Git 状态" disabled={disabled} onClick={() => act('refresh', async () => { await load(); setChecked(false); setReviewed([]); await onChanged(); })}><Icon name="refresh" /></button></div>
     {error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}{notice && <div className="settings-notice" role="status"><Icon name="check" />{notice}</div>}
     <section className="verification-section" aria-label="真实验证证据">
@@ -124,7 +129,7 @@ export function GitPanel({ sessionId, running, onChanged, documents, jiraUrl }: 
       <div className="requirement-results">{requirements.map(item => <div key={item.documentId} className={`requirement-result result-${item.status}`}><div><span className="result-badge">{item.status === 'pass' ? '通过' : item.status === 'fail' ? '阻断' : '待人工审核'}</span><strong>{item.name}</strong></div>{item.details.map((detail, index) => <p key={index}>{detail}</p>)}{documents.find(doc => doc.id === item.documentId) && <details className="requirement-original"><summary>查看开发要求原文</summary><pre>{documents.find(doc => doc.id === item.documentId)?.content}</pre></details>}{item.status === 'review' && <label className="review-checkbox"><input type="checkbox" checked={reviewed.includes(item.documentId)} disabled={disabled} onChange={e => setReviewed(value => e.target.checked ? [...value, item.documentId] : value.filter(id => id !== item.documentId))} />我已逐项核对“{item.name}”</label>}</div>)}</div>
       <button className="primary-button git-submit" disabled={disabled || !state?.dirty || !message.trim() || !checked || blocked || missingReview} onClick={() => act('commit', async () => { const hash = await api.commitChanges(sessionId, { message: message.trim(), reviewedDocumentIds: reviewed, ...(authorName.trim() ? { authorName: authorName.trim() } : {}), ...(authorEmail.trim() ? { authorEmail: authorEmail.trim() } : {}) }); if (current.current !== sessionId) return; setNotice(`已提交：${hash.slice(0, 12)}`); setMessage(''); setChecked(false); setRequirements([]); setReviewed([]); await load(); await onChanged(); })}><Icon name="check" />{pending === 'commit' ? '正在提交…' : '审核并提交'}</button>
       {blocked && <p className="git-hint blocked-hint">存在阻断项，请修复后重新检查。</p>}
-      <p className="git-hint">提交、拉取和推送均需您在系统确认框中再次确认。</p>
+      <p className="git-hint">提交和推送需要您在系统确认框中再次确认；拉取会自动执行快进检查。</p>
     </div>
     <div className="git-push-section"><div className="git-section-label">推送当前分支</div><div className="push-controls"><select aria-label="推送远程仓库" value={remote} onChange={e => setRemote(e.target.value)} disabled={disabled || !state?.remotes.length}>{!state?.remotes.length && <option value="">未配置远程仓库</option>}{state?.remotes.map(value => <option key={value}>{value}</option>)}</select><button className="secondary-button" disabled={disabled || !remote || !state || state.dirty} title={state?.dirty ? '请先提交本地修改' : '推送当前会话分支'} onClick={() => act('push', async () => { await api.pushChanges(sessionId, remote); if (current.current !== sessionId) return; setNotice('当前分支已推送。'); await load(); })}><Icon name="arrow" />{pending === 'push' ? '推送中…' : '推送分支'}</button></div></div>
     <div className="git-push-section"><div className="git-section-label">拉取当前分支</div><div className="push-controls"><select aria-label="拉取远程仓库" value={pullRemote} onChange={e => setPullRemote(e.target.value)} disabled={disabled || !state?.remotes.length}>{!state?.remotes.length && <option value="">未配置远程仓库</option>}{state?.remotes.map(value => <option key={value}>{value}</option>)}</select><button className="secondary-button" disabled={disabled || !pullRemote || !state || state.dirty} title={state?.dirty ? '请先提交本地修改' : '快进拉取远程同名 Agent 分支'} onClick={() => act('pull', async () => { await api.pullChanges(sessionId, pullRemote); if (current.current !== sessionId) return; setNotice('已快进拉取远程同名 Agent 分支。'); setChecked(false); setReviewed([]); setRequirements([]); await load(); await onChanged(); })}><Icon name="download" />{pending === 'pull' ? '拉取中…' : '拉取分支'}</button></div><p className="git-hint">仅从 {pullRemote || '所选远程'}/{state?.branch || '当前 Agent 分支'} 快进更新（ff-only）。分支出现分歧时会停止，请人工处理。</p></div>

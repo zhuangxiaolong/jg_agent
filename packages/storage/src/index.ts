@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
+import { contentTitledSession } from '../../domain/src/session-title';
 
 const SCHEMA_VERSION = 10;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
@@ -15,7 +16,7 @@ export const LEGACY_PROVIDER_ID = 'legacy-default';
 function normalizeSession(session: Session): Session {
   const value = { ...session } as Session & { mode?: unknown };
   delete value.mode;
-  value.title = value.title.replace(/ · (?:只读分析|代码开发|隔离开发)$/, ' · 会话');
+  if (value.titleSource !== 'content') value.title = value.title.replace(/ · (?:只读分析|代码开发|隔离开发)$/, ' · 会话');
   return value;
 }
 
@@ -602,7 +603,7 @@ export class LocalStore {
       for (const session of this.listSessions().filter(item => item.projectId === id)) {
         const prefix = `${session.jiraIssue ? session.jiraIssue.key + ' · ' : ''}${current.name} · `;
         const suffix = session.title.startsWith(prefix) ? session.title.slice(prefix.length) : '';
-        if (suffix === '会话' || /^会话 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/.test(suffix)) {
+        if (session.titleSource !== 'content' && (suffix === '会话' || /^会话 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/.test(suffix))) {
           this.db.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify({ ...session, title: `${session.jiraIssue ? session.jiraIssue.key + ' · ' : ''}${updated.name} · ${suffix}` }), session.id]);
         }
       }
@@ -886,6 +887,7 @@ export class LocalStore {
     const nextRuntime = session.runtimeKind ?? current?.runtimeKind ?? 'codex';
     if (nextRuntime !== 'jinggong' && nextRuntime !== 'codex' && nextRuntime !== 'claude_agent_sdk') throw new Error('会话 Runtime 类型无效');
     const value: Session = { id: session.id, projectId: session.projectId, title: normalizeSession(session).title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
+    if (session.titleSource === 'content') value.titleSource = session.titleSource;
     if (session.workspaceId !== undefined) {
       if (!this.getWorkspace(session.workspaceId)) throw new Error('会话关联的工作区不存在');
       value.workspaceId = session.workspaceId;
@@ -912,10 +914,28 @@ export class LocalStore {
     if (session.requirementAdmissionHistory !== undefined) value.requirementAdmissionHistory = session.requirementAdmissionHistory;
     if (session.unreadCompletionId !== undefined) value.unreadCompletionId = session.unreadCompletionId;
     if (session.imported) value.imported = true;
+    if (session.readAccess !== undefined) {
+      const access = session.readAccess;
+      if (!access || !['full', 'restricted'].includes(access.mode) || !Array.isArray(access.directories) || access.directories.length > 256) throw new Error('会话只读目录策略无效');
+      const directories = access.directories.map(directory => {
+        if (!directory || typeof directory.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(directory.id) || typeof directory.path !== 'string' || !directory.path.trim() || /[\x00-\x1f]/.test(directory.path)) throw new Error('会话只读目录授权记录无效');
+        return { id: directory.id, path: directory.path };
+      });
+      if (new Set(directories.map(directory => directory.id)).size !== directories.length) throw new Error('会话只读目录授权 ID 重复');
+      value.readAccess = { mode: access.mode, directories };
+    }
     this.transaction(() => this.db.run('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId ?? null, value.createdAt, JSON.stringify(value)]));
   }
 
   events(sessionId: string): AgentEvent[] { return this.rows<AgentEvent>('SELECT value FROM events WHERE session_id = ? ORDER BY seq', [sessionId]); }
+
+  nameSessionFromContent(id: string, prompt: string): Session {
+    const current = this.getSession(id); if (!current) throw new Error('会话不存在');
+    const project = current.projectId ? this.listProjects().find(item => item.id === current.projectId) : undefined;
+    const updated = contentTitledSession(current, prompt, project?.name);
+    if (updated !== current) this.saveSession(updated);
+    return updated;
+  }
 
   renameSession(id: string, alias: string): Session {
     if (typeof alias !== 'string' || alias.trim().length > 100 || /[\x00-\x1f\x7f]/.test(alias)) throw new Error('会话别名最多100字，且不能包含控制字符');
@@ -1012,6 +1032,15 @@ export class LocalStore {
   getPreferences(): Preferences {
     const value = this.rows<Partial<Preferences>>('SELECT value FROM settings WHERE key = ?', ['preferences'])[0];
     return { theme: value?.theme ?? 'dark', style: value?.style ?? 'jinggong', completionSound: value?.completionSound ?? 'chime', updateMode: value?.updateMode === 'manual' ? 'manual' : 'automatic' };
+  }
+
+  /** 性能资料只存脱敏阶段元数据，沿用现有 SQLite 的原子提交和备份路径。 */
+  readPerformanceState(): unknown {
+    return this.rows<unknown>('SELECT value FROM settings WHERE key = ?', ['performance-v1'])[0];
+  }
+
+  savePerformanceState(value: unknown): void {
+    this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['performance-v1', JSON.stringify(value)]));
   }
 
   savePreferences(preferences: Preferences): void {

@@ -1,12 +1,8 @@
 import type { AgentEvent, Session } from '../../../../packages/domain/src';
+import { sessionDisplayTitle } from '../../../../packages/domain/src/session-title';
 
-export function sessionDisplayName(session: Pick<Session, 'title' | 'alias' | 'jiraIssue'>): string {
-  if (session.alias !== undefined) return session.alias;
-  if (session.jiraIssue) {
-    const summary = session.jiraIssue.summary.replace(/\s+/g, ' ').trim();
-    return summary ? `${session.jiraIssue.key} · ${summary}` : session.jiraIssue.key;
-  }
-  return session.title.replace(/\s*·\s*(?:隔离开发|代码开发|只读分析)$/, '');
+export function sessionDisplayName(session: Pick<Session, 'title' | 'alias' | 'jiraIssue' | 'titleSource'>): string {
+  return sessionDisplayTitle(session);
 }
 
 /** 仅用于平台提示的显示名称；保留路径、URL、代码片段及底层原始数据。 */
@@ -54,11 +50,18 @@ export function compactToolEvent(value: string): string | null {
 export function compactAgentEvent(event: Pick<AgentEvent, 'type' | 'text'>): string | null {
   if (event.type === 'tool' || event.type === 'approval') {
     const compact = compactToolEvent(event.text);
+    // 成功的搜索、读文件和环境探测不占主对话；原始事件仍保存在本机。
+    if (event.type === 'tool' && compact?.startsWith('命令已完成：') && !importantCommand(event.text)) return null;
     if (compact && event.type === 'tool' && /^(?:读取项目文件列表|读取项目文件|检索数据字典|读取数据字典)：/.test(compact)) return null;
     // 未知协议事件通常是 Runtime 的内部生命周期日志，不放进主会话时间线。
-    if (compact && event.type === 'tool' && !/^(?:命令已完成|命令执行失败|修改项目文件|删除项目文件|工具访问未完成|已操作内置浏览器|已发布(?:初步)?代码修改方案)：/.test(compact)) return null;
+    if (compact && event.type === 'tool' && !/^(?:命令已完成|命令执行失败(?:（[^）]*）)?|修改项目文件|删除项目文件|工具访问未完成|已操作内置浏览器|已发布(?:初步)?代码修改方案)：/.test(compact)) return null;
     return compact;
   }
   if (event.type === 'status' && /^(?:工具链已更新|仅允许读取应用管理的隔离工作区)/.test(event.text)) return null;
   return event.text;
+}
+
+export function importantCommand(text: string): boolean {
+  const command = text.replace(/^命令执行完成：/, '').split(/\r?\n退出码：/)[0];
+  return /(?:\bdotnet\s+(?:build|test|publish)\b|\b(?:npm|pnpm|yarn)\s+(?:(?:run\s+)?(?:build|test|typecheck|lint|pack|dist|check)(?:\b|:))|\b(?:pytest|jest|vitest|tsc|msbuild)\b|\b(?:cargo|go|mvn|gradle)\s+(?:test|build|check)\b|\bgit\s+(?:commit|push|pull|merge|rebase|cherry-pick)\b|\b(?:node|tsx|python)\b[^\r\n]*[\\/](?:[^\\/\s'\"]*(?:smoke|test|verify|build|release)[^\\/\s'\"]*)\b)/i.test(command);
 }

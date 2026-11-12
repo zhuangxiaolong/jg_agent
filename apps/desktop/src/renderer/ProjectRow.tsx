@@ -1,3 +1,4 @@
+import { useTransientError } from './use-transient-error';
 import { useState, type FormEvent } from 'react';
 import type { Project } from '../../../../packages/domain/src';
 import { readableError } from './dictionary-index';
@@ -8,7 +9,7 @@ export function ProjectRow({ project, selected, disabled, unread, onSelect, onRe
   project: Project; selected: boolean; disabled: boolean; unread: boolean; onSelect: () => void; onRenamed: () => Promise<void>; onDeleted: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false), [name, setName] = useState(project.name);
-  const [pending, setPending] = useState(false), [error, setError] = useState('');
+  const [pending, setPending] = useState(false), [error, setError] = useTransientError();
   const actions = useRowActions({ kind: '项目', name: project.name, disabled: disabled || pending, onRename: () => { setName(project.name); setError(''); setEditing(true); }, onDelete: () => { void remove(); } });
   async function save(event: FormEvent) {
     event.preventDefault(); setPending(true); setError('');

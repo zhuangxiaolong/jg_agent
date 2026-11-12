@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, Memory, Session, ShareExportInput } from '../../../../packages/domain/src';
 import type { LocalStore } from '../../../../packages/storage/src';
+import { sessionDisplayTitle } from '../../../../packages/domain/src/session-title';
 
 const timestamp = z.string().datetime({ offset: true });
 const memory = z.object({ title: z.string().min(1).max(120), content: z.string().min(1).max(12000), createdAt: timestamp }).strict();
@@ -20,7 +21,7 @@ export function exportShare(store: LocalStore, input: ShareExportInput, clean: (
   const result: ShareBundle = { format: 'jinggong-share', version: 1, exportedAt: new Date().toISOString(), memories: [] };
   if (input.kind === 'session') {
     const session = store.getSession(input.sessionId ?? ''); if (!session) throw new Error('请先选择要导出的会话');
-    result.session = { title: clean(session.alias || (session.jiraIssue ? `${session.jiraIssue.key} · ${session.jiraIssue.summary}` : session.title)), system: session.system ?? '通用', createdAt: session.createdAt, events: store.events(session.id).map(({ type, text, createdAt }) => ({ type, text: clean(text), createdAt })) };
+    result.session = { title: clean(sessionDisplayTitle(session)), system: session.system ?? '通用', createdAt: session.createdAt, events: store.events(session.id).map(({ type, text, createdAt }) => ({ type, text: clean(text), createdAt })) };
     result.memories = store.listMemories().filter(item => item.sessionId === session.id).map(item => ({ title: clean(item.title), content: clean(item.content), createdAt: item.createdAt }));
   } else {
     const chosen = input.memoryIds ? new Set(input.memoryIds) : undefined;
