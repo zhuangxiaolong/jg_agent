@@ -20,6 +20,14 @@ test('Claude SDK 消息归一化只输出可展示文本并脱敏', () => {
   assert.deepEqual(normalizeClaudeSdkMessage({ type: 'result', subtype: 'success', session_id: 'native-1' }), { type: 'status', text: 'completed', nativeSessionId: 'native-1', terminal: true });
 });
 
+test('Claude SDK 失败结果保留结构化错误信息并脱敏', () => {
+  assert.deepEqual(normalizeClaudeSdkMessage({
+    type: 'result', subtype: 'error_during_execution', result: '上游拒绝 sk-secret12345', errors: ['401 invalid api key sk-secret12345'],
+  }, 'sk-secret12345'), {
+    type: 'error', text: 'Claude Runtime 执行失败：结果：上游拒绝 [已脱敏]；类型：error_during_execution；错误：401 invalid api key [已脱敏]', nativeSessionId: undefined, terminal: true,
+  });
+});
+
 test('Claude 实际调用与连接测试都使用通用中转站地址和凭据', async () => {
   const cwd = join(tmpdir(), `claude-adapter-endpoints-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
@@ -89,6 +97,10 @@ test('Claude Adapter 使用 query、固定 settingSources/bypass permission，�
     assert.deepEqual(optionsSeen[0].settingSources, []);
     assert.equal(optionsSeen[0].permissionMode, 'bypassPermissions');
     assert.equal(optionsSeen[0].allowDangerouslySkipPermissions, true);
+    assert.equal(optionsSeen[0].sandbox?.enabled, true);
+    assert.equal(optionsSeen[0].sandbox?.failIfUnavailable, false, '当前 Windows 沙箱不可用时按用户授权允许 SDK 回退');
+    assert.equal(optionsSeen[0].sandbox?.allowUnsandboxedCommands, false, '不允许项目设置主动要求关闭可用沙箱');
+    assert.deepEqual(optionsSeen[0].sandbox?.filesystem?.allowWrite, [await realpath(cwd)]);
     assert.deepEqual(optionsSeen[0].additionalDirectories, [await realpath(extra)]);
     assert.equal(optionsSeen[0].env?.ANTHROPIC_API_KEY, 'sk-test-secret');
     await adapter.close();
@@ -255,6 +267,36 @@ test('Claude SDK 初始化失败会清理任务状态并允许同一会话重试
     await assert.rejects(adapter.sendTurn(thread, 'first', cwd), /fixture query initialization failure/);
     await adapter.sendTurn(thread, 'retry', cwd);
     assert.equal(queryCount, 2);
+  } finally {
+    await adapter.close();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('Claude SDK 终态错误向调用方抛出并清理任务状态', async () => {
+  const cwd = join(tmpdir(), `claude-adapter-result-error-${Date.now()}`);
+  await mkdir(cwd, { recursive: true });
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  let queryCount = 0;
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({
+    model: 'claude-test', apiKey: 'sk-test-secret', executablePath,
+    sdkLoader: async () => ({ query() {
+      queryCount += 1;
+      return { async *[Symbol.asyncIterator]() {
+        if (queryCount === 1) yield { type: 'result', subtype: 'error_during_execution', errors: ['401 unauthorized'] };
+        else yield { type: 'result', subtype: 'success' };
+      } };
+    } }),
+  });
+  const events: string[] = [];
+  adapter.onEvent(event => events.push(`${event.type}:${event.text}`));
+  try {
+    const thread = await adapter.startSession(cwd);
+    await assert.rejects(adapter.sendTurn(thread, 'first', cwd), /error_during_execution.*401 unauthorized/);
+    await adapter.sendTurn(thread, 'retry', cwd);
+    assert.equal(queryCount, 2);
+    assert.deepEqual(events, ['status:running', 'status:running', 'status:completed']);
   } finally {
     await adapter.close();
     await rm(cwd, { recursive: true, force: true });

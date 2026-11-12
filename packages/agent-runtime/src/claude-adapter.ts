@@ -90,8 +90,9 @@ const CLAUDE_SANDBOX_CREDENTIAL_ENV_VARS = [
 ];
 
 /**
- * 构造 Claude 原生开发会话的 fail-closed 沙箱策略。
- * SDK 在 Windows 上使用独立用户运行沙箱进程；failIfUnavailable 保证能力不可用时直接失败。
+ * 构造 Claude 原生开发会话的沙箱策略。
+ * 优先使用 SDK 沙箱；按用户授权，当前系统沙箱不可用时允许 SDK 无沙箱继续运行。
+ * 无沙箱回退时，Claude 进程继承当前 Windows 用户的系统文件权限。
  */
 export function createClaudeWorkspaceSandbox(cwd: string, credentialDirectories: string[] = []): SandboxSettings {
   if (!path.isAbsolute(cwd) || /[\x00-\x1f]/.test(cwd)) throw new Error('Claude Sandbox 工作区必须是有效绝对路径');
@@ -104,7 +105,7 @@ export function createClaudeWorkspaceSandbox(cwd: string, credentialDirectories:
   const credentialFiles = uniqueProtectedPaths.map(value => ({ path: value, mode: 'deny' as const }));
   return {
     enabled: true,
-    failIfUnavailable: true,
+    failIfUnavailable: false,
     autoAllowBashIfSandboxed: true,
     allowUnsandboxedCommands: false,
     filesystem: {
@@ -224,7 +225,23 @@ export function normalizeClaudeSdkMessage(message: unknown, apiKey?: string): { 
   }
   if (value.type === 'result') {
     const failed = value.subtype !== 'success' || value.is_error === true;
-    const result = typeof value.result === 'string' ? value.result : failed ? 'Claude Runtime 执行失败' : '';
+    const subtype = typeof value.subtype === 'string' && value.subtype.trim().length > 0
+      ? value.subtype.trim().slice(0, 128)
+      : '';
+    const resultText = typeof value.result === 'string' ? value.result.trim().slice(0, 8000) : '';
+    const sdkErrors = Array.isArray(value.errors)
+      ? value.errors
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map(item => item.trim().slice(0, 4000))
+        .slice(0, 8)
+      : [];
+    const failureParts = [
+      resultText ? `结果：${resultText}` : '',
+      subtype && subtype !== 'success' ? `类型：${subtype}` : '',
+      sdkErrors.length ? `错误：${sdkErrors.join('；')}` : '',
+    ].filter(Boolean);
+    const failureDetail = failureParts.length ? `Claude Runtime 执行失败：${failureParts.join('；')}` : 'Claude Runtime 执行失败';
+    const result = failed ? failureDetail : '';
     return { type: failed ? 'error' : 'status', text: failed ? redact(result, apiKey) : 'completed', nativeSessionId: sessionId, terminal: true };
   }
   if (value.type === 'system' && value.subtype === 'permission_denied') {
@@ -350,12 +367,13 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
     // Windows 环境变量有时使用 8.3 短路径，而 validateCwd() 返回 realpath 的长路径。
     // 统一沙箱可写根后再传给 SDK，否则同一个独立会话目录会被误判为不在可写范围内。
     const sandbox = !controlledMode ? await this.normalizeSandboxWorkspace(this.options.sandbox ?? createClaudeWorkspaceSandbox(session.cwd)) : undefined;
-    if (!controlledMode) this.assertFailClosedSandbox(session, sandbox!);
+    if (!controlledMode) this.assertWorkspaceSandboxPolicy(session, sandbox!);
     if (session.controller) throw new Error('当前 Claude 会话已有正在执行的任务');
     const controller = new AbortController();
     session.controller = controller;
     let query: ClaudeSdkQueryHandle | undefined;
     let terminalStatus: string | undefined;
+    let terminalResultFailure = false;
     let controlled: { names: string[]; server: McpSdkServerConfigWithInstance } | undefined;
     let documents: { names: string[]; server: McpSdkServerConfigWithInstance } | undefined;
     try {
@@ -408,6 +426,12 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
           session.nativeSessionId = normalized.nativeSessionId;
           this.options.onNativeSessionId?.(threadId, normalized.nativeSessionId);
         }
+        if (normalized.terminal && normalized.type === 'error') {
+          // 让调用方执行统一的失败结算，避免把错误结果当成成功解析的本轮任务。
+          terminalResultFailure = true;
+          terminalStatus = normalized.text;
+          throw new Error(normalized.text || 'Claude Runtime 执行失败');
+        }
         this.emit({ threadId, type: normalized.type, text: normalized.text });
         if (normalized.terminal) terminalStatus = normalized.text;
         if (normalized.terminal) break;
@@ -415,7 +439,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       if (!controller.signal.aborted && !terminalStatus) this.emit({ threadId, type: 'status', text: 'completed' });
     } catch (error) {
       if (!controller.signal.aborted) {
-        this.emit({ threadId, type: 'error', text: redact((error as Error).message ?? String(error), this.options.apiKey) });
+        if (!terminalResultFailure) this.emit({ threadId, type: 'error', text: redact((error as Error).message ?? String(error), this.options.apiKey) });
         throw error;
       }
       this.emit({ threadId, type: 'status', text: 'interrupted' });
@@ -482,9 +506,9 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
     return { server, names: definitions.map(definition => `mcp__jinggong_files__${definition.name}`) };
   }
 
-  private assertFailClosedSandbox(session: ClaudeSession, sandbox: SandboxSettings): void {
-    if (!sandbox || sandbox.enabled !== true || sandbox.failIfUnavailable !== true || sandbox.allowUnsandboxedCommands !== false) {
-      throw new Error('Claude 开发会话必须启用 fail-closed Sandbox；沙箱不可用时不会降级运行');
+  private assertWorkspaceSandboxPolicy(session: ClaudeSession, sandbox: SandboxSettings): void {
+    if (!sandbox || sandbox.enabled !== true || sandbox.failIfUnavailable !== false || sandbox.allowUnsandboxedCommands !== false) {
+      throw new Error('Claude 开发会话的沙箱策略无效；需尝试沙箱并允许不可用时由 SDK 降级运行');
     }
     const filesystem = sandbox.filesystem;
     const key = (value: string) => this.canonicalKey(value);
@@ -511,7 +535,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       try { return await realpath(resolved); }
       catch { return resolved; }
     }));
-    // 保持原有 fail-closed 校验，这里只消除 Windows 路径别名差异，不扩大可写范围。
+    // 保持工作区路径校验，这里只消除 Windows 路径别名差异，不扩大 SDK 可写范围。
     return { ...sandbox, filesystem: { ...filesystem, allowWrite } };
   }
 

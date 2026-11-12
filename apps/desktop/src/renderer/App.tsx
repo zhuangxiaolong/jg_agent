@@ -26,6 +26,7 @@ import { BrowserPanel } from './BrowserPanel';
 
 
 const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '运行中', completed: '已完成', failed: '失败', interrupted: '已中断' };
+const reasoningLabels: Record<ReasoningEffort, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高' };
 const defaultLayout: LayoutPreferences = { leftVisible: true, rightVisible: true, bottomVisible: false, leftWidth: 220, rightWidth: 420, bottomHeight: 180 };
 type ResizeKind = 'left' | 'right' | 'bottom' | 'composer';
 interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; startValue: number; latest: number; pointerId: number; handle: HTMLButtonElement }
@@ -35,6 +36,7 @@ interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; f
 function time(value: string) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
 function runtimeLabel(kind?: RuntimeKind): string { return kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
+function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
 function buildDiffTree(files: FileDiff[]): DiffTreeNode[] {
   const roots: DiffTreeNode[] = [];
   for (const file of files) {
@@ -894,7 +896,7 @@ export function App() {
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
-</div><label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label></div><span className={'status-label ' + status}><span className="status-dot" />{statusLabels[status]}</span></div>
+</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span><label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label></div><span className={'status-label ' + status}><span className="status-dot" />{statusLabels[status]}</span></div>
             </div>
           </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>让想法，进入代码。</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>每个会话使用独立目录，执行时遵循本机安全策略。</span></div></div>}
         </main>

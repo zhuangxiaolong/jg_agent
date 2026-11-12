@@ -10,7 +10,7 @@
 - 左侧项目/会话栏与右侧详情面板可拖动调整宽度，右侧在宽屏下最高可到 840px，方便阅读 Git Diff。会话列表展示名称、模型和推理强度。
 - 内置 Jira 任务查看和流转、Git 变更审阅、项目规范与数据字典、内置浏览器、子 Agent 和任务完成提醒。
 - 自动记忆只保留可复用的偏好、约束、决策和经验，不把普通对话整段生成记忆；记忆可在设置中查看和删除。
-- Claude Runtime 对文件系统边界执行 fail-closed 沙箱校验；独立会话也会按规范化后的 Windows 路径校验当前工作区可写范围。
+- Claude Runtime 优先启用 SDK 沙箱；按用户授权，Windows 沙箱不可用时允许 SDK 无沙箱运行。无沙箱时 Claude 进程使用当前 Windows 用户权限，工作区路径检查不能替代操作系统隔离。
 - 项目创建时按仓库指纹识别 MES5、MES6、WMS 或前端；前端识别读取仓库根目录 `package.json` 及根级 Vite、React、Vue、Angular、Next、Nuxt、Svelte 等配置，同时保留明确后端系统指纹的优先级。
 
 ## 构建与验证
@@ -41,6 +41,7 @@ npm run dist
 
 ## 文档
 
+- [当前构建操作手册（2026-11-12）](docs/操作手册-当前构建-2026-11-12.md)
 - [0.6.8 使用说明](docs/使用说明-0.6.8.md)
 - [项目开发规范](AGENTS.md)
 - [开发与受控操作说明](docs/architecture/settings-and-development.md)

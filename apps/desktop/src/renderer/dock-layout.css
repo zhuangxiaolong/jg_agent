@@ -133,6 +133,7 @@ body[data-resizing="row"], body[data-resizing="row"] * { cursor: row-resize !imp
 .composer-caption-controls { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; }
 .composer-shortcuts { white-space: nowrap; line-height: 24px; }
 .session-settings-anchor { display: flex; flex: 0 1 auto; min-width: 0; }
+.session-reasoning-indicator { display: inline-flex; align-items: center; flex: 0 0 auto; min-width: 0; height: 24px; padding: 2px 4px; color: var(--muted); font-size: 10px; line-height: 24px; white-space: nowrap; }
 .dock-layout .composer-context { flex: 1; }
 .dock-layout .composer-context>span>span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dock-layout .composer-context>span>.icon { flex-shrink: 0; }
