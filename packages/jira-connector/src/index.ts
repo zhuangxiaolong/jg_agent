@@ -12,6 +12,8 @@ export const MAX_JIRA_IMAGES = 20;
 export const MAX_JIRA_SESSION_IMAGE_BYTES = 32 * 1024 * 1024;
 const IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const IMAGE_SCOPE_SALT = randomBytes(32);
+const MAX_SESSION_RESPONSE_BYTES = 16 * 1024;
+class JiraAuthenticationError extends Error {}
 
 /** 校验实际文件头及容器边界，不允许 SVG/HTML 伪装为图片。 */
 export function inspectJiraImage(value: Uint8Array, declaredType: string): { mimeType: JiraImageMimeType; imageBytes: number } {
@@ -116,6 +118,9 @@ export class JiraConnector {
   private readonly authorization: string;
   readonly imageCacheScope: string;
   private metadataPromise?: Promise<JiraConnectionResult>;
+  private sessionPromise?: Promise<string>;
+  private sessionCookie?: string;
+  private sessionValue?: string;
   constructor(private readonly options: JiraConnectorOptions, private readonly transport: JiraTransport = fetch) {
     const location = parseJiraLocation(options.baseUrl);
     this.baseUrl = location.baseUrl;
@@ -130,7 +135,59 @@ export class JiraConnector {
 
   private text(value: unknown): string {
     if (typeof value !== 'string') return '';
-    return value.split(this.options.password).join('[已脱敏]').split(this.authorization).join('[已脱敏]');
+    const text = value.split(this.options.password).join('[已脱敏]').split(this.authorization).join('[已脱敏]');
+    return this.sessionValue ? text.split(this.sessionValue).join('[已脱敏]') : text;
+  }
+
+  private async authenticateSession(signal: AbortSignal): Promise<string> {
+    if (!this.sessionPromise) this.sessionPromise = (async () => {
+      let response: Response | undefined;
+      try {
+        // 兼容网页登录可用但 Basic 被拒绝的 Jira Server，JSON 登录保持 UTF-8 并仅在内存保存会话。
+        response = await this.transport(`${this.baseUrl}/rest/auth/1/session`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ username: this.options.account, password: this.options.password }), redirect: 'error', credentials: 'omit', cache: 'no-store', signal });
+        if (/AUTHENTICATION_DENIED|CAPTCHA/i.test(response.headers.get('x-seraph-loginreason') ?? '')) throw new JiraAuthenticationError('Jira 已拒绝认证或要求验证码，请先在 Jira 网页完成登录验证后重试');
+        if (response.status === 429) throw new JiraAuthenticationError('Jira 请求过于频繁，请稍后重试');
+        if (response.status >= 500) throw new JiraAuthenticationError('Jira 服务暂时不可用，请稍后重试');
+        if (response.status >= 300 && response.status < 400) throw new JiraAuthenticationError('Jira 登录返回地址重定向，请检查 Jira Base URL；连接器不会转发认证信息');
+        if (!response.ok) throw new JiraAuthenticationError('Jira 认证失败，请检查登录账号、密码或 Token，以及 Jira REST 认证配置');
+        if (!/^application\/(?:[\w.-]+\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) throw new JiraAuthenticationError('Jira 会话登录未返回有效 JSON，请检查 Jira REST 认证配置');
+        const declared = response.headers.get('content-length');
+        if (declared && Number(declared) > MAX_SESSION_RESPONSE_BYTES) throw new JiraAuthenticationError('Jira 会话登录响应过大，已拒绝保存');
+        const reader = response.body?.getReader();
+        if (!reader) throw new JiraAuthenticationError('Jira 会话登录返回空响应');
+        const chunks: Uint8Array[] = []; let size = 0;
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > MAX_SESSION_RESPONSE_BYTES) throw new JiraAuthenticationError('Jira 会话登录响应过大，已拒绝保存');
+            chunks.push(part.value);
+          }
+        } finally { await reader.cancel().catch(() => undefined); }
+        let data: unknown;
+        try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, size))); }
+        catch { throw new JiraAuthenticationError('Jira 会话登录返回无效 JSON'); }
+        const session = object(data) && object(data.session) ? data.session : undefined;
+        if (!session || typeof session.name !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(session.name) || typeof session.value !== 'string' || !/^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]{1,4096}$/.test(session.value)) throw new JiraAuthenticationError('Jira 会话登录未返回有效会话，请检查 Jira REST 认证配置');
+        this.sessionValue = session.value;
+        this.sessionCookie = `${session.name}=${session.value}`;
+        return this.sessionCookie;
+      } finally { if (response?.body && !response.body.locked) await response.body.cancel().catch(() => undefined); }
+    })();
+    return this.sessionPromise;
+  }
+
+  private async authenticatedRequest(url: string, init: RequestInit): Promise<Response> {
+    const previous = this.sessionCookie;
+    const send = (cookie?: string) => this.transport(url, { ...init, headers: { ...init.headers, ...(cookie ? { Cookie: cookie } : { Authorization: this.authorization }) } });
+    const response = await send(previous);
+    if (response.status !== 401 || /AUTHENTICATION_DENIED|CAPTCHA/i.test(response.headers.get('x-seraph-loginreason') ?? '')) return response;
+    if (response.body && !response.body.locked) await response.body.cancel().catch(() => undefined);
+    if (previous && this.sessionCookie === previous) { this.sessionCookie = undefined; this.sessionPromise = undefined; }
+    // 并行查询共用一次登录；失败不重复尝试，避免错误密码触发账号锁定。
+    const cookie = await this.authenticateSession(init.signal as AbortSignal);
+    return send(cookie);
   }
 
   private async get(endpoint: string, query?: URLSearchParams, mutation?: { method: 'POST' | 'PUT'; body: BodyInit; multipart?: boolean }): Promise<any> {
@@ -140,8 +197,8 @@ export class JiraConnector {
     timer.unref();
     let response: Response | undefined;
     try {
-      try { response = await this.transport(url, { method: mutation?.method ?? 'GET', headers: { Accept: 'application/json', Authorization: this.authorization, ...(mutation ? mutation.multipart ? { 'X-Atlassian-Token': 'no-check' } : { 'Content-Type': 'application/json' } : {}) }, ...(mutation ? { body: mutation.body } : {}), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
-      catch { throw new Error(controller.signal.aborted ? 'Jira 请求超过 15 秒，请检查网络后重试' : '无法连接 Jira，请检查地址、网络、证书及是否发生登录重定向'); }
+      try { response = await this.authenticatedRequest(url, { method: mutation?.method ?? 'GET', headers: { Accept: 'application/json', ...(mutation ? mutation.multipart ? { 'X-Atlassian-Token': 'no-check' } : { 'Content-Type': 'application/json' } : {}) }, ...(mutation ? { body: mutation.body } : {}), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
+      catch (error) { if (error instanceof JiraAuthenticationError) throw error; throw new Error(controller.signal.aborted ? 'Jira 请求超过 15 秒，请检查网络后重试' : '无法连接 Jira，请检查地址、网络、证书及是否发生登录重定向'); }
       if (/AUTHENTICATION_DENIED|CAPTCHA/i.test(response.headers.get('x-seraph-loginreason') ?? '')) throw new Error('Jira 已拒绝认证或要求验证码，请先在 Jira 网页完成登录验证后重试');
       if (response.status === 401) throw new Error('Jira 认证失败，请检查账号、密码或 Token');
       if (response.status === 403) throw new Error('当前 Jira 账号没有访问权限，请联系 Jira 管理员检查项目与 REST 权限');
@@ -203,8 +260,12 @@ export class JiraConnector {
     return id && displayName ? { id, displayName, field: item.accountId ? 'accountId' : 'name' } : undefined;
   }
   async uploadTestImage(key: string, name: string, bytes: Uint8Array, mimeType: string): Promise<{ id: string; name: string }> {
-    if (!ISSUE_KEY.test(key) || !name || /[\r\n/\\]/.test(name)) throw new Error('Jira 附件参数无效');
     validateJiraImage(bytes, mimeType);
+    return this.uploadAttachment(key, name, bytes, mimeType);
+  }
+  async uploadAttachment(key: string, name: string, bytes: Uint8Array, mimeType: string): Promise<{ id: string; name: string }> {
+    if (!ISSUE_KEY.test(key) || !name || /[\x00-\x1f\x7f/\\]/.test(name) || !/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(mimeType)) throw new Error('Jira 附件参数无效');
+    if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('单个 Jira 附件不能超过 8 MiB');
     const form = new FormData(); form.append('file', new Blob([Uint8Array.from(bytes)], { type: mimeType }), name);
     const data = await this.get(`issue/${encodeURIComponent(key)}/attachments`, undefined, { method: 'POST', body: form, multipart: true });
     if (!Array.isArray(data) || typeof data[0]?.id !== 'string' || typeof data[0]?.filename !== 'string') throw new Error('Jira 未返回已上传附件信息，请检查附件后再重试');
@@ -251,8 +312,8 @@ export class JiraConnector {
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS); timer.unref();
     let response: Response | undefined;
     try {
-      try { response = await this.transport(url.toString(), { method: 'GET', headers: { Accept: IMAGE_TYPES.join(', '), Authorization: this.authorization }, redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
-      catch { throw new Error(controller.signal.aborted ? 'Jira 图片下载超过 15 秒，请重试' : 'Jira 图片下载失败，请检查网络或附件地址；不允许重定向'); }
+      try { response = await this.authenticatedRequest(url.toString(), { method: 'GET', headers: { Accept: IMAGE_TYPES.join(', ') }, redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal }); }
+      catch (error) { if (error instanceof JiraAuthenticationError) throw error; throw new Error(controller.signal.aborted ? 'Jira 图片下载超过 15 秒，请重试' : 'Jira 图片下载失败，请检查网络或附件地址；不允许重定向'); }
       if (/AUTHENTICATION_DENIED|CAPTCHA/i.test(response.headers.get('x-seraph-loginreason') ?? '')) throw new Error('Jira 图片下载要求重新登录或完成验证码');
       if (response.status === 401) throw new Error('Jira 图片下载认证失败，请检查账号、密码或 Token');
       if (response.status === 403) throw new Error('当前 Jira 账号无权读取该图片附件');
@@ -334,7 +395,7 @@ export class JiraConnector {
     return issue;
   }
 
-  private fields(): string { return `summary,description,issuetype,status,priority,assignee,updated,attachment,customfield_${this.dateFieldId}`; }
+  private fields(): string { return `summary,description,issuetype,status,priority,assignee,reporter,updated,attachment,customfield_${this.dateFieldId}`; }
 
   private description(value: unknown): string {
     if (value === null || value === undefined) return '';
@@ -366,6 +427,6 @@ export class JiraConnector {
       } catch { /* 不将不安全或外站附件地址交给桌面端。 */ }
       return { id: this.text(item.id), name: this.text(item.filename), mimeType: this.text(item.mimeType), size: item.size, url };
     }) : [];
-    return { id: this.text(value.id), key: value.key, summary: this.text(fields.summary), description: this.description(fields.description), status: named(fields.status), issueType: named(fields.issuetype), priority: named(fields.priority) || undefined, assignee: named(fields.assignee) || undefined, updated: this.text(fields.updated) || undefined, url: `${this.baseUrl}/browse/${encodeURIComponent(value.key)}`, attachments, fetchedAt };
+    return { id: this.text(value.id), key: value.key, summary: this.text(fields.summary), description: this.description(fields.description), status: named(fields.status), issueType: named(fields.issuetype), priority: named(fields.priority) || undefined, assignee: named(fields.assignee) || undefined, reporter: named(fields.reporter) || undefined, updated: this.text(fields.updated) || undefined, url: `${this.baseUrl}/browse/${encodeURIComponent(value.key)}`, attachments, fetchedAt };
   }
 }

@@ -11,6 +11,8 @@ import initSqlJs from 'sql.js';
 // 仅使用临时数据与合成 Git 仓库；不配置凭据，不访问真实 Jira 或模型。
 const root = await mkdtemp(path.join(tmpdir(), 'jinggong-session-flow-'));
 const dataRoot = path.join(root, 'data');
+const outputRoot = path.resolve(process.env.JINGGONG_TEST_OUTPUT || path.join(root, 'artifacts'));
+await mkdir(outputRoot, { recursive: true });
 const checks = [];
 const env = { ...process.env, JINGGONG_TEST_DATA: dataRoot };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -32,7 +34,7 @@ async function fixture(name) {
   git(['branch', 'feature']);
   return repo;
 }
-async function updateOfflineSession(id, update) {
+async function updateOfflineSession(id, update, events = []) {
   const filename = path.join(dataRoot, 'database', 'jinggong-agent.db');
   const SQL = await initSqlJs({ locateFile: name => require.resolve(`sql.js/dist/${name}`) });
   const db = new SQL.Database(await readFile(filename));
@@ -40,6 +42,7 @@ async function updateOfflineSession(id, update) {
     const row = db.exec('SELECT value FROM sessions WHERE id = ?', [id])[0]?.values[0]?.[0];
     assert.equal(typeof row, 'string');
     db.run('UPDATE sessions SET value = ? WHERE id = ?', [JSON.stringify(update(JSON.parse(row))), id]);
+    for (const event of events) db.run('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)', [event.id, id, JSON.stringify(event)]);
     await writeFile(filename, db.export());
   } finally { db.close(); }
 }
@@ -76,7 +79,7 @@ async function inspectLayout(width, height) {
   assert.ok(result.shellWidth <= width + 1, JSON.stringify(result));
   for (const rect of [result.textarea, result.send]) assert.ok(rect.x >= 0 && rect.y >= 0 && rect.right <= width + 1 && rect.bottom <= height + 1, JSON.stringify(result));
   assert.ok(result.requirementHeight <= 64, JSON.stringify(result));
-  const screenshot = `test-results/current-ui-${width}x${height}.png`;
+  const screenshot = path.join(outputRoot, `current-ui-${width}x${height}.png`);
   await page.screenshot({ path: screenshot });
   checks.push(`${width}×${height} 无横向溢出，输入区/发送按钮在可视区域，需求提示保持紧凑；截图 ${screenshot}`);
 }
@@ -108,25 +111,26 @@ try {
   await writeFile(path.join(standalonePath, '保留的独立文件.txt'), '独立目录内容需要保留\n', 'utf8');
   checks.push('Ctrl+N 在未选中项目时直接创建独立会话，无创建弹窗/工作区关联/mode 字段；底部面板默认隐藏');
   await picker().selectOption(projectA.id);
+  await waitForBinding(id, projectA.id);
   await expect(branchPicker()).toBeEnabled();
   await branchPicker().selectOption('feature');
-  await page.getByRole('button', { name: '绑定项目', exact: true }).click();
-  await waitForBinding(id, projectA.id);
+  await expect.poll(async () => (await currentSession(id))?.baseBranch).toBe('feature');
+  await expect(page.getByRole('button', { name: /^(绑定项目|切换项目|解除关联)$/ })).toHaveCount(0);
   session = await currentSession(id);
   const firstProjectPath = session.workspacePath;
   assert.equal(session.baseBranch, 'feature');
   await writeFile(path.join(firstProjectPath, 'README.md'), '# 项目A的未提交修改\n', 'utf8');
   await writeFile(path.join(firstProjectPath, '未跟踪文件.txt'), '不能在换项目时删除\n', 'utf8');
   assert.equal(await readFile(path.join(standalonePath, '保留的独立文件.txt'), 'utf8'), '独立目录内容需要保留\n');
-  checks.push('独立会话可绑定本地项目及选定分支，原独立目录保留');
+  checks.push('选择本地项目后立即绑定，无额外应用按钮；绑定后仍可切基准分支，原独立目录保留');
   await app.close(); app = undefined;
-  await updateOfflineSession(id, saved => ({ ...saved, runtimeThreadId: randomUUID(), runtimeNativeSessionId: 'fixture-native-session', runtimeVersion: 'fixture-runtime', runtimeCapabilitiesVersion: 2, ...offlineJira() }));
+  const preservedEvents = ['user', 'tool', 'error', 'message'].map(type => ({ id: randomUUID(), sessionId: id, type, text: `需保留的${type}历史事件`, createdAt: new Date().toISOString() }));
+  await updateOfflineSession(id, saved => ({ ...saved, runtimeThreadId: randomUUID(), runtimeNativeSessionId: 'fixture-native-session', runtimeVersion: 'fixture-runtime', runtimeCapabilitiesVersion: 2, ...offlineJira() }), preservedEvents);
   await launch();
   await expect(picker()).toHaveValue(projectA.id);
   await expect(picker()).toBeEnabled();
+  const eventsBeforeSwitch = await page.evaluate(id => window.jinggong.getEvents(id), id);
   await picker().selectOption(projectB.id);
-  await expect(branchPicker()).toBeEnabled();
-  await page.getByRole('button', { name: '切换项目', exact: true }).click();
   await waitForBinding(id, projectB.id);
   session = await currentSession(id);
   const secondProjectPath = session.workspacePath;
@@ -134,8 +138,10 @@ try {
   assert.equal(await readFile(path.join(firstProjectPath, 'README.md'), 'utf8'), '# 项目A的未提交修改\n');
   assert.equal(await readFile(path.join(firstProjectPath, '未跟踪文件.txt'), 'utf8'), '不能在换项目时删除\n');
   for (const key of ['runtimeThreadId', 'runtimeNativeSessionId', 'runtimeVersion', 'runtimeCapabilitiesVersion']) assert.equal(session[key], undefined);
-  assert.equal((await page.evaluate(id => window.jinggong.getEvents(id), id)).some(event => event.text.includes(firstProjectPath) && event.text.includes('原目录已保留')), true);
-  checks.push('已绑定会话可切换另一本地项目，原脏 Worktree/未跟踪文件保留，Runtime 元数据清空并记录恢复路径');
+  assert.deepEqual(await page.evaluate(id => window.jinggong.getEvents(id), id), eventsBeforeSwitch);
+  assert.ok(eventsBeforeSwitch.some(event => event.type === 'error'));
+  assert.equal(eventsBeforeSwitch.some(event => /当前目录：|原目录已保留|原目录中的文件、提交和未提交改动/.test(event.text)), false);
+  checks.push('选择另一项目立即切换，原脏 Worktree/未跟踪文件保留，Runtime 元数据清空；用户/工具/警告/普通消息历史逐项保留且不再新增目录说明');
   await writeFile(path.join(secondProjectPath, '项目B保留文件.txt'), '项目B的文件同样保留\n', 'utf8');
   await picker().selectOption('');
   await waitForBinding(id, undefined);
@@ -152,8 +158,6 @@ try {
   await expect(page.locator('.standalone-sessions .session-item.selected')).toHaveCount(1);
   checks.push('自动解除后刷新页面仍为独立会话，项目绑定与独立目录持久化保持');
   await picker().selectOption(projectA.id);
-  await expect(branchPicker()).toBeEnabled();
-  await page.getByRole('button', { name: '绑定项目', exact: true }).click();
   await waitForBinding(id, projectA.id);
   session = await currentSession(id);
   assert.notEqual(session.workspacePath, firstProjectPath); assert.ok((await stat(firstProjectPath)).isDirectory());
@@ -171,12 +175,18 @@ try {
   assert.equal(await page.locator('.sidebar').innerText().then(text => /Runtime|只读|工作区/.test(text)), false);
   assert.equal(await page.locator('.workspace-header').innerText().then(text => /只读|全局设置/.test(text)), false);
   checks.push('准入提示默认折叠且发送按钮可见；无顶部 Jira 摘要/Runtime 状态/只读标签/重复设置/Jira 添加本地项目与一键执行');
-  await mkdir('test-results', { recursive: true });
+  await mkdir(outputRoot, { recursive: true });
   await inspectLayout(1366, 768);
   await inspectLayout(1600, 900);
   const task = await page.evaluate(id => window.jinggong.createAgentTask({ sessionId: id, name: '绑定保护验收', role: 'requirement', description: '用于验证已有子任务后绑定保持不变', outputExpectations: ['记录绑定保持不变'], acceptanceCriteria: ['不能跨项目重绑'], maxAttempts: 1 }), id);
   await page.waitForFunction(async ({ id, taskId }) => !(await window.jinggong.listAgentTasks(id)).some(item => item.id === taskId && ['PENDING', 'RUNNING', 'WAITING'].includes(item.status)), { id, taskId: task.id });
   await assert.rejects(() => page.evaluate(id => window.jinggong.bindSessionProject(id, ''), id), /已有子 Agent 任务/);
+  await picker().selectOption(projectB.id);
+  await expect(page.getByRole('alert')).toContainText('已有子 Agent 任务');
+  await expect(picker()).toBeEnabled();
+  await expect(picker()).toHaveValue(projectA.id);
+  assert.equal((await currentSession(id)).workspacePath, session.workspacePath);
+  checks.push('自动绑定另一项目失败后选择回到原项目，原会话与工作目录不变');
   await picker().selectOption('');
   await expect(page.getByRole('alert')).toContainText('已有子 Agent 任务');
   await expect(picker()).toBeEnabled();
@@ -184,11 +194,11 @@ try {
   assert.equal((await currentSession(id)).workspacePath, session.workspacePath);
   checks.push('会话已有子 Agent 任务时拒绝自动解除并显示原项目，原目录与任务依赖保持不变');
   const report = { date: new Date().toISOString(), passed: true, checks, executable: process.env.JINGGONG_TEST_EXE || '开发 Electron', testData: root, firstProjectPath, secondProjectPath, currentPath: session.workspacePath };
-  await writeFile('test-results/session-flow-smoke.json', JSON.stringify(report, null, 2));
+  await writeFile(path.join(outputRoot, 'session-flow-smoke.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
-  await mkdir('test-results', { recursive: true });
-  await page?.screenshot({ path: 'test-results/current-ui-failure.png' }).catch(() => undefined);
-  await writeFile('test-results/session-flow-smoke.json', JSON.stringify({ date: new Date().toISOString(), passed: false, checks, testData: root, error: error.message }, null, 2));
+  await mkdir(outputRoot, { recursive: true });
+  await page?.screenshot({ path: path.join(outputRoot, 'current-ui-failure.png') }).catch(() => undefined);
+  await writeFile(path.join(outputRoot, 'session-flow-smoke.json'), JSON.stringify({ date: new Date().toISOString(), passed: false, checks, testData: root, error: error.message }, null, 2));
   throw error;
 } finally { await app?.close(); }

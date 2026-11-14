@@ -4,10 +4,15 @@ import type { RuntimeEvent } from '../../../../packages/agent-runtime/src';
 export class RuntimeEventBatcher {
   private pending?: RuntimeEvent;
   private timer?: ReturnType<typeof setTimeout>;
-  constructor(private readonly publish: (event: RuntimeEvent) => void, private readonly delayMs = 80) {}
+  private firstDeltaPublished = false;
+  constructor(private readonly publish: (event: RuntimeEvent) => void, private readonly delayMs = 80, private readonly immediateFirstDelta = false) {}
   push(event: RuntimeEvent): void {
     if (event.type !== 'delta') { this.flush(); this.publish(event); return; }
     if (this.pending && this.pending.threadId !== event.threadId) this.flush();
+    if (this.immediateFirstDelta && !this.firstDeltaPublished && event.text.trim()) {
+      this.firstDeltaPublished = true;
+      this.flush(); this.publish(event); return;
+    }
     this.pending = this.pending ? { ...this.pending, text: this.pending.text + event.text } : { ...event };
     if (this.pending.text.length >= 16000) { this.flush(); return; }
     if (!this.timer) { this.timer = setTimeout(() => this.flush(), this.delayMs); this.timer.unref(); }

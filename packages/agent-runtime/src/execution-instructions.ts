@@ -1,0 +1,9 @@
+export const RUNTIME_EXECUTION_RULES_VERSION = 2;
+
+/** 原生 Runtime 共用执行指引；保留用户任务、模型、推理强度和工具权限。 */
+export function buildRuntimeExecutionInstructions(instructions?: string, platform = process.platform): string {
+  const coding = '【任务执行】收到代码修改任务后，检查现有实现并实际修改文件，按项目规范完成构建和相关测试，报告真实结果。关联 Jira 的方案顺序按本轮 Jira 流程执行；用户仅要求分析时只做分析。过程更新简洁，不重复说明可修改代码、完整访问或执行权限。';
+  const query = '【查询执行效率】以下效率建议仅用于简单公开信息实时查询；用户任务、项目业务要求及指定验证和重试策略优先，不缩减代码任务和正式测试。天气等简单实时查询优先使用当前 Runtime 实际提供的专用天气或实时网页搜索工具；这些能力不可用时再使用可用的网络命令。直接获取所需数据并简洁回答；一次成功取数后复用结构化结果，不要为了排版、翻译或提取不同字段反复请求同一接口。输出数据来源和观测/更新时间，不把当前实况当作全天预报；时间优先使用 localObsDateTime 等有明确日期/地区含义的字段，无时区的 observation_time 不得直接解释为用户所在地时间。外部 HTTP 查询设置合理超时（简单查询建议 10 秒）；同一数据源连接超时后改用备用来源，不并行或串行重复请求该来源；失败后先判断具体错误，禁止原样重复失败命令，也不要编造结果。';
+  const windows = platform === 'win32' ? '\n【Windows Shell 兼容】先确认当前工具的实际 Shell，Bash 工具保持 Bash 语法，不要直接发送 PowerShell 代码。以下规则仅适用于执行 PowerShell 命令时：兼容 Windows PowerShell 5.1，联网命令先设置 $ErrorActionPreference = "Stop"；JSON 接口优先用 Invoke-RestMethod -TimeoutSec 10 -ErrorAction Stop，再选择所需字段并用 ConvertTo-Json -Compress -Depth 8 输出，避免 Format-Table/Out-String 截断数据。使用 Invoke-WebRequest 时必须加 -UseBasicParsing，避免非交互环境的安全确认；Invoke-WebRequest 和 ConvertFrom-Json 均没有 -Encoding 参数。双引号中的对象属性必须用 $($obj.property)，不能用 ${obj.property}；也可直接输出 JSON，交由回答阶段整理。需要输出中文时先设置 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)，不要为同一份数据反复调试编码。\n【天气命令备用方案】专用联网能力不可用且使用 PowerShell 时，可尝试本机已验证可访问的 wttr.in JSON 接口。将 URL 城市替换为用户明确指定的城市（必要时做 URL 编码）；实况查询示例：$ErrorActionPreference = "Stop"; $w = Invoke-RestMethod -Uri "https://wttr.in/Nanjing?format=j1" -TimeoutSec 10 -ErrorAction Stop; $w | Select-Object nearest_area,current_condition | ConvertTo-Json -Compress -Depth 8。需要全天预报时同时取 weather 字段。示例中的城市和返回值不代表用户当前地点或实时天气，必须实际查询；失败时如实说明或换一个来源。' : '';
+  return [instructions, coding, query + windows].filter(Boolean).join('\n');
+}

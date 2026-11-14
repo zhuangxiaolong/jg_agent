@@ -12,7 +12,8 @@ const root = await mkdtemp(path.join(tmpdir(), 'jinggong-provider-settings-'));
 const dataRoot = path.join(root, 'data');
 const ca = path.join(root, 'fixture-ca.pem');
 const privateKey = path.join(root, 'fixture-key.pem');
-const apiKey = 'sk-provider-settings-fixture-only';
+// 刻意使用与 HTTPS 协议重合的合成密钥，回归地址子串误判；不使用真实凭据。
+const apiKey = 'https';
 const changedApiKey = 'sk-provider-settings-changed-fixture-only';
 const models = [{ id: 'fixture-model-a', name: '本机模型 A' }, { id: 'fixture-model-b', name: '本机模型 B' }];
 const checks = [];
@@ -20,11 +21,12 @@ const requests = [];
 const layouts = [];
 const themeStyles = [];
 const screenshots = [];
-const reportPath = 'test-results/provider-settings-smoke.json';
+const outputRoot = process.env.JINGGONG_TEST_OUTPUT || path.join(root, 'artifacts');
+const reportPath = path.join(outputRoot, 'provider-settings-smoke.json');
 let responseMode = 'success';
 let app;
 let page;
-await mkdir('test-results', { recursive: true });
+await mkdir(outputRoot, { recursive: true });
 const openssl = process.env.JINGGONG_TEST_OPENSSL || (process.platform === 'win32' ? 'C:\\Program Files\\Git\\usr\\bin\\openssl.exe' : 'openssl');
 execFileSync(openssl, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', privateKey, '-out', ca], { windowsHide: true, stdio: 'pipe' });
 const server = createServer({ key: await readFile(privateKey), cert: await readFile(ca) }, (request, response) => {
@@ -65,7 +67,7 @@ async function verifySettingsLayout(width, height) {
   assert.ok(result.shellLeft >= 0 && result.shellRight <= width && result.shellTop >= 0 && result.shellBottom <= height, `设置框超出窗口：${JSON.stringify(result)}`);
   assert.ok(result.contentScrollWidth <= result.contentWidth + 1, `设置内容横向溢出：${JSON.stringify(result)}`);
   layouts.push(result);
-  const screenshot = `test-results/provider-settings-${width}x${height}.png`;
+  const screenshot = path.join(outputRoot, `provider-settings-${width}x${height}.png`);
   await page.screenshot({ path: screenshot });
   screenshots.push(screenshot);
 }
@@ -114,7 +116,10 @@ try {
   assert.equal((await settings()).providers.length, 0);
   assert.deepEqual(await secretFiles(), []);
   checks.push('本机 HTTPS 返回 HTTP 503 后保留 URL、密钥和手填模型，按钮恢复可重试，未写配置或凭据');
-  await expect(page.getByRole('alert')).toHaveCount(0, { timeout: 4500 });
+  await page.waitForTimeout(3400);
+  await expect(page.getByRole('alert')).toContainText('503');
+  await page.getByRole('button', { name: '关闭设置提示', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await fetchButton().click();
   await expect(page.getByRole('alert')).toContainText('503');
   await page.waitForTimeout(1600);
@@ -122,14 +127,16 @@ try {
   await expect(page.getByRole('alert')).toContainText('503');
   await page.waitForTimeout(1700);
   await expect(page.getByRole('alert')).toContainText('503');
-  await expect(page.getByRole('alert')).toHaveCount(0, { timeout: 4500 });
-  checks.push('操作报错在3秒后自动消失；同文错误再次触发重新计时，旧计时器不会提前清除新错误，无需点击关闭');
+  await page.waitForTimeout(1700);
+  await expect(page.getByRole('alert')).toContainText('503');
+  checks.push('设置报错超过3秒持续显示，可手动关闭；同文错误重试后持续保留，等待新操作结果替换');
 
   responseMode = 'success';
   await page.locator('#provider-model').fill('');
   await fetchButton().click();
   await expect(page.locator('#provider-model')).toHaveValue(models.map(model => model.id).join('\n'));
   await expect(page.getByRole('status')).toContainText('已从中转站获取模型列表');
+  await expect(page.getByRole('alert')).toHaveCount(0);
   assert.equal((await settings()).providers.length, 0);
   assert.deepEqual(await secretFiles(), []);
   assert.ok(requests.length >= 2 && requests.every(request => request.authenticated && request.method === 'GET' && request.path === '/relay/v1/models'));
@@ -158,7 +165,7 @@ try {
     assert.deepEqual(columns.text, ['', models[0].id, models[0].name]);
     assert.ok(columns.scrollWidth <= columns.width + 1, JSON.stringify(columns));
     await modelTable.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `test-results/provider-model-columns-${width}x${height}.png` });
+    await page.screenshot({ path: path.join(outputRoot, `provider-model-columns-${width}x${height}.png`) });
   }
   checks.push('全选、全部反选及部分反选均同步启用模型ID；两个窗口尺寸中启用/ID/名称表头与实际数据严格对齐且无横向溢出');
 
@@ -230,7 +237,7 @@ try {
     await page.setViewportSize({ width, height });
     const bounds = await send.boundingBox();
     assert.ok(bounds && bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height, '发送按钮超出可视窗口');
-    const screenshot = `test-results/provider-send-${width}x${height}.png`;
+    const screenshot = path.join(outputRoot, `provider-send-${width}x${height}.png`);
     await page.screenshot({ path: screenshot });
     screenshots.push(screenshot);
   }
@@ -250,14 +257,14 @@ try {
     assert.ok(contrast(style.background, style.color) >= 3, `极简${theme}发送图标对比不足：${JSON.stringify(style)}`);
     themeStyles.push({ style: 'minimal', theme, ...style });
     await page.setViewportSize({ width: 1600, height: 900 });
-    const screenshot = `test-results/provider-send-minimal-${theme}-1600x900.png`;
+    const screenshot = path.join(outputRoot, `provider-send-minimal-${theme}-1600x900.png`);
     await page.screenshot({ path: screenshot });
     screenshots.push(screenshot);
     if (theme === 'black') {
       await page.getByRole('button', { name: '全局设置', exact: true }).click();
       await expect(fetchButton()).toBeEnabled();
       await page.locator('.settings-content').evaluate(element => { element.scrollTop = 0; });
-      const settingsScreenshot = 'test-results/provider-settings-minimal-black-1600x900.png';
+      const settingsScreenshot = path.join(outputRoot, 'provider-settings-minimal-black-1600x900.png');
       await page.screenshot({ path: settingsScreenshot });
       screenshots.push(settingsScreenshot);
       await page.getByRole('button', { name: '关闭设置', exact: true }).click();
@@ -270,7 +277,7 @@ try {
   await writeFile(reportPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
-  if (page) await page.screenshot({ path: 'test-results/provider-settings-smoke-failed.png' }).catch(() => {});
+  if (page) await page.screenshot({ path: path.join(outputRoot, 'provider-settings-smoke-failed.png') }).catch(() => {});
   await writeFile(reportPath, JSON.stringify({ date: new Date().toISOString(), passed: false, checks, requests, layouts, screenshots, testData: root, error: String(error?.stack || error) }, null, 2));
   throw error;
 } finally {

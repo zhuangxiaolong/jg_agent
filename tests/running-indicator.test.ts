@@ -43,7 +43,7 @@ test('运行中指示器实时汇总连续文本增量并展示等待确认状�
 
 test('运行中指示器显示日常命令进度但不重复上轮信息', () => {
   const events = [event('1', 'message', '上一轮回复'), event('2', 'status', 'completed'), event('3', 'user', '新任务'), event('4', 'status', 'running')];
-  assert.equal(latestRunningIndicator(events), '正在准备运行环境…');
+  assert.equal(latestRunningIndicator(events), '正在连接模型并等待首条响应…');
   events.push(event('5', 'tool', '执行命令：rg -n name src'));
   assert.equal(latestRunningIndicator(events), '正在执行：rg -n name src');
   events.push(event('6', 'tool', '命令执行完成：rg -n name src\n退出码：0\n找到 2 条'));

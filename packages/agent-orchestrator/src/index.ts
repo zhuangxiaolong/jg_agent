@@ -10,7 +10,7 @@ export const MAX_AGENT_TASKS_PER_SESSION = 100;
 const TERMINAL: ReadonlySet<AgentTaskStatus> = new Set(['COMPLETED', 'CANCELLED']);
 const TASK_ID = /^[a-zA-Z0-9_-]{1,128}$/;
 const ROLES: ReadonlySet<AgentTask['role']> = new Set(['requirement', 'architecture', 'developer', 'review', 'testing', 'documentation', 'custom']);
-const RUNTIMES: ReadonlySet<RuntimeKind> = new Set(['codex', 'jinggong', 'claude_agent_sdk']);
+const RUNTIMES: ReadonlySet<RuntimeKind> = new Set(['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp']);
 
 export interface CreateAgentTaskInput {
   id: string;

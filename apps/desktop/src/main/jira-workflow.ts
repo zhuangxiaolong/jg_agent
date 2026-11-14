@@ -42,37 +42,42 @@ export function sessionTestResult(store: LocalStore, key: string): { testResult:
   return { sessionId: session.id, testResult: briefTestResult(replies.at(-1) ?? '', prefix) };
 }
 export const jiraFlowSchema = z.object({ key: z.string().regex(/^[A-Z][A-Z0-9_]*-[1-9]\d*$/), projectKey: z.string().max(100).optional(), transitionId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/), assignee: z.object({ id: z.string().min(1).max(200), displayName: z.string().max(200), field: z.enum(['name', 'accountId']) }).strict().optional(), comment: z.string().trim().min(1).max(30000), imageIds: z.array(z.string().uuid()).max(20), sessionId: z.string().uuid().optional() }).strict();
-interface ImageEntry { name: string; bytes: Uint8Array; mimeType: string; uploaded?: { scope: string; key: string; id: string; name: string } }
+export const jiraAttachmentPathsSchema = z.array(z.string().min(1).max(32767).refine(value => !value.includes('\0') && path.isAbsolute(value), '附件路径无效')).min(1).max(20, '每次最多选择 20 个附件');
+interface ImageEntry { name: string; bytes: Uint8Array; mimeType: string; preview?: string; uploaded?: { scope: string; key: string; id: string; name: string } }
 export class JiraTestImages {
   private images = new Map<string, ImageEntry>();
   async add(filenames: string[]): Promise<JiraTestImage[]> {
-    if (filenames.length > 20) throw new Error('每次最多选择 20 张测试图片');
+    if (filenames.length > 20) throw new Error('每次最多选择 20 个附件');
     const staged: [string, ImageEntry][] = []; let total = 0;
     const types: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+    const fileTypes: Record<string, string> = { '.md': 'text/markdown', '.txt': 'text/plain', '.log': 'text/plain', '.sql': 'text/plain', '.csv': 'text/csv', '.json': 'application/json', '.xml': 'application/xml', '.pdf': 'application/pdf', '.zip': 'application/zip', '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     for (const filename of filenames) {
-      const stat = await lstat(filename); if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('测试图片须为不超过 8 MiB 的普通文件');
-      const bytes = await readFile(filename); total += bytes.length; if (total > 32 * 1024 * 1024) throw new Error('测试图片总量不能超过 32 MiB');
-      const inspected = inspectJiraImage(bytes, types[path.extname(filename).toLowerCase()] ?? '');
-      staged.push([randomUUID(), { name: path.basename(filename), bytes, mimeType: inspected.mimeType }]);
+      const stat = await lstat(filename); if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('附件须为不超过 8 MiB 的普通文件');
+      const bytes = await readFile(filename); if (bytes.length > 8 * 1024 * 1024) throw new Error('单个附件不能超过 8 MiB');
+      total += bytes.length; if (total > 32 * 1024 * 1024) throw new Error('附件总量不能超过 32 MiB');
+      const extension = path.extname(filename).toLowerCase(), imageType = types[extension];
+      const mimeType = imageType ? inspectJiraImage(bytes, imageType).mimeType : fileTypes[extension] ?? 'application/octet-stream';
+      staged.push([randomUUID(), { name: path.basename(filename), bytes, mimeType, ...(imageType ? { preview: `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}` } : {}) }]);
     }
-    if ([...this.images.values()].reduce((sum, image) => sum + image.bytes.length, 0) + total > 64 * 1024 * 1024) throw new Error('待上传测试图片过多，请先提交或重启清理');
+    if ([...this.images.values()].reduce((sum, image) => sum + image.bytes.length, 0) + total > 64 * 1024 * 1024) throw new Error('待上传附件过多，请先提交或重启清理');
     for (const [id, value] of staged) this.images.set(id, value);
-    return staged.map(([id, image]) => ({ id, name: image.name, preview: `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString('base64')}` }));
+    return staged.map(([id, image]) => ({ id, name: image.name, ...(image.preview ? { preview: image.preview } : {}) }));
   }
   async submit(connector: JiraConnector, scope: string, input: JiraFlowInput): Promise<string> {
-    const selected = input.imageIds.map(id => { const image = this.images.get(id); if (!image) throw new Error('测试图片已失效，请重新选择'); return image; });
+    const selected = input.imageIds.map(id => { const image = this.images.get(id); if (!image) throw new Error('附件已失效，请重新选择'); return image; });
+    if (selected.reduce((sum, file) => sum + file.bytes.length, 0) > 32 * 1024 * 1024) throw new Error('所选附件总量不能超过 32 MiB');
     const completed: string[] = [];
     try {
       const transitions = await connector.transitions(input.key); if (!transitions.some(item => item.id === input.transitionId)) throw new Error('任务状态已变化，请刷新流转选项');
       for (const image of selected) {
-        if (!image.uploaded || image.uploaded.scope !== scope || image.uploaded.key !== input.key) image.uploaded = { ...await connector.uploadTestImage(input.key, image.name, image.bytes, image.mimeType), scope, key: input.key };
-        completed.push(`图片 ${image.name} 已上传`);
+        if (!image.uploaded || image.uploaded.scope !== scope || image.uploaded.key !== input.key) image.uploaded = { ...await (image.preview ? connector.uploadTestImage(input.key, image.name, image.bytes, image.mimeType) : connector.uploadAttachment(input.key, image.name, image.bytes, image.mimeType)), scope, key: input.key };
+        completed.push(`附件 ${image.name} 已上传`);
       }
       if (input.assignee) { await connector.assign(input.key, input.assignee); completed.push(`经办人已设为 ${input.assignee.displayName}`); }
-      const comment = input.comment + (selected.length ? '\n\n测试图片：\n' + selected.map(image => `[^${image.uploaded!.name}]`).join('\n') : '');
+      const comment = input.comment + (selected.length ? '\n\n附件：\n' + selected.map(image => `[^${image.uploaded!.name}]`).join('\n') : '');
       await connector.transition(input.key, input.transitionId, comment);
       for (const id of input.imageIds) this.images.delete(id);
-      return `任务已流转至“${transitions.find(item => item.id === input.transitionId)!.status}”，测试结果与 ${selected.length} 张图片已附上。`;
+      return `任务已流转至“${transitions.find(item => item.id === input.transitionId)!.status}”，测试结果与 ${selected.length} 个附件已附上。`;
     } catch (error) {
       throw new Error(`${completed.length ? completed.join('；') + '。' : ''}状态流转未确认成功：${(error as Error).message}。请刷新确认当前状态后再操作。`);
     }

@@ -1,8 +1,14 @@
-import type { AgentEvent, Session } from '../../../../packages/domain/src';
+import type { AgentEvent, RuntimeKind, Session } from '../../../../packages/domain/src';
 import { sessionDisplayTitle } from '../../../../packages/domain/src/session-title';
 
 export function sessionDisplayName(session: Pick<Session, 'title' | 'alias' | 'jiraIssue' | 'titleSource'>): string {
   return sessionDisplayTitle(session);
+}
+
+/** 对话名称跟随当前会话选择，不推断历史消息使用的 Runtime。 */
+export function runtimeAssistantName(kind: RuntimeKind = 'codex'): string {
+  const names: Record<RuntimeKind, string> = { codex: 'codex', claude_agent_sdk: 'claude', grok_build_acp: 'grok', jinggong: 'jinggong' };
+  return names[kind];
 }
 
 /** 仅用于平台提示的显示名称；保留路径、URL、代码片段及底层原始数据。 */

@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
-import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
+import type { GrokSettingsService } from './grok-settings';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
@@ -10,15 +11,35 @@ import type { ClaudeRuntimeSettings, ManagedDocument, ProviderModel, ProviderPro
 import type { WeComDeliveryRecord } from '../../../../packages/wecom-notification/src/desktop-service';
 import type { WeComNotificationTarget } from '../../../../packages/wecom-notification/src';
 
-/** 凭据只在主进程解密，数据库和 Renderer 永远只接收是否已配置。 */
+/** 短凭据与协议、域名和模型标识局部重合不等于泄漏；完整凭据和地址路径仍检查。 */
+function containsProviderCredential(value: string, secret: string, kind: 'text' | 'identifier' | 'url' = 'text'): boolean {
+  if (!secret) return false;
+  if (value === secret || ((secret.length >= 12 || /^(?:sk|sess|token)[-_]/i.test(secret)) && value.includes(secret))) return true;
+  if (kind === 'url') {
+    const pathname = new URL(value).pathname;
+    if (pathname.includes(secret)) return true;
+    try { return decodeURIComponent(pathname).includes(secret); } catch { throw new Error('中转站地址包含无效的 URL 编码'); }
+  }
+  return value.split(kind === 'identifier' ? /[\s"'=,;()[\]{}]+/u : /[\s"'=,:;()[\]{}：，；（）【】]+/u).includes(secret);
+}
+
+/** 凭据在主进程解密，常规快照只返回配置状态；Jira 密码仅在明确查看时单独读取。 */
 export class SettingsService {
-  constructor(private readonly store: LocalStore, private readonly dataRoot: string, private readonly assertIdle: () => void, private readonly appVersion = '开发版') {}
+  constructor(private readonly store: LocalStore, private readonly dataRoot: string, private readonly assertIdle: () => void, private readonly appVersion = '开发版', private readonly grok?: GrokSettingsService) {}
 
   credential(id: string): CredentialStore {
     profileIdSchema.parse(id);
     return new CredentialStore(id === 'legacy-default' ? path.join(this.dataRoot, 'config/model-key.dpapi') : path.join(this.dataRoot, 'config/secrets', `${id}.dpapi`));
   }
   jiraCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/jira.dpapi')); }
+  revealJiraPassword(value: unknown): string {
+    const input = jiraSchema.pick({ baseUrl: true, account: true }).parse(value);
+    const current = this.store.getJira();
+    if (input.baseUrl.replace(/\/$/, '') !== current.baseUrl || input.account !== current.account) throw new Error('地址或账号已修改，请先保存配置再查看已保存密码');
+    const password = this.jiraCredential().read(`${current.baseUrl}\n${current.account}`);
+    if (!password) throw new Error('尚未保存 Jira 密码');
+    return password;
+  }
   claudeCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/claude-console.dpapi')); }
   private wecomCredential(id: string): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets', `wecom-${id}.dpapi`)); }
   profiles(): ProviderProfile[] { return this.store.listProviders().map(profile => ({ ...profile, hasKey: this.credential(profile.id).hasKey })); }
@@ -27,31 +48,40 @@ export class SettingsService {
     return profile ? { baseUrl: profile.baseUrl, model: profile.models[0], hasKey: profile.hasKey } : { baseUrl: '', model: '', hasKey: false };
   }
   snapshot(update: UpdateStatus = { state: 'disabled', message: '更新检查尚未启动' }): SettingsSnapshot {
-    return { preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
+    return { ...(this.grok ? { grok: this.grok.snapshot() } : {}), preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
   }
   saveRuntimeKind(value: unknown): RuntimeKind {
-    if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk') throw new Error('Runtime 类型无效');
+    if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk' && value !== 'grok_build_acp') throw new Error('Runtime 类型无效');
     return this.store.saveRuntimeKind(value);
   }
   redact(text: string): string {
     let value = redact(text);
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), ...(this.grok?.profiles().map(profile => this.grok!.credential(profile.id)) ?? []), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       try { const secret = vault.read(); if (secret) value = redact(value, secret); } catch { /* 凭据损坏不能阻断错误收尾。 */ }
     }
     return value;
   }
   assertCleanText(content: string): void {
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), ...(this.grok?.profiles().map(profile => this.grok!.credential(profile.id)) ?? []), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       let secret: string | undefined;
       try { secret = vault.read(); } catch { continue; }
       if (secret && content.includes(secret)) throw new Error('内容包含当前配置的连接凭据，请移除后重试');
     }
   }
+  private providerMetadataSecrets(suppliedKey?: string): { secret: string; modelKey: boolean }[] {
+    const secrets = suppliedKey ? [{ secret: suppliedKey, modelKey: true }] : [];
+    const modelVaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), ...(this.grok?.profiles().map(profile => this.grok!.credential(profile.id)) ?? [])];
+    const otherVaults = [this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
+    for (const { vault, modelKey } of [...modelVaults.map(vault => ({ vault, modelKey: true })), ...otherVaults.map(vault => ({ vault, modelKey: false }))]) {
+      try { const secret = vault.read(); if (secret) secrets.push({ secret, modelKey }); } catch { /* 损坏凭据仍由对应服务提示，不阻断其他中转站配置。 */ }
+    }
+    return secrets;
+  }
   redactContent(content: string): string {
     let value = content;
-    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), ...(this.grok?.profiles().map(profile => this.grok!.credential(profile.id)) ?? []), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
     for (const vault of vaults) {
       try { const secret = vault.read(); if (secret) value = value.split(secret).join('[已脱敏]'); } catch { /* 凭据损坏不能阻断会话显示。 */ }
     }
@@ -81,9 +111,10 @@ export class SettingsService {
   saveProfile(value: unknown): ProviderProfile {
     this.assertIdle();
     const input = modelProfileSchema.parse(value);
-    for (const field of [input.name, input.baseUrl, ...input.models, ...(input.modelCatalog?.flatMap(item => [item.id, item.name]) ?? [])]) {
-      this.assertCleanText(field);
-      if (input.apiKey && field.includes(input.apiKey)) throw new Error('中转站元数据不能包含 API Key');
+    const secrets = this.providerMetadataSecrets(input.apiKey);
+    const fields: [string, 'text' | 'identifier' | 'url'][] = [[input.name, 'text'], [input.baseUrl, 'url'], ...input.models.map(model => [model, 'identifier'] as [string, 'identifier']), ...(input.modelCatalog?.flatMap(item => [[item.id, 'identifier'], [item.name, 'text']] as [string, 'identifier' | 'text'][]) ?? [])];
+    for (const [field, kind] of fields) {
+      if (secrets.some(({ secret, modelKey }) => modelKey ? containsProviderCredential(field, secret, kind) : field.includes(secret))) throw new Error('中转站元数据不能包含 API Key 或其他连接凭据');
     }
     const current = input.id ? this.profiles().find(item => item.id === input.id) : undefined;
     if (input.id && !current && input.id !== 'legacy-default') throw new Error('模型配置不存在');
@@ -106,11 +137,11 @@ export class SettingsService {
     if (id && !profile) throw new Error('模型中转站不存在');
     const baseUrl = (typeof input === 'string' ? profile!.baseUrl : input.baseUrl).replace(/\/$/, '');
     const suppliedKey = typeof input === 'string' ? undefined : input.apiKey;
-    this.assertCleanText(baseUrl);
     if (!suppliedKey && profile && profile.baseUrl.replace(/\/$/, '') !== baseUrl) throw new Error('更换模型服务地址时请重新输入该服务的 API Key，避免把旧密钥发送到新地址');
-    const key = suppliedKey ?? (profile ? this.credential(profile.id).read(baseUrl) : undefined);
-    if (!key) throw new Error('请先配置该中转站 API Key');
-    if (baseUrl.includes(key)) throw new Error('中转站地址不能包含 API Key');
+    const candidate = suppliedKey ?? (profile ? this.credential(profile.id).read(baseUrl) : undefined);
+    if (!candidate) throw new Error('请先配置该中转站 API Key');
+    const key = modelApiKeySchema.parse(candidate);
+    if (this.providerMetadataSecrets(key).some(({ secret, modelKey }) => modelKey ? containsProviderCredential(baseUrl, secret, 'url') : baseUrl.includes(secret))) throw new Error('中转站地址不能包含 API Key 或其他连接凭据');
     try {
       const endpoint = new URL(baseUrl + '/models');
       const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) });
@@ -121,7 +152,7 @@ export class SettingsService {
       for (const item of payload.data) {
         if (!item || typeof item !== 'object') continue;
         const record = item as { id?: unknown; name?: unknown; owned_by?: unknown };
-        if (typeof record.id !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(record.id) || record.id.includes(key)) continue;
+        if (typeof record.id !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(record.id) || containsProviderCredential(record.id, key, 'identifier')) continue;
         const name = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : typeof record.owned_by === 'string' && record.owned_by.trim() ? record.owned_by.trim() : record.id;
         models.push({ id: record.id, name: redact(name, key).slice(0, 240) });
       }
@@ -137,7 +168,6 @@ export class SettingsService {
     this.store.deleteModelProvider(id); this.credential(id).delete();
   }
   saveJira(value: unknown) {
-    this.assertIdle();
     const input = jiraSchema.parse(value); const current = this.store.getJira();
     for (const field of [input.baseUrl, input.account]) {
       this.assertCleanText(field);
@@ -201,7 +231,7 @@ export class SettingsService {
       ...(input.purpose === 'team_group' && input.mentionedUserIds?.length ? { mentionedUserIds: input.mentionedUserIds } : {}),
       ...(input.purpose === 'team_group' && input.mentionedMobiles?.length ? { mentionedMobiles: input.mentionedMobiles } : {}),
       ...(input.workspaceIds?.length ? { workspaceIds: [...new Set(input.workspaceIds)] } : {}),
-      ...(input.runtimeKinds?.length && input.runtimeKinds.length < 3 ? { runtimeKinds: [...new Set(input.runtimeKinds)] } : {}),
+      ...(input.runtimeKinds?.length && input.runtimeKinds.length < 4 ? { runtimeKinds: [...new Set(input.runtimeKinds)] } : {}),
       eventPolicy: input.eventPolicy, createdAt: current?.createdAt ?? now, updatedAt: now,
     };
     this.assertCleanValue(target);

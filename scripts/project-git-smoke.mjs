@@ -10,6 +10,7 @@ const expect = baseExpect.configure({ timeout: 30000 });
 // 所有远端均为临时本地裸仓库；不连接真实项目、模型或网络服务。
 const root = await realpath(await mkdtemp(path.join(tmpdir(), 'jinggong-project-git-')));
 const dataRoot = path.join(root, 'data');
+const outputRoot = path.resolve(process.env.JINGGONG_TEST_OUTPUT || path.join(root, 'artifacts'));
 const checks = [];
 const env = { ...process.env, JINGGONG_TEST_DATA: dataRoot };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -74,9 +75,9 @@ async function refreshProject() {
 async function currentSession(id) { return (await bootstrap()).sessions.find(item => item.id === id); }
 async function bindProject(id, target) {
   await picker().selectOption(target.id);
-  await expect(page.getByLabel('当前会话基准分支', { exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: (await currentSession(id)).projectId ? '切换项目' : '绑定项目', exact: true }).click();
   await expect.poll(async () => (await currentSession(id))?.projectId).toBe(target.id);
+  await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(绑定项目|切换项目|解除关联)$/ })).toHaveCount(0);
   await expect(picker()).toHaveValue(target.id);
   await expect(picker()).toBeEnabled();
 }
@@ -88,16 +89,16 @@ function assertWorkspaceUnchanged(workspace, head) {
   assert.equal(git(workspace, ['status', '--porcelain']), '', '项目操作不能修改会话工作区');
 }
 async function saveReport(passed, extra = {}) {
-  await mkdir('test-results', { recursive: true });
+  await mkdir(outputRoot, { recursive: true });
   const report = { date: new Date().toISOString(), passed, checks, executable: process.env.JINGGONG_TEST_EXE || '开发 Electron', testData: root, ...extra };
-  await writeFile('test-results/project-git-smoke.json', JSON.stringify(report, null, 2));
-  await writeFile('test-results/project-git-smoke.md', `# 项目 Git 桌面验收\n\n- 结果：${passed ? '通过' : '失败'}\n- 时间：${report.date}\n- 执行程序：${report.executable}\n- 临时数据：${root}\n\n${checks.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n${extra.error ? `\n失败原因：${extra.error}\n` : ''}`);
+  await writeFile(path.join(outputRoot, 'project-git-smoke.json'), JSON.stringify(report, null, 2));
+  await writeFile(path.join(outputRoot, 'project-git-smoke.md'), `# 项目 Git 桌面验收\n\n- 结果：${passed ? '通过' : '失败'}\n- 时间：${report.date}\n- 执行程序：${report.executable}\n- 临时数据：${root}\n\n${checks.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n${extra.error ? `\n失败原因：${extra.error}\n` : ''}`);
   return report;
 }
 
 try {
   const [a, b] = await Promise.all([fixture('项目A 含空格', 'main', true), fixture('项目B', 'release', false)]);
-  await mkdir('test-results', { recursive: true });
+  await mkdir(outputRoot, { recursive: true });
   await launch();
   await page.keyboard.press('Control+n');
   await expect(picker()).toBeVisible();
@@ -153,13 +154,15 @@ try {
 
   const remoteHead = await commit(a.peer, 'README.md', '# 项目A远程更新\n从主界面拉取\n', '远程更新项目代码');
   git(a.peer, ['push', 'origin', 'main']);
+  const confirmationsBeforeFetch = (await app.evaluate(() => globalThis.__projectGitConfirmations)).length;
   await fetchButton().click();
   await expect(fetchButton()).toBeEnabled();
   await expect.poll(() => git(a.repo, ['rev-parse', 'refs/remotes/origin/main'])).toBe(remoteHead);
   assert.equal(git(a.repo, ['rev-parse', 'HEAD']), initialHead);
   assert.equal(await readFile(path.join(a.repo, 'README.md'), 'utf8'), initialContent);
   assertWorkspaceUnchanged(workspace, workspaceHead);
-  checks.push('获取远程更新真实更新 origin/main，不移动项目当前分支或修改项目/会话文件');
+  assert.equal((await app.evaluate(() => globalThis.__projectGitConfirmations)).length, confirmationsBeforeFetch, '项目获取不应弹出确认框');
+  checks.push('获取远程更新无需确认即可真实更新 origin/main，不移动项目当前分支或修改项目/会话文件');
 
   const confirmationsBeforePull = (await app.evaluate(() => globalThis.__projectGitConfirmations)).length;
   await pullButton().click();
@@ -189,11 +192,15 @@ try {
 
   const pushedHead = await commit(a.repo, '本地推送.txt', '通过主界面推送\n', '准备项目分支推送');
   await refreshProject();
+  const confirmationsBeforePush = (await app.evaluate(() => globalThis.__projectGitConfirmations)).length;
   await pushButton().click();
   await expect(pushButton()).toBeEnabled();
   await expect.poll(() => git(a.bare, ['rev-parse', 'refs/heads/main'])).toBe(pushedHead);
   assertWorkspaceUnchanged(workspace, workspaceHead);
-  checks.push('主界面推送真实更新所选项目远程 main，不推送或修改会话 agent 分支');
+  const pushConfirmations = await app.evaluate(() => globalThis.__projectGitConfirmations);
+  assert.equal(pushConfirmations.length, confirmationsBeforePush + 1, '项目推送必须保留一次确认');
+  assert.equal(pushConfirmations.at(-1).title, '确认推送项目代码');
+  checks.push('主界面推送仍须确认后真实更新所选项目远程 main，不推送或修改会话 agent 分支');
 
   git(a.peer, ['pull', '--ff-only', 'origin', 'main']);
   await commit(a.peer, '远端独立提交.txt', '制造分支分歧\n', '准备远端分歧');
@@ -222,7 +229,7 @@ try {
   assert.deepEqual(bState.remotes, []);
   assert.equal(git(a.repo, ['rev-parse', 'HEAD']), localDiverged);
   checks.push('同一会话切换项目后 Git 随绑定更新实际目录/release 分支，旧项目错误清空，无远程时禁用网络操作');
-  await page.screenshot({ path: 'test-results/project-git-project-switch.png' });
+  await page.screenshot({ path: path.join(outputRoot, 'project-git-project-switch.png') });
 
   // 显式准备独立会话，再验证无项目选择时的通用新建入口。
   await page.evaluate(() => window.jinggong.createSession({}));
@@ -250,13 +257,13 @@ try {
     const sizes = await page.evaluate(() => ({ width: innerWidth, documentWidth: document.documentElement.scrollWidth, panelWidth: document.querySelector('#git-panel').clientWidth, panelScrollWidth: document.querySelector('#git-panel').scrollWidth }));
     assert.ok(sizes.documentWidth <= sizes.width + 1, JSON.stringify(sizes));
     assert.ok(sizes.panelScrollWidth <= sizes.panelWidth + 1, JSON.stringify(sizes));
-    await page.screenshot({ path: `test-results/project-git-${width}x${height}.png` });
+    await page.screenshot({ path: path.join(outputRoot, `project-git-${width}x${height}.png`) });
   }
   checks.push('1366×768、1600×900 主界面 Git 无横向溢出，项目拉取按钮可见并保存截图');
   console.log(JSON.stringify(await saveReport(true), null, 2));
 } catch (error) {
-  await mkdir('test-results', { recursive: true });
-  await page?.screenshot({ path: 'test-results/project-git-failure.png' }).catch(() => undefined);
+  await mkdir(outputRoot, { recursive: true });
+  await page?.screenshot({ path: path.join(outputRoot, 'project-git-failure.png') }).catch(() => undefined);
   await saveReport(false, { error: error instanceof Error ? error.message : String(error) });
   throw error;
 } finally {

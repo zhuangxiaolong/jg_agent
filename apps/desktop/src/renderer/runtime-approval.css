@@ -1,0 +1,6 @@
+.runtime-approval { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--surface-2); }
+.runtime-approval strong { font-size: 13px; }
+.runtime-approval p { margin: 5px 0; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.runtime-approval pre { max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.runtime-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.grok-session-note { margin: 8px 0; color: var(--text-secondary); font-size: 12px; }

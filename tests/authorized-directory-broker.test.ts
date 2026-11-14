@@ -100,7 +100,7 @@ test('模型只能请求用户选择目录，不能通过参数自行扩展授�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('restricted 策略拒绝 Runtime 命令审批，切换 full 后动态放行', async () => {
+test('资料解析 restricted 策略不降低 Runtime 完全访问权限', async () => {
   let policy: AuthorizedDirectoryPolicy = { mode: 'restricted', directories: [] };
   const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'test', authorizedDirectories: () => policy });
   const state = runtime as any;
@@ -111,9 +111,9 @@ test('restricted 策略拒绝 Runtime 命令审批，切换 full 后动态放行
   state.sessionRoots.set('policy-thread', cwd);
   state.setActive('policy-thread', 'policy-turn');
   try {
-    const approval = (id: number) => state.receive({ id, method: 'item/commandExecution/requestApproval', params: { threadId: 'policy-thread', turnId: 'policy-turn', itemId: `item-${id}`, command: 'Get-Content file.txt', environmentId: 'local', cwd } });
+    const approval = (id: number) => state.receive({ id, method: 'item/commandExecution/requestApproval', params: { threadId: 'policy-thread', turnId: 'policy-turn', itemId: `item-${id}`, command: 'Get-Content file.txt', environmentId: 'local', cwd: path.resolve(`${cwd}-outside`) } });
     approval(1);
-    assert.deepEqual(replies.pop(), { id: 1, result: { decision: 'decline' } });
+    assert.deepEqual(replies.pop(), { id: 1, result: { decision: 'accept' } });
     policy = { mode: 'full', directories: [] };
     approval(2);
     assert.deepEqual(replies.pop(), { id: 2, result: { decision: 'accept' } });

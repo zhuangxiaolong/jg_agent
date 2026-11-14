@@ -289,25 +289,24 @@ try {
   const generated = await page.getByRole('textbox', { name: '提交说明', exact: true }).inputValue();
   assert.ok(generated.endsWith(`Jira: ${jiraUrl}`));
   await page.getByRole('textbox', { name: '提交说明', exact: true }).fill('修复合成任务的提交说明验收');
-  await page.getByRole('button', { name: '检查开发要求', exact: true }).click();
   await app.evaluate(({ dialog }) => {
     globalThis.__commitConfirmations = [];
-    dialog.showMessageBox = async (_window, options) => { globalThis.__commitConfirmations.push(options.detail); return { response: 1, checkboxChecked: false }; };
+    dialog.showMessageBox = async (_window, options) => { globalThis.__commitConfirmations.push(options.title); return { response: 0, checkboxChecked: false }; };
   });
-  await page.getByRole('button', { name: '审核并提交', exact: true }).click();
+  await page.getByRole('button', { name: '提交代码', exact: true }).click();
   await page.getByText(/已提交：/).waitFor();
   const expectedMessage = `修复合成任务的提交说明验收\n\nJira: ${jiraUrl}`;
   const gitBody = () => execFileSync('git', ['log', '-1', '--format=%B'], { cwd: jiraSession.workspacePath, windowsHide: true, encoding: 'utf8' }).trimEnd();
   assert.equal(gitBody(), expectedMessage);
   const confirmations = await app.evaluate(() => globalThis.__commitConfirmations);
-  assert.ok(confirmations[0].startsWith(`${expectedMessage}\n\n`));
+  assert.deepEqual(confirmations, []);
   assert.ok((await page.evaluate(id => window.jinggong.getEvents(id), jiraSession.id)).some(event => event.type === 'tool' && event.text.endsWith(expectedMessage)));
   await writeFile(path.join(jiraSession.workspacePath, '提交验收.txt'), '再次提交验证地址不重复\n');
   const generatedAgain = await page.evaluate(id => window.jinggong.generateCommitMessage(id), jiraSession.id);
   await page.evaluate(({ id, message }) => window.jinggong.commitChanges(id, { message, reviewedDocumentIds: [] }), { id: jiraSession.id, message: generatedAgain });
   assert.equal(gitBody(), generatedAgain);
   assert.equal(gitBody().split(jiraUrl).length - 1, 1);
-  checks.push('关联合成 Jira 的真实隔离 Git：自动生成含任务地址，人工删去地址后提交仍自动附加；确认框、Git正文和会话记录一致，已有地址不重复，未向用户仓库提交或推送');
+  checks.push('关联合成 Jira 的真实隔离 Git：自动生成含任务地址，人工删去地址后提交仍自动附加；直接提交且Git正文和会话记录一致，已有地址不重复，未向用户仓库提交或推送');
 
   assert.equal(git(['rev-parse', 'HEAD']), sourceHead); assert.equal(git(['status', '--porcelain']), '');
   assert.equal(await readFile(path.join(repo, 'README.md'), 'utf8'), '# V0.5 合成仓库\n');

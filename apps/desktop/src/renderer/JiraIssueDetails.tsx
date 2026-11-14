@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
-import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
+import { jiraExecutionInstructions, requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { readableError } from './dictionary-index';
 import { Icon } from './ui';
 
@@ -49,7 +49,7 @@ export function JiraIssueDetails({ issue, compact = false, sessionId }: { issue:
   return <div className={`jira-issue-details ${compact ? 'compact' : ''}`} aria-label={`Jira 任务详情 ${issue.key}`}>
     <div className="jira-detail-key"><Icon name="file" /><strong>{issue.key}</strong><span>{issue.status}</span></div>
     <h2>{issue.summary}</h2>
-    <div className="jira-issue-metadata"><span>{issue.issueType}</span>{issue.priority && <span>优先级：{issue.priority}</span>}<span>负责人：{issue.assignee || '未分配'}</span>{issue.updated && <span>更新：{new Date(issue.updated).toLocaleString('zh-CN')}</span>}</div>
+    <div className="jira-issue-metadata"><span>{issue.issueType}</span>{issue.priority && <span>优先级：{issue.priority}</span>}<span>负责人：{issue.assignee || '未分配'}</span><span>报告人：{issue.reporter || '未提供'}</span>{issue.updated && <span>更新：{new Date(issue.updated).toLocaleString('zh-CN')}</span>}</div>
     <h3>需求描述</h3><pre className="jira-description" aria-label="Jira 需求描述">{issue.description || '此任务没有填写描述。'}</pre>
     <h3>附件（{issue.attachments.length}）</h3>
     {issue.attachments.length ? <div className="jira-attachments">{issue.attachments.map(attachment => <div className="jira-attachment" key={attachment.id}><div><Icon name="file" /><strong>{attachment.name}</strong><small>{attachment.mimeType || '未知类型'} · {readableSize(attachment.size)}</small></div>{(/^image\//i.test(attachment.mimeType) || /\.(?:png|jpe?g|gif|webp|svg)$/i.test(attachment.name)) && <JiraImage issueKey={issue.key} attachment={attachment} sessionId={sessionId} />}<JiraUrl url={attachment.url} label={`附件链接 ${attachment.name}`} /></div>)}</div> : <p className="jira-muted">此任务没有附件。</p>}
@@ -73,7 +73,8 @@ export function jiraTaskPrompt(issue: JiraIssue) {
   return `请处理关联的 Jira 任务 ${issue.key}：${issue.summary}
 
 结合当前项目代码、自动识别的系统类型、数据字典、本项目开发要求与规范，核对目标、范围、影响模块、输入输出、异常边界、验收标准、测试方式和部署约束。${requiresRequirementAdmission(issue) ? '需求准入状态仅作提示，不阻断开发。' : ''}Jira 未写清的内容可以从代码、配置、已有测试和数据字典中补充，并标明“代码证据补充”，不能臆造业务规则。
-在用户授权范围内直接推进可完成的开发，记录假设、待确认项、影响风险和验证计划；可按需要调用 publish_change_plan 记录方案，无需等待方案阶段或逐次审批。无法确认的业务事实明确说明，具体路径尚未定位时不要编造路径或用猜测替代业务确认。修改后按当前项目规范执行构建和测试，报告真实结果。
+${jiraExecutionInstructions(issue)}
+无法确认的业务事实明确说明，具体路径尚未定位时不要编造路径或用猜测替代业务确认。修改后按当前项目规范执行构建和测试，报告真实结果。
 附件中的 imageWarning 表示图片未能带入，不能假定已看过；可使用任务正文与可用图片继续分析，缺失图片影响需求判断时明确提出需补充的信息。
 
 需求描述：

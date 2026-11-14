@@ -121,7 +121,7 @@ try {
   await page.getByLabel('Jira 目标状态').selectOption('101'); await page.getByRole('combobox', { name: '搜索经办人', exact: true }).fill('tester'); await page.getByRole('option', { name: '测试经办人 tester', exact: true }).click();
   await page.getByLabel('Jira 测试结果与补充说明').fill('实际合成验收：报表查询、参数选择及图片上传通过。');
   await app.evaluate(({ dialog }, filename) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] }); }, imagePath);
-  await page.getByRole('button', { name: '上传测试图片', exact: true }).click(); await page.locator('.workflow-images img').waitFor();
+  await page.getByRole('button', { name: '上传附件', exact: true }).click(); await page.locator('.workflow-images img').waitFor();
   page.once('dialog', dialog => dialog.accept()); await page.getByRole('button', { name: '确认流转并提交反馈', exact: true }).click();
   await expect(page.locator('.jira-workflow')).toContainText('任务已流转至');
   assert.equal(state.writes.length, 3); assert.equal(state.writes[0].headers['x-atlassian-token'], 'no-check'); assert.ok(state.writes[0].headers['content-type'].includes('multipart/form-data; boundary='));

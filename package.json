@@ -1,6 +1,6 @@
 {
   "name": "jinggong-agent",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "private": true,
   "description": "精工Agent Windows 桌面客户端",
   "author": "精工研发",
@@ -12,6 +12,7 @@
     "dev": "npm run build && npm start",
     "test": "tsx --test tests/*.test.ts",
     "test:desktop": "node scripts/desktop-smoke.mjs",
+    "test:ui:grok": "node scripts/grok-ui-smoke.mjs",
     "runtime:probe": "node scripts/probes/runtime-probe.mjs",
     "runtime:build:jinggong": "node scripts/build-jinggong-runtime.mjs",
     "pack": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",

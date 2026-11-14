@@ -18,7 +18,10 @@ test('不同MES版本隔离，文字要求需人工复核，完整注入不静�
   assert.equal((await evaluateRequirements(applicable, new Map(), async () => true))[0].status, 'review');
   const context = buildDeveloperContext(applicable, []);
   assert.ok(context.includes('MES5要求') && !context.includes('MES6要求'));
-  assert.match(context, /需求准入状态、缺失检查项和代码方案记录仅作提示/);
+  assert.match(context, /方案的输出顺序按本轮 Jira 类型和用户任务执行/);
+  assert.match(context, /普通会话默认完全访问.*读取、创建、修改或删除工作区内外文件/);
+  assert.match(context, /文档解析工具自身只读，不限制原生文件和命令工具/);
+  assert.doesNotMatch(context, /来源资料始终只读|来源文档始终只读/);
   assert.doesNotMatch(context, /暂停代码修改|仍须发布初步修改方案|完成所有人工复核/);
   assert.throws(() => buildDeveloperContext([document(JSON.stringify({ rules: [{ type: 'shell', command: 'evil' }] }))], []), /机器规则/);
   assert.throws(() => buildDeveloperContext([document('a'.repeat(180001), '太大.md')], []), /不会静默/);

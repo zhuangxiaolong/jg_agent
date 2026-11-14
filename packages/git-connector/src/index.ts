@@ -1,8 +1,15 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, realpath, lstat, open, readdir, unlink } from 'node:fs/promises';
+import { mkdir, realpath, lstat, open, readdir, unlink, readFile, mkdtemp, rm, writeFile, copyFile, rename } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { FileDiff, GitState, Project } from '../../domain/src/index';
+
+export interface GitFileEntry { path: string; status?: string }
+export interface SessionGitChange { before: string; after: string; excluded?: string[] }
+export interface SessionGitPrepared { head: string; tree: string; diffs: FileDiff[]; files: Map<string, string | null>; dependencyFiles?: string[]; dependencyTrees?: string[] }
+
+export class SessionGitConflictError extends Error {}
 
 const MAX_FILES = 500;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -22,6 +29,30 @@ export interface GitWorkspaceChanges {
 }
 export interface GitIncomingPathRisk { path: string; reason: string }
 
+type TransportFailure = 'authentication' | 'certificate' | 'network' | 'repository' | 'unknown';
+class GitOperationError extends Error {
+  constructor(message: string, readonly transportFailure: TransportFailure) { super(message); }
+}
+
+function transportFailure(stderr: string, timedOut: boolean): TransportFailure {
+  if (/certificate|SSL peer|SSL:|TLS.*(?:failed|error)|schannel.*(?:failed|error)|CERT_[A-Z_]+|SEC_E_UNTRUSTED_ROOT/i.test(stderr)) return 'certificate';
+  if (/authentication failed|could not read (?:Username|Password)|terminal prompts disabled|HTTP (?:Basic: Access denied|401|403)|requested URL returned error: (?:401|403)|invalid (?:username|password|credentials)|authorization failed|permission denied/i.test(stderr)) return 'authentication';
+  if (/repository.*not found|requested URL returned error: 404|does not appear to be a git repository/i.test(stderr)) return 'repository';
+  if (timedOut || /could not resolve|failed to connect|couldn't connect|connection (?:refused|reset|timed out)|operation timed out|unable to access.*(?:resolve|connect)|proxy.*(?:failed|error)|(?:HTTP |requested URL returned error: )(?:502|503|504)/i.test(stderr)) return 'network';
+  return 'unknown';
+}
+
+function httpTransportError(operation: '获取' | '拉取' | '推送', error: unknown): Error {
+  const detail: Record<TransportFailure, string> = {
+    authentication: 'Git 凭据认证未通过。请先在 Git Credential Manager 或本机 Git 中登录并确认仓库权限，再重试；程序会复用系统或用户已配置的凭据管理器。',
+    certificate: '服务器证书校验失败，请检查 Git 的证书信任配置与系统时间。',
+    network: '无法连接远程仓库或网络超时，请检查网络、远程地址和 Git 代理配置。',
+    repository: '远程仓库不存在或当前账号无访问权限，请检查仓库地址和账号权限。',
+    unknown: '请检查远程仓库状态、网络和本机 Git 认证配置；程序会复用系统或用户已配置的凭据管理器。',
+  };
+  return new Error(`HTTP(S) ${operation}失败：${detail[error instanceof GitOperationError ? error.transportFailure : 'unknown']}`);
+}
+
 function samePath(left: string, right: string): boolean {
   return process.platform === 'win32' ? resolve(left).toLowerCase() === resolve(right).toLowerCase() : resolve(left) === resolve(right);
 }
@@ -31,18 +62,21 @@ function inside(root: string, target: string): boolean {
   return part.length > 0 && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part);
 }
 
-/** 受管会话与已登记项目分别校验身份；变更操作由主进程人工确认后调用。 */
+/** 受管会话与已登记项目分别校验身份；主进程按操作类型执行校验与确认。 */
 export class GitConnector {
   constructor(private readonly rootWorkspaces: string, private readonly gitExecutable = 'git') {}
 
-  private run(cwd: string | undefined, args: string[], options: { maxBytes?: number; allowTruncate?: boolean; allowMissing?: boolean; strictText?: boolean } = {}): Promise<{ text: string; truncated: boolean; code: number }> {
+  private run(cwd: string | undefined, args: string[], options: { maxBytes?: number; allowTruncate?: boolean; allowMissing?: boolean; strictText?: boolean; indexFile?: string } = {}): Promise<{ text: string; truncated: boolean; code: number }> {
     const fixedArgs = ['--no-optional-locks', '--literal-pathspecs', '-c', 'core.fsmonitor=false', '-c', 'core.quotepath=false', '-c', 'diff.external=', '-c', `core.hooksPath=${resolve(this.rootWorkspaces, '.disabled-hooks')}`, '-c', 'commit.gpgsign=false', '-c', 'status.renames=false', '-c', 'protocol.ext.allow=never', ...args];
     const environment = { ...process.env };
     for (const key of Object.keys(environment)) if (/^GIT_/i.test(key)) delete environment[key];
+    if (options.indexFile) environment.GIT_INDEX_FILE = options.indexFile;
     environment.GIT_TERMINAL_PROMPT = '0';
     environment.GIT_PAGER = 'cat';
+    environment.GCM_INTERACTIVE = 'never';
+    environment.GCM_GUI_PROMPT = 'false';
     return new Promise((resolveResult, reject) => {
-      execFile(this.gitExecutable, fixedArgs, { cwd, encoding: 'buffer', windowsHide: true, timeout: 30000, maxBuffer: options.maxBytes ?? 8 * 1024 * 1024, env: environment }, (error, stdout) => {
+      execFile(this.gitExecutable, fixedArgs, { cwd, encoding: 'buffer', windowsHide: true, timeout: 30000, maxBuffer: options.maxBytes ?? 8 * 1024 * 1024, env: environment }, (error, stdout, stderr) => {
         if (error) {
           if (options.allowTruncate && (error as NodeJS.ErrnoException).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
             resolveResult({ text: stdout.toString('utf8'), truncated: true, code: 0 });
@@ -50,7 +84,7 @@ export class GitConnector {
             resolveResult({ text: '', truncated: false, code: 1 });
           } else {
             // 不转发包含远程地址、认证信息或仓库配置内容的 stderr。
-            reject(new Error(`Git 操作失败（${args.find(value => !value.startsWith('-')) ?? '命令'}）；请检查 Git 安装、仓库状态、目录权限和可用空间。`));
+            reject(new GitOperationError(`Git 操作失败（${args.find(value => !value.startsWith('-')) ?? '命令'}）；请检查 Git 安装、仓库状态、目录权限和可用空间。`, transportFailure(stderr.toString('utf8'), Boolean(error.killed))));
           }
         } else {
           try {
@@ -150,7 +184,11 @@ export class GitConnector {
     // 受管目录中可能存在旧版本创建的 NTFS 工作目录链接；祖先链接已在上方
     // 拒绝，这里保留用户传入的受管目录路径，避免 realpath 把它还原到旧缓存根。
     const canonical = resolve(path);
-    if (!inside(root, canonical) || !samePath(dirname(canonical), root) || !SAFE_ID.test(basename(canonical))) throw new Error('仅允许读取应用管理的隔离工作区。');
+    // 新版本项目会话直接使用用户登记的 Git 项目目录；旧版本会话仍按隔离工作区校验。
+    if (!inside(root, canonical) || !samePath(dirname(canonical), root) || !SAFE_ID.test(basename(canonical))) {
+      const registered = await this.register(canonical);
+      return registered.path;
+    }
     const branch = (await this.run(canonical, ['symbolic-ref', '--quiet', '--short', 'HEAD'])).text.trim();
     // 历史版本可能把同一份受管 Worktree 复制到新的应用目录，Git 的
     // worktree 元数据仍记录旧路径；只要目录本身在受管根目录、分支身份
@@ -227,6 +265,215 @@ export class GitConnector {
     return result;
   }
 
+  private async temporaryIndex<T>(work: (indexFile: string, directory: string) => Promise<T>): Promise<T> {
+    const directory = await mkdtemp(resolve(tmpdir(), 'jinggong-session-index-'));
+    try { return await work(resolve(directory, 'index'), directory); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  }
+
+  /** 仅写独立索引和内部快照引用，保留项目真实索引、分支及工作目录。 */
+  async sessionSnapshot(workspacePath: string, ref: string): Promise<string> {
+    if (!/^refs\/jinggong\/sessions\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(ref)) throw new Error('会话快照引用无效');
+    const workspace = await this.workspace(workspacePath);
+    return this.temporaryIndex(async indexFile => {
+      const options = { indexFile };
+      const overrides = await this.mutationOverrides(workspace);
+      await this.run(workspace, ['read-tree', 'HEAD'], options);
+      await this.run(workspace, [...overrides, '-c', 'submodule.recurse=false', 'add', '--all', '--', '.'], options);
+      const tree = (await this.run(workspace, ['write-tree'], options)).text.trim();
+      await this.run(workspace, ['update-ref', ref, tree]);
+      return tree;
+    });
+  }
+
+  /** 将本会话每轮补丁应用到 HEAD 的独立索引，不收集真实暂存区和其他会话内容。 */
+  async prepareSessionChanges(workspacePath: string, changes: SessionGitChange[], includeDependencies = false): Promise<SessionGitPrepared> {
+    const workspace = await this.workspace(workspacePath);
+    const head = (await this.run(workspace, ['rev-parse', 'HEAD'])).text.trim();
+    return this.temporaryIndex(async (indexFile, directory) => {
+      const options = { indexFile };
+      await this.run(workspace, ['read-tree', head], options);
+      for (let i = 0; i < changes.length; i++) {
+        const change = changes[i];
+        if (![change.before, change.after].every(value => /^[a-f0-9]{40,64}$/.test(value))) throw new Error('会话变更快照无效');
+        if (change.before === change.after) continue;
+        const paths = (await this.run(workspace, ['diff', '--no-renames', '--name-only', '-z', change.before, change.after, '--'])).text.split('\0').filter(file => file && !change.excluded?.includes(file));
+        if (!paths.length) continue;
+        if (paths.length > MAX_FILES) throw new Error('单轮会话变更超过文件上限');
+        if (includeDependencies) {
+          for (const file of paths) await this.copyTreeEntry(workspace, indexFile, change.after, file);
+          continue;
+        }
+        const patch = await this.run(workspace, ['diff', '--binary', '--full-index', '--no-ext-diff', '--no-textconv', '--no-renames', change.before, change.after, '--', ...paths], { maxBytes: 8 * 1024 * 1024 });
+        if (!patch.text) continue;
+        const filename = resolve(directory, `${i}.patch`);
+        await writeFile(filename, patch.text, 'utf8');
+        try { await this.run(workspace, ['apply', '--cached', '--3way', '--whitespace=nowarn', filename], options); }
+        catch { throw new SessionGitConflictError('本会话修改依赖任务前已有代码或存在重叠，无法安全独立提交；当前展示任务前后快照差异，请先核对依赖及重叠修改'); }
+      }
+      const tree = (await this.run(workspace, ['write-tree'], options)).text.trim();
+      const listing = (await this.run(workspace, ['diff', '--no-renames', '--name-status', '-z', head, tree, '--'])).text.split('\0');
+      const diffs: FileDiff[] = [], files = new Map<string, string | null>();
+      const staged = new Set((await this.run(workspace, ['diff', '--cached', '--name-only', '-z', '--'])).text.split('\0'));
+      if (listing.length > MAX_FILES * 2 + 1) throw new Error('本会话变更超过检查上限，请拆分后提交');
+      for (let i = 0; i + 1 < listing.length; i += 2) {
+        const status = listing[i], file = listing[i + 1];
+        if (!status || !file) continue;
+        await this.safeFile(workspace, file);
+        const patch = await this.run(workspace, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', head, tree, '--', file], { maxBytes: MAX_DIFF_BYTES, allowTruncate: true });
+        const binary = /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch.text);
+        diffs.push({ path: file, status: status[0], diff: patch.text, binary, truncated: patch.truncated, staged: staged.has(file) });
+        if (status[0] === 'D') files.set(file, null);
+        else if (!binary && !patch.truncated) {
+          const entry = (await this.run(workspace, ['ls-tree', '-z', tree, '--', file])).text;
+          const blob = /^(100644|100755) blob ([a-f0-9]{40,64})\t/.exec(entry);
+          if (!blob) throw new Error('会话修改包含链接、子模块或特殊文件，无法安全处理');
+          files.set(file, (await this.run(workspace, ['cat-file', 'blob', blob[2]], { maxBytes: MAX_DIFF_BYTES, strictText: true })).text);
+        }
+      }
+      return { head, tree, diffs, files, ...(includeDependencies ? { dependencyFiles: diffs.map(file => file.path), dependencyTrees: [...new Set(changes.flatMap(change => [change.before, change.after]))] } : {}) };
+    });
+  }
+
+  private async copyTreeEntry(workspace: string, indexFile: string, tree: string, file: string): Promise<void> {
+    const entry = (await this.run(workspace, ['ls-tree', tree, '--', file])).text;
+    if (!entry) { await this.run(workspace, ['update-index', '--force-remove', '--', file], { indexFile }); return; }
+    const blob = /^(100644|100755) blob ([a-f0-9]{40,64})\t/.exec(entry);
+    if (!blob) throw new Error('会话修改包含链接、子模块或特殊文件，无法安全处理');
+    await this.run(workspace, ['update-index', '--add', '--cacheinfo', blob[1], blob[2], file], { indexFile });
+  }
+
+  /** 分离失败时仍可只读展示已采集补丁，不把项目全量修改归入会话。 */
+  async previewSessionChanges(workspacePath: string, changes: SessionGitChange[], readOnlyReason: string): Promise<FileDiff[]> {
+    const workspace = await this.workspace(workspacePath);
+    const result = new Map<string, FileDiff>();
+    for (const change of changes) {
+      if (![change.before, change.after].every(value => /^[a-f0-9]{40,64}$/.test(value))) throw new Error('会话变更快照无效');
+      const listing = (await this.run(workspace, ['diff', '--no-renames', '--name-status', '-z', change.before, change.after, '--'])).text.split('\0');
+      for (let i = 0; i + 1 < listing.length; i += 2) {
+        const status = listing[i], file = listing[i + 1];
+        if (!status || !file || change.excluded?.includes(file)) continue;
+        await this.safeFile(workspace, file);
+        if (!result.has(file) && result.size >= MAX_FILES) throw new Error('本会话变更超过检查上限，请拆分后查看');
+        const previous = result.get(file);
+        if (previous?.truncated) continue;
+        const patch = await this.run(workspace, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', change.before, change.after, '--', file], { maxBytes: MAX_DIFF_BYTES, allowTruncate: true });
+        // 不连续轮次分别展示，避免把轮次之间的外部修改合并进会话。
+        const combined = previous ? `${previous.diff}\n${patch.text}` : patch.text;
+        const bytes = Buffer.from(combined, 'utf8');
+        result.set(file, { path: file, status: previous ? 'M' : status[0], diff: bytes.subarray(0, MAX_DIFF_BYTES).toString('utf8'),
+          binary: previous?.binary || /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch.text),
+          truncated: patch.truncated || bytes.length > MAX_DIFF_BYTES, readOnlyReason });
+      }
+    }
+    return [...result.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  async assertSessionFile(workspacePath: string, prepared: SessionGitPrepared, file: string): Promise<void> {
+    if (!prepared.diffs.some(item => item.path === file)) throw new Error('该文件不属于本次会话变更');
+    const workspace = await this.workspace(workspacePath);
+    const expected = (await this.run(workspace, ['ls-tree', prepared.tree, '--', file])).text;
+    const ref = `refs/jinggong/sessions/check-${randomUUID()}/current`;
+    try {
+      const current = await this.sessionSnapshot(workspace, ref);
+      if ((await this.run(workspace, ['ls-tree', current, '--', file])).text !== expected) throw new Error('此文件包含会话以外的修改，不能整文件暂存或撤销；请使用本会话提交入口');
+    } finally { await this.run(workspace, ['update-ref', '-d', ref]); }
+  }
+
+  /** 固定本会话 tree 创建提交，真实索引通过双树合并保留无关暂存内容。 */
+  async commitSessionChanges(workspacePath: string, prepared: SessionGitPrepared, input: { message: string; authorName?: string; authorEmail?: string; beforeCommit?: (files: Map<string, string | null>) => Promise<void>; onCommitCreated?: (hash: string) => Promise<void> }): Promise<string> {
+    const workspace = await this.workspace(workspacePath);
+    if (!prepared.diffs.length || prepared.diffs.some(item => item.binary || item.truncated)) throw new Error('没有可完整校验的本会话文本变更');
+    if (!input.message.trim() || input.message.length > 4000 || input.message.includes('\0')) throw new Error('提交说明无效');
+    for (const file of prepared.diffs) await this.validateCommitPath(workspace, file.path);
+    const branch = (await this.run(workspace, ['symbolic-ref', '--quiet', 'HEAD'])).text.trim();
+    if (!branch.startsWith('refs/heads/')) throw new Error('请先检出项目分支');
+    const index = resolve(workspace, (await this.run(workspace, ['rev-parse', '--git-path', 'index'])).text.trim());
+    const lockPath = `${index}.lock`;
+    const lock = await open(lockPath, 'wx');
+    try {
+      return await this.temporaryIndex(async (indexFile, directory) => {
+        const currentIndex = resolve(directory, 'current-index');
+        await this.run(workspace, ['read-tree', 'HEAD'], { indexFile: currentIndex });
+        await this.run(workspace, [...await this.mutationOverrides(workspace), 'add', '--all', '--', '.'], { indexFile: currentIndex });
+        const patchFile = resolve(directory, 'session.patch');
+        await writeFile(patchFile, (await this.run(workspace, ['diff', '--binary', '--full-index', '--no-ext-diff', '--no-textconv', '--no-renames', prepared.head, prepared.tree, '--'])).text);
+        try { await this.run(workspace, ['apply', '--cached', '--reverse', '--check', patchFile], { indexFile: currentIndex }); }
+        catch { throw new Error('本会话修改已被后续编辑覆盖或撤回，请先核对代码，未创建提交'); }
+        await copyFile(index, indexFile);
+        // 依赖文件的已知暂存版本随整文件提交；未知的暂存修改仍保留并拒绝覆盖。
+        for (const file of prepared.dependencyFiles ?? []) {
+          const staged = (await this.run(workspace, ['ls-files', '--stage', '-z', '--', file], { indexFile })).text;
+          const entry = staged ? /^(100644|100755) ([a-f0-9]{40,64}) 0\t[^\0]+\0$/.exec(staged) : null;
+          if (staged && !entry) throw new Error('依赖文件的暂存状态异常，请先核对暂存内容');
+          const stagedId = entry ? `${entry[1]} ${entry[2]}` : '';
+          let known = false;
+          for (const tree of [prepared.head, prepared.tree, ...(prepared.dependencyTrees ?? [])]) {
+            const value = (await this.run(workspace, ['ls-tree', tree, '--', file])).text;
+            const blob = /^(100644|100755) blob ([a-f0-9]{40,64})\t/.exec(value);
+            if (stagedId === (blob ? `${blob[1]} ${blob[2]}` : '')) { known = true; break; }
+          }
+          if (!known) throw new Error('依赖文件含任务快照之外的暂存修改，请先核对该文件；原暂存内容已保留');
+          await this.copyTreeEntry(workspace, indexFile, prepared.head, file);
+        }
+        const overrides = await this.mutationOverrides(workspace);
+        const author: string[] = [];
+        if (input.authorName !== undefined || input.authorEmail !== undefined) {
+          if (!input.authorName?.trim() || /[\x00-\x1f<>]/.test(input.authorName) || !input.authorEmail || !/^[^\s<>@]+@[^\s<>@]+$/.test(input.authorEmail)) throw new Error('提交人姓名或邮箱格式无效');
+          author.push('-c', `user.name=${input.authorName.trim()}`, '-c', `user.email=${input.authorEmail.trim()}`);
+        }
+        await input.beforeCommit?.(prepared.files);
+        const hash = (await this.run(workspace, [...overrides, ...author, 'commit-tree', prepared.tree, '-p', prepared.head, '-m', input.message.trim()])).text.trim();
+        try { await this.run(workspace, ['read-tree', '-i', '-m', prepared.head, hash], { indexFile }); }
+        catch { throw new Error('本会话与已有暂存内容重叠，未创建分支提交；请先核对该文件的暂存内容'); }
+        await lock.writeFile(await readFile(indexFile));
+        await lock.close();
+        await input.onCommitCreated?.(hash);
+        if ((await this.run(workspace, ['symbolic-ref', '--quiet', 'HEAD'])).text.trim() !== branch) throw new Error('确认期间项目分支已变化');
+        await this.run(workspace, ['update-ref', '--create-reflog', '-m', '精工 Agent 本会话提交', branch, hash, prepared.head]);
+        try { await rename(lockPath, index); }
+        catch {
+          await this.run(workspace, ['update-ref', branch, prepared.head, hash]);
+          throw new Error('无法保存索引，已回退本次分支提交，原项目文件保持不变');
+        }
+        return hash;
+      });
+    } finally { await lock.close().catch(() => {}); await unlink(lockPath).catch(() => {}); }
+  }
+
+  async containsSessionCommit(workspacePath: string, hash: string): Promise<boolean> {
+    if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error('会话提交标识无效');
+    return (await this.run(await this.workspace(workspacePath), ['merge-base', '--is-ancestor', hash, 'HEAD'], { allowMissing: true })).code === 0;
+  }
+
+  async removeSessionSnapshots(workspacePath: string, sessionId: string): Promise<void> {
+    if (!SAFE_ID.test(sessionId)) throw new Error('会话标识无效');
+    const workspace = await this.workspace(workspacePath);
+    const prefix = `refs/jinggong/sessions/${sessionId}/`;
+    const refs = (await this.run(workspace, ['for-each-ref', '--format=%(refname)', prefix])).text.trim().split(/\r?\n/).filter(Boolean);
+    for (const ref of refs) {
+      if (!ref.startsWith(prefix)) throw new Error('会话快照引用范围异常');
+      await this.run(workspace, ['update-ref', '-d', ref]);
+    }
+  }
+
+  /** 只允许推送属于本会话的待发布提交，不要求无关工作区修改被提交。 */
+  async pushSessionCommits(workspacePath: string, remote: string, commits: string[]): Promise<void> {
+    const workspace = await this.workspace(workspacePath), current = await this.state(workspace);
+    const { url, transport } = await this.remoteTarget(workspace, remote, current.remotes, '推送');
+    const branch = `refs/heads/${current.branch}`;
+    const head = (await this.run(workspace, ['rev-parse', '--verify', branch])).text.trim();
+    const remoteHead = (await this.run(workspace, [...transport, 'ls-remote', '--heads', url, branch])).text.split(/\s/)[0];
+    if (!/^[a-f0-9]{40,64}$/.test(remoteHead)) throw new Error('远程尚无同名分支，无法核验本会话推送范围，请先配置项目分支');
+    let outgoing: string[];
+    try { outgoing = (await this.run(workspace, ['rev-list', `${remoteHead}..${head}`])).text.trim().split(/\r?\n/).filter(Boolean); }
+    catch { throw new Error('远程分支已变化，请先获取远程更新再核验会话提交'); }
+    if (!outgoing.length) throw new Error('本会话没有需要推送的提交');
+    if (outgoing.some(hash => !commits.includes(hash))) throw new Error('待推送提交包含其他会话或外部提交，已停止推送；请先核对项目提交历史');
+    try { await this.run(workspace, [...await this.mutationOverrides(workspace), ...transport, 'push', '--no-verify', '--no-follow-tags', '--recurse-submodules=no', url, `${head}:${branch}`]); }
+    catch (error) { if (/^https?:/i.test(url)) throw httpTransportError('推送', error); throw error; }
+  }
+
   private async changedFile(workspacePath: string, file: string): Promise<{ workspace: string; path: string; tracked: boolean; inHead: boolean }> {
     const workspace = await this.workspace(workspacePath);
     if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
@@ -252,6 +499,34 @@ export class GitConnector {
   async filePath(workspacePath: string, file: string): Promise<string> {
     const target = await this.changedFile(workspacePath, file);
     return this.safeFile(target.workspace, target.path);
+  }
+
+  /** 返回项目内受 Git 管理或未忽略的文件，供右侧项目文件树使用。 */
+  async files(workspacePath: string): Promise<GitFileEntry[]> {
+    const workspace = await this.workspace(workspacePath);
+    const listed = (await this.run(workspace, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).text.split('\0').filter(Boolean);
+    const changed = await this.diff(workspace);
+    const status = new Map(changed.map(file => [file.path, file.status]));
+    return [...new Set(listed)].slice(0, MAX_FILES * 20).map(file => ({ path: file, ...(status.has(file) ? { status: status.get(file) } : {}) }));
+  }
+
+  /** 读取项目内 UTF-8 文本文件，供右侧快速预览使用。 */
+  async readFile(workspacePath: string, file: string): Promise<{ path: string; absolutePath: string; content: string }> {
+    const workspace = await this.workspace(workspacePath);
+    if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
+    const target = await this.safeFile(workspace, file);
+    const info = await lstat(target);
+    if (info.isSymbolicLink() || !info.isFile()) throw new Error('只能预览普通文件');
+    if (info.size > 512 * 1024) throw new Error('文件超过 512 KiB，暂不以内联方式预览');
+    const value = await readFile(target, 'utf8');
+    if (value.includes('\0')) throw new Error('二进制文件不以内联方式预览');
+    return { path: file, absolutePath: target, content: value };
+  }
+
+  async pathForFile(workspacePath: string, file: string): Promise<string> {
+    const workspace = await this.workspace(workspacePath);
+    if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
+    return this.safeFile(workspace, file);
   }
 
   /** 将单个变更文件加入 Git 暂存区。 */
@@ -331,7 +606,7 @@ export class GitConnector {
     try {
       await this.run(current.path, [...overrides, ...transport, 'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance', '--refmap=', url, `refs/heads/*:refs/remotes/${remote}/*`]);
     } catch (error) {
-      if (/^https?:/i.test(url)) throw new Error('HTTP(S) 获取失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
+      if (/^https?:/i.test(url)) throw httpTransportError('获取', error);
       throw error;
     }
   }
@@ -349,7 +624,7 @@ export class GitConnector {
     try {
       await this.run(current.path, [...overrides, ...transport, 'push', '--no-verify', '--no-follow-tags', '--recurse-submodules=no', url, `refs/heads/${state.branch}:refs/heads/${state.branch}`]);
     } catch (error) {
-      if (/^https?:/i.test(url)) throw new Error('HTTP(S) 推送失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
+      if (/^https?:/i.test(url)) throw httpTransportError('推送', error);
       throw error;
     }
   }
@@ -501,8 +776,8 @@ export class GitConnector {
     await this.run(dirname(commonDir), ['worktree', 'remove', workspace]);
   }
 
-  async generateCommitMessage(workspacePath: string): Promise<string> {
-    const diffs = await this.diff(workspacePath);
+  async generateCommitMessage(workspacePath: string, sessionDiffs?: FileDiff[]): Promise<string> {
+    const diffs = sessionDiffs ?? await this.diff(workspacePath);
     const actual = diffs.filter((item) => item.status !== '!');
     if (!actual.length) throw new Error('当前隔离工作区没有可提交变更');
     const counts = { A: 0, D: 0, M: 0 };
@@ -535,6 +810,8 @@ export class GitConnector {
 
   async commit(workspacePath: string, input: { message: string; authorName?: string; authorEmail?: string; files?: string[]; beforeCommit?: (files: Map<string, string | null>) => Promise<void> }): Promise<string> {
     const workspace = await this.workspace(workspacePath);
+    const branchName = (await this.run(workspace, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowMissing: true })).text.trim();
+    if (!branchName || branchName === '(detached)') throw new Error('项目处于分离 HEAD 状态，请先切换到本地分支');
     if (!input.message?.trim() || input.message.length > 4000 || /\x00/.test(input.message)) throw new Error('提交说明为空或超过长度限制');
     const overrides = await this.mutationOverrides(workspace);
     const raw = (await this.run(workspace, [...overrides, 'status', '--porcelain=v1', '-z', '--untracked-files=all'])).text;
@@ -552,7 +829,9 @@ export class GitConnector {
       author.push('-c', `user.name=${input.authorName.trim()}`, '-c', `user.email=${input.authorEmail.trim()}`);
     }
     await this.run(workspace, [...overrides, 'add', '--all', '--', ...files]);
-    const branch = `refs/heads/agent/${basename(workspace)}`;
+    // 项目会话直接使用所选项目目录，提交必须落到项目当前分支；历史隔离工作区的
+    // 当前分支本身就是 agent/<sessionId>，因此仍保持原有提交链路。
+    const branch = `refs/heads/${branchName}`;
     const oldHead = (await this.run(workspace, ['rev-parse', '--verify', `${branch}^{commit}`])).text.trim();
     const tree = (await this.run(workspace, [...overrides, 'write-tree'])).text.trim();
     const stagedAfter = (await this.run(workspace, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', oldHead, tree, '--'])).text.split('\0').filter(Boolean);
@@ -576,6 +855,22 @@ export class GitConnector {
     const hash = (await this.run(workspace, [...overrides, ...author, 'commit-tree', tree, '-p', oldHead, '-m', input.message.trim()])).text.trim();
     await this.run(workspace, [...overrides, 'update-ref', '--create-reflog', '-m', '精工 Agent 提交', branch, hash, oldHead]);
     return hash;
+  }
+
+  private async credentialOverrides(workspace: string): Promise<string[]> {
+    const configured = (await this.run(workspace, ['config', '--null', '--show-scope', '--get-regexp', String.raw`^credential(\..*)?\.helper$`], { allowMissing: true })).text.split('\0');
+    const keys = new Set(['credential.helper']);
+    const trusted: Array<{ key: string; value: string }> = [];
+    for (let index = 0; index + 1 < configured.length; index += 2) {
+      const scope = configured[index], item = configured[index + 1], separator = item.indexOf('\n');
+      if (separator < 0) throw new Error('Git 凭据管理器配置格式无效，请检查本机 Git 配置');
+      const key = item.slice(0, separator), value = item.slice(separator + 1);
+      if (!/^credential(?:\..*)?\.helper$/i.test(key) || /[\x00-\x1f\x7f]/.test(key)) throw new Error('Git 凭据管理器配置名称无效，请先由管理员审核');
+      keys.add(key);
+      if (scope === 'system' || scope === 'global') trusted.push({ key, value });
+    }
+    // 先清除通用及 URL 专用 helper，再按原顺序恢复可信配置，仓库不能注入任意凭据脚本。
+    return [...[...keys].flatMap(key => ['-c', `${key}=`]), ...trusted.flatMap(({ key, value }) => ['-c', `${key}=${value}`])];
   }
 
   private async remoteTarget(workspace: string, remote: string, remotes: string[], operation: '推送' | '拉取' | '获取'): Promise<{ url: string; transport: string[] }> {
@@ -602,7 +897,8 @@ export class GitConnector {
       // Git 的外部凭据管理器或 SSH Agent 负责；URL 本身不能携带账号、口令、查询参数或片段。
       if (!['http:', 'https:', 'ssh:'].includes(parsed.protocol) || parsed.password || (['http:', 'https:'].includes(parsed.protocol) && parsed.username) || parsed.search || parsed.hash) throw new Error('远程地址协议不受支持或包含凭据');
     }
-    return { url, transport: ['-c', 'core.sshCommand=ssh', '-c', 'core.askPass=', '-c', 'credential.helper=', '-c', 'protocol.allow=never', '-c', 'protocol.http.allow=always', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', `protocol.file.allow=${local ? 'always' : 'never'}`] };
+    const credentials = /^https?:/i.test(url) ? await this.credentialOverrides(workspace) : ['-c', 'credential.helper='];
+    return { url, transport: ['-c', 'core.sshCommand=ssh', '-c', 'core.askPass=', ...credentials, '-c', 'protocol.allow=never', '-c', 'protocol.http.allow=always', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', `protocol.file.allow=${local ? 'always' : 'never'}`] };
   }
 
   async push(workspacePath: string, remote: string): Promise<void> {
@@ -615,7 +911,7 @@ export class GitConnector {
     try {
       await this.run(workspace, [...overrides, ...transport, 'push', '--no-verify', '--no-follow-tags', '--recurse-submodules=no', url, `refs/heads/${current.branch}:refs/heads/${current.branch}`]);
     } catch (error) {
-      if (/^https:/i.test(url)) throw new Error('HTTPS 推送失败。当前版本未接入 HTTPS 凭据认证，请改用已配置 SSH Agent 的 SSH 远程仓库，或由人工使用 Git Credential Manager 完成推送。');
+      if (/^https?:/i.test(url)) throw httpTransportError('推送', error);
       throw error;
     }
   }
@@ -636,7 +932,7 @@ export class GitConnector {
     const network = async (args: string[]) => {
       try { return await this.run(workspace, [...overrides, ...transport, ...args]); }
       catch (error) {
-        if (/^https?:/i.test(url)) throw new Error('HTTP(S) 拉取失败。请确认远程地址可访问且不需要交互式认证；如需认证，请改用已配置 SSH Agent 的 SSH 远程仓库。');
+        if (/^https?:/i.test(url)) throw httpTransportError('拉取', error);
         throw error;
       }
     };

@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const root = await mkdtemp(path.join(tmpdir(), 'jinggong-assignee-search-'));
+const evidenceDirectory = path.resolve(process.env.JINGGONG_TEST_EVIDENCE_DIR || root);
+await mkdir(evidenceDirectory, { recursive: true });
 const users = [...Array.from({ length: 500 }, (_, index) => ({ name: `dev${String(index).padStart(3, '0')}`, displayName: `开发人员${index}`, active: true })), { name: 'qa_jia', displayName: '张三', active: true }, { name: 'qa_yi', displayName: '张三', active: true }];
 const state = { queries: [], delayedFinished: false, assignee: undefined, transitions: 0 }, checks = [];
 const server = createServer(async (request, response) => {
@@ -35,12 +37,14 @@ let app;
 try {
   const env = { ...process.env, JINGGONG_TEST_DATA: path.join(root, 'data') }; delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ args: ['.'], env }); const page = await app.firstWindow(); page.setDefaultTimeout(15000);
-  await page.getByText('精工Agent引擎已就绪', { exact: true }).waitFor();
+  await expect(page.getByRole('button', { name: /^(?:打开)?全局设置$/ })).toBeEnabled({ timeout: 30000 });
+  const dialogs = [];
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await page.evaluate(url => window.jinggong.saveJira({ baseUrl: url, account: 'fixture', password: 'synthetic-only', projectKey: 'TEST', dateFieldId: '11116' }), `http://127.0.0.1:${server.address().port}/jira`);
   await page.reload(); await page.getByRole('button', { name: '查看 Jira 任务 TEST-1', exact: true }).click();
   await page.locator('.jira-workflow > summary').click();
   await page.getByLabel('Jira 目标状态').selectOption('101');
-  const picker = page.getByRole('combobox', { name: '搜索经办人', exact: true }), flow = page.getByRole('button', { name: '确认流转并提交反馈', exact: true });
+  const picker = page.getByRole('combobox', { name: '搜索经办人', exact: true }), flow = page.getByRole('button', { name: '流转并提交反馈', exact: true });
   await picker.fill('张三');
   await expect(page.getByRole('option', { name: '张三 qa_yi', exact: true })).toBeVisible();
   await expect(page.getByRole('option', { name: '张三 qa_jia', exact: true })).toBeVisible();
@@ -68,14 +72,15 @@ try {
   await expect(flow).toBeEnabled();
   await page.getByLabel('Jira 测试结果与补充说明').fill('经办人搜索与选择合成验证通过。');
   await picker.fill('张三'); await expect(page.getByRole('option', { name: '张三 qa_yi', exact: true })).toBeVisible();
-  await page.screenshot({ path: 'test-results/jira-assignee-search.png', fullPage: true });
+  await page.screenshot({ path: path.join(evidenceDirectory, 'jira-assignee-search.png'), fullPage: true });
   await page.getByRole('option', { name: '张三 qa_yi', exact: true }).click();
-  page.once('dialog', dialog => dialog.accept()); await flow.click();
+  await flow.click();
   await expect(page.locator('.jira-workflow')).toContainText('任务已流转至');
   assert.deepEqual(state.assignee, { name: 'qa_yi' }); assert.equal(state.transitions, 1);
+  assert.deepEqual(dialogs, []);
   assert.ok(state.queries.includes('dev499') && state.queries.includes('张三'));
   checks.push('账号搜索、上下键与回车选择通过；真实HTTP流转请求准确提交重名人员所选账号，仅执行一次');
-  await mkdir('test-results', { recursive: true }); await writeFile('test-results/jira-assignee-smoke.json', JSON.stringify({ passed: true, checks, testData: root, evidence: '真实Electron/UI/IPC/HTTP，Jira任务和502名经办人为本地合成数据，未操作用户Jira' }, null, 2));
+  await writeFile(path.join(evidenceDirectory, 'jira-assignee-smoke.json'), JSON.stringify({ passed: true, checks, testData: root, evidence: '真实Electron/UI/IPC/HTTP，Jira任务和502名经办人为本地合成数据，未操作用户Jira' }, null, 2));
 } catch (error) {
-  await writeFile('test-results/jira-assignee-smoke.json', JSON.stringify({ passed: false, checks, testData: root, error: String(error) }, null, 2)); throw error;
+  await writeFile(path.join(evidenceDirectory, 'jira-assignee-smoke.json'), JSON.stringify({ passed: false, checks, testData: root, error: String(error) }, null, 2)); throw error;
 } finally { if (app) await app.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

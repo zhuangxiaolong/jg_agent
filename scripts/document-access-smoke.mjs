@@ -10,9 +10,10 @@ import { strToU8, zipSync } from 'fflate';
 const root = await mkdtemp(path.join(tmpdir(), 'jinggong-document-access-'));
 const documents = path.join(root, '合成资料');
 const data = path.join(root, 'data');
+const outputRoot = path.resolve(process.env.JINGGONG_TEST_OUTPUT || path.join(root, 'artifacts'));
 await mkdir(documents);
 const canonicalDocuments = await realpath(documents);
-await mkdir('test-results', { recursive: true });
+await mkdir(outputRoot, { recursive: true });
 const zip = files => zipSync(Object.fromEntries(Object.entries({ '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>', ...files }).map(([name, value]) => [name, strToU8(value)])));
 const pdfObjects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', '<< /Length 42 >>\nstream\nBT /F1 12 Tf (MES WMS document) Tj ET\nendstream'];
 let pdf = '%PDF-1.4\n';
@@ -30,13 +31,20 @@ const fixtures = {
 for (const [name, bytes] of Object.entries(fixtures)) await writeFile(path.join(documents, name), bytes);
 const originalDigests = Object.fromEntries(Object.entries(fixtures).map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
 const checks = [];
+const logs = [];
+const runtimeKinds = ['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'];
+const sessions = [];
+const restrictions = new Map();
 let app;
 let page;
 async function launch() {
   const env = { ...process.env, JINGGONG_TEST_DATA: data };
   delete env.ELECTRON_RUN_AS_NODE;
-  app = await electron.launch({ args: ['.'], env });
+  app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env, cwd: process.cwd() });
+  app.process().stdout?.on('data', chunk => logs.push(String(chunk)));
+  app.process().stderr?.on('data', chunk => logs.push(String(chunk)));
   page = await app.firstWindow();
+  page.on('pageerror', error => logs.push(`页面异常：${error.stack || error.message}\n`));
   await expect(page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true })).toBeEnabled({ timeout: 30000 });
 }
 async function dialogReturns(paths, response) {
@@ -48,53 +56,80 @@ async function dialogReturns(paths, response) {
     };
   }, { paths, response });
 }
+async function assertFullAccess(session) {
+  await expect(page.getByLabel('当前会话运行时', { exact: true })).toHaveValue(session.runtimeKind);
+  const strip = page.getByLabel('会话执行权限', { exact: true });
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText('完整访问：文件读写与本机命令直接执行，遵循当前 Windows 用户权限。');
+  await expect(strip.locator('button, input, select, [disabled]')).toHaveCount(0);
+  await expect(page.getByLabel('会话资料读取范围', { exact: true })).toHaveCount(0);
+  for (const name of ['选择目录', '恢复全盘']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^撤销目录 / })).toHaveCount(0);
+  await expect(page.getByText(/全盘文档只读|指定目录只读|外部资料读取已关闭/)).toHaveCount(0);
+}
+async function selectSession(session) {
+  // 会话切换会清理空会话；保留合成草稿，不向任何模型发送。
+  await page.getByRole('textbox', { name: '输入任务' }).fill('完整访问回归合成草稿，不发送。');
+  await page.locator('.session-item').filter({ hasText: session.alias }).click();
+  await page.getByRole('textbox', { name: '输入任务' }).fill('完整访问回归合成草稿，不发送。');
+  await assertFullAccess(session);
+}
+async function report(passed, error) {
+  const result = { passed, date: new Date().toISOString(), checks, runtimeKinds, testData: root, outputRoot,
+    limitations: '使用隔离数据与合成文件；原生选择/确认对话框返回值由自动化替换；通过兼容 IPC 保存历史 restricted 数据；未调用真实模型或读取用户资料。',
+    ...(error ? { error: error instanceof Error ? error.stack : String(error) } : {}) };
+  await writeFile(path.join(outputRoot, 'document-access-smoke.json'), JSON.stringify(result, null, 2));
+  await writeFile(path.join(outputRoot, 'document-access-smoke.md'), `# 完整访问与附件解析回归\n\n结果：${passed ? '通过' : '失败'}\n\n时间：${result.date}\n\n${checks.map(check => `- 通过：${check}`).join('\n')}\n\n范围：${result.limitations}\n\n隔离数据：${root}\n${error ? `\n错误：${result.error}\n` : ''}`);
+  await writeFile(path.join(outputRoot, 'document-access-smoke.log'), logs.join(''));
+  return result;
+}
 try {
   await launch();
-  await page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true }).click();
-  await page.getByRole('textbox', { name: '输入任务' }).waitFor();
-  const session = (await page.evaluate(() => window.jinggong.bootstrap())).sessions[0];
-  assert.deepEqual(session.readAccess, { mode: 'full', directories: [] });
-  await expect(page.getByLabel('会话资料读取范围')).toContainText('全盘文档只读');
-  checks.push('新会话默认全盘文档只读，界面显示实际策略');
+  await page.evaluate(() => window.jinggong.saveModelProvider({ name: '完整访问隔离测试', baseUrl: 'https://document-access.example.invalid/v1', models: ['document-access-fixture'], apiKey: 'fixture-document-access-only' }));
+  for (const kind of runtimeKinds) {
+    const created = await page.evaluate(runtimeKind => window.jinggong.createSession({ runtimeKind, alias: `完整访问 ${runtimeKind}` }), kind);
+    assert.deepEqual(created.readAccess, { mode: 'full', directories: [] });
+    sessions.push(created);
+  }
+  await page.reload();
+  for (const session of sessions) {
+    await selectSession(session);
+    await page.screenshot({ path: path.join(outputRoot, `document-access-${session.runtimeKind}.png`), fullPage: true });
+  }
+  checks.push('Codex、精工、Claude、Grok 四种新会话均默认 full，并统一显示完整文件读写与命令权限');
 
-  await dialogReturns([documents], 0);
-  const cancelled = await page.evaluate(id => window.jinggong.authorizeSessionDirectory(id), session.id);
-  assert.equal(cancelled.readAccess.mode, 'full');
-  const confirmation = await app.evaluate(() => globalThis.__documentAccessConfirmation);
-  assert.equal(confirmation.title, '确认只读目录授权');
-  assert.ok(confirmation.detail.includes(canonicalDocuments));
-  assert.equal(confirmation.defaultId, 0);
-  checks.push('系统目录选择后必须二次确认，取消保留原范围');
+  for (const [index, session] of sessions.entries()) {
+    await selectSession(session);
+    await dialogReturns([documents], 1);
+    const restricted = await page.evaluate(id => window.jinggong.authorizeSessionDirectory(id), session.id);
+    assert.equal(restricted.readAccess.mode, 'restricted');
+    assert.equal(path.resolve(restricted.readAccess.directories[0].path), path.resolve(canonicalDocuments));
+    const saved = index % 2 === 0 ? restricted : await page.evaluate(({ id, grantId }) => window.jinggong.revokeSessionDirectory(id, grantId), { id: session.id, grantId: restricted.readAccess.directories[0].id });
+    assert.equal(saved.readAccess.mode, 'restricted');
+    assert.equal(saved.readAccess.directories.length, index % 2 === 0 ? 1 : 0);
+    restrictions.set(session.id, saved.readAccess);
+    await assertFullAccess(session);
+  }
+  checks.push('真实兼容 IPC/SQLite 保存带目录与空目录的旧 restricted 数据，四种界面均继续显示完整访问且无旧只读/目录控制');
 
-  await dialogReturns([documents], 1);
-  await page.getByRole('button', { name: '选择目录', exact: true }).click();
-  await expect(page.getByLabel('会话资料读取范围')).toContainText('指定目录只读');
-  const restricted = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
-  assert.equal(restricted.readAccess.mode, 'restricted');
-  assert.equal(restricted.readAccess.directories.length, 1);
-  assert.equal(path.resolve(restricted.readAccess.directories[0].path), path.resolve(canonicalDocuments));
-  checks.push('确认后通过真实 IPC/SQLite 保存受限目录并更新界面');
+  await app.close(); app = undefined;
+  await launch();
+  const restored = await page.evaluate(() => window.jinggong.bootstrap());
+  for (const session of sessions) {
+    assert.deepEqual(restored.sessions.find(item => item.id === session.id).readAccess, restrictions.get(session.id));
+    await selectSession(session);
+    await page.screenshot({ path: path.join(outputRoot, `document-access-${session.runtimeKind}-restored.png`), fullPage: true });
+  }
+  checks.push('退出并重启后真实恢复四种会话历史 restricted 数据，仍统一显示完整访问，未出现只读或禁用权限');
+
+  const session = sessions[0];
+  await selectSession(session);
 
   await dialogReturns(Object.keys(fixtures).map(name => path.join(documents, name)), 1);
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
   await expect(page.getByLabel('待发送附件').locator('.composer-attachment')).toHaveCount(5);
   for (const name of Object.keys(fixtures)) await expect(page.getByLabel('待发送附件')).toContainText(name);
   checks.push('PDF、DOCX、XLSX、PPTX、TXT 经主进程真实解析后显示附件，无解析失败');
-
-  await app.close(); app = undefined;
-  await launch();
-  const restored = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
-  assert.deepEqual(restored.readAccess, restricted.readAccess);
-  await page.screenshot({ path: 'test-results/document-access-restricted.png', fullPage: true });
-  await page.getByRole('button', { name: `撤销目录 ${canonicalDocuments}`, exact: true }).click();
-  await expect(page.getByLabel('会话资料读取范围')).toContainText('外部资料读取已关闭');
-  const revoked = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
-  assert.deepEqual(revoked.readAccess, { mode: 'restricted', directories: [] });
-  await page.getByRole('button', { name: '恢复全盘', exact: true }).click();
-  await expect(page.getByLabel('会话资料读取范围')).toContainText('全盘文档只读');
-  const full = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
-  assert.deepEqual(full.readAccess, { mode: 'full', directories: [] });
-  checks.push('重启保留授权；撤销最后一个目录保持无外部读取，显式恢复才重开全盘');
 
   const legacy = path.join(documents, '旧版.doc');
   await writeFile(legacy, '合成旧版占位数据');
@@ -103,11 +138,11 @@ try {
   checks.push('旧版二进制 Office 附件给出另存格式提示，不作为已解析正文');
   for (const [name, digest] of Object.entries(originalDigests)) assert.equal(createHash('sha256').update(await readFile(path.join(documents, name))).digest('hex'), digest);
   checks.push('选择与解析前后所有合成源文件 SHA256 一致，没有写回源资料');
-  await page.screenshot({ path: 'test-results/document-access-smoke.png', fullPage: true });
-  await writeFile('test-results/document-access-smoke.json', JSON.stringify({ passed: true, date: new Date().toISOString(), checks, testData: root, limitations: '使用合成文件；原生选择/确认对话框返回值由自动化替换；未调用真实模型或读取用户资料。' }, null, 2));
-  console.log(JSON.stringify({ passed: true, checks }, null, 2));
+  await page.screenshot({ path: path.join(outputRoot, 'document-access-smoke.png'), fullPage: true });
+  console.log(JSON.stringify(await report(true), null, 2));
 } catch (error) {
-  await writeFile('test-results/document-access-smoke.json', JSON.stringify({ passed: false, date: new Date().toISOString(), checks, error: String(error), testData: root }, null, 2));
-  await page?.screenshot({ path: 'test-results/document-access-smoke-failed.png', fullPage: true }).catch(() => {});
+  await report(false, error);
+  await page?.screenshot({ path: path.join(outputRoot, 'document-access-smoke-failed.png'), fullPage: true }).catch(() => {});
+  console.error(`回归产物：${outputRoot}`);
   throw error;
 } finally { await app?.close(); }

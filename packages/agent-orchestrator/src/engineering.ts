@@ -46,7 +46,7 @@ function text(value: unknown, name: string, maximum = 20000): asserts value is s
 }
 export function validateTaskContract(contract: TaskContract): TaskContract {
   if (!contract || !ID.test(contract.taskId) || !ID.test(contract.sessionId) || contract.projectId !== undefined && !ID.test(contract.projectId) || contract.parentTaskId !== undefined && !ID.test(contract.parentTaskId)) throw new Error('任务契约标识无效');
-  if (!['codex', 'jinggong', 'claude_agent_sdk'].includes(contract.runtimeKind)) throw new Error('任务契约 Runtime 无效');
+  if (!['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(contract.runtimeKind)) throw new Error('任务契约 Runtime 无效');
   if (!Number.isSafeInteger(contract.contractVersion) || contract.contractVersion < 1) throw new Error('任务契约版本无效');
   text(contract.title, '任务标题', 120); text(contract.goal, '任务目标'); text(contract.description, '任务描述');
   text(contract.createdBy, '契约创建者', 128); text(contract.permissionProfile, '权限配置', 128);

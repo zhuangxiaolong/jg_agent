@@ -4,14 +4,36 @@ import type { TaskAuditAppend, TaskAuditSnapshot, TaskContract, TaskContractReco
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
+import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
+/** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
+function safeRuntimeApproval(value: RuntimeApproval): RuntimeApproval {
+  if (!value || typeof value.requestId !== 'string' || !value.requestId || !['pending', 'allowed', 'rejected', 'expired'].includes(value.state)) throw new Error('Runtime 审批事件无效');
+  const rawInput = typeof value.input === 'string' ? value.input : '';
+  let fields: string[] = [];
+  try {
+    const parsed = JSON.parse(rawInput) as Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      fields = Object.keys(parsed).filter(key => /^[A-Za-z0-9_.-]{1,64}$/.test(key)).slice(0, 32).sort();
+    }
+  } catch { /* 非 JSON 输入按文本摘要保存。 */ }
+  const input = JSON.stringify({ redacted: true, fields, bytes: Buffer.byteLength(rawInput, 'utf8') });
+  const toolName = /^[A-Za-z0-9_.-]{1,128}$/.test(value.toolName) ? value.toolName : 'runtime_tool';
+  return {
+    requestId: value.requestId.slice(0, 128),
+    title: toolName,
+    toolName,
+    input,
+    state: value.state,
+  };
+}
 
 function normalizeSession(session: Session): Session {
   const value = { ...session } as Session & { mode?: unknown };
@@ -264,7 +286,7 @@ function safeWeComDeliveryRecord(record: WeComDeliveryRecord): WeComDeliveryReco
     ...(target.mentionedUserIds ? { mentionedUserIds: target.mentionedUserIds.map(value => String(value).slice(0, 128)).slice(0, 50) } : {}),
     ...(target.mentionedMobiles ? { mentionedMobiles: target.mentionedMobiles.map(value => String(value).slice(0, 20)).slice(0, 50) } : {}),
     ...(Array.isArray(target.workspaceIds) && target.workspaceIds.length ? { workspaceIds: target.workspaceIds.map(value => String(value).slice(0, 128)).slice(0, 50) } : {}),
-    ...(Array.isArray(target.runtimeKinds) && target.runtimeKinds.length ? { runtimeKinds: target.runtimeKinds.filter(value => value === 'jinggong' || value === 'codex' || value === 'claude_agent_sdk').slice(0, 3) } : {}),
+    ...(Array.isArray(target.runtimeKinds) && target.runtimeKinds.length ? { runtimeKinds: target.runtimeKinds.filter(value => value === 'jinggong' || value === 'codex' || value === 'claude_agent_sdk' || value === 'grok_build_acp').slice(0, 4) } : {}),
   };
   const value: WeComDeliveryRecord = {
     id: record.id,
@@ -316,6 +338,7 @@ export function jiraSnapshot(issue: JiraIssue): JiraIssue {
   };
   if (issue.priority !== undefined) value.priority = jiraText(issue.priority, '优先级', 200);
   if (issue.assignee !== undefined) value.assignee = jiraText(issue.assignee, '负责人', 500);
+  if (issue.reporter !== undefined) value.reporter = jiraText(issue.reporter, '报告人', 500);
   if (issue.updated !== undefined) value.updated = jiraText(issue.updated, '更新时间', 100);
   return value;
 }
@@ -496,6 +519,15 @@ export class LocalStore {
             CREATE TRIGGER verification_executions_no_update BEFORE UPDATE ON verification_executions BEGIN SELECT RAISE(ABORT, 'verification executions are append-only'); END;
             CREATE TRIGGER verification_executions_no_delete BEFORE DELETE ON verification_executions BEGIN SELECT RAISE(ABORT, 'verification executions are append-only'); END;
             PRAGMA user_version = 10;
+          `);
+        });
+      }
+      if (version <= 10) {
+        store.transaction(() => {
+          store.db.run(`
+            CREATE TABLE grok_provider_profiles (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE grok_model_profiles (provider_id TEXT NOT NULL REFERENCES grok_provider_profiles(id) ON DELETE CASCADE, model_id TEXT NOT NULL, api_backend TEXT NOT NULL, enabled INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(provider_id, model_id));
+            PRAGMA user_version = 11;
           `);
         });
       }
@@ -881,11 +913,11 @@ export class LocalStore {
 
   getSession(id: string): Session | undefined { const session = this.rows<Session>('SELECT value FROM sessions WHERE id = ?', [id])[0]; return session ? normalizeSession(session) : undefined; }
 
-  saveSession(session: Session): void {
+  saveSession(session: Session, options: { rememberModelDefaults?: boolean } = {}): void {
     const current = this.getSession(session.id);
     if (current && current.projectId !== session.projectId && this.listAgentTasks(session.id).length) throw new Error('会话已有子 Agent 任务，不能更改项目绑定');
     const nextRuntime = session.runtimeKind ?? current?.runtimeKind ?? 'codex';
-    if (nextRuntime !== 'jinggong' && nextRuntime !== 'codex' && nextRuntime !== 'claude_agent_sdk') throw new Error('会话 Runtime 类型无效');
+    if (nextRuntime !== 'jinggong' && nextRuntime !== 'codex' && nextRuntime !== 'claude_agent_sdk' && nextRuntime !== 'grok_build_acp') throw new Error('会话 Runtime 类型无效');
     const value: Session = { id: session.id, projectId: session.projectId, title: normalizeSession(session).title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
     if (session.titleSource === 'content') value.titleSource = session.titleSource;
     if (session.workspaceId !== undefined) {
@@ -904,8 +936,16 @@ export class LocalStore {
     if (session.runtimeThreadId !== undefined) value.runtimeThreadId = session.runtimeThreadId;
     if (session.runtimeNativeSessionId !== undefined) value.runtimeNativeSessionId = session.runtimeNativeSessionId;
     if (session.runtimeCapabilitiesVersion !== undefined) value.runtimeCapabilitiesVersion = session.runtimeCapabilitiesVersion;
+    if (session.runtimeExecutionRulesVersion !== undefined) {
+      if (!Number.isSafeInteger(session.runtimeExecutionRulesVersion) || session.runtimeExecutionRulesVersion < 0) throw new Error('会话执行指引版本无效');
+      value.runtimeExecutionRulesVersion = session.runtimeExecutionRulesVersion;
+    }
     value.runtimeKind = nextRuntime;
     if (session.runtimeVersion !== undefined) value.runtimeVersion = session.runtimeVersion;
+    if (session.grokBinding !== undefined) {
+      if (typeof session.grokBinding !== 'string' || !/^[a-f0-9]{64}$/.test(session.grokBinding)) throw new Error('Grok 会话配置绑定无效');
+      value.grokBinding = session.grokBinding;
+    }
     if (session.providerId !== undefined) value.providerId = session.providerId;
     if (session.system !== undefined) value.system = session.system;
     if (session.jiraProjectKey !== undefined) value.jiraProjectKey = session.jiraProjectKey;
@@ -924,7 +964,12 @@ export class LocalStore {
       if (new Set(directories.map(directory => directory.id)).size !== directories.length) throw new Error('会话只读目录授权 ID 重复');
       value.readAccess = { mode: access.mode, directories };
     }
-    this.transaction(() => this.db.run('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId ?? null, value.createdAt, JSON.stringify(value)]));
+    if (options.rememberModelDefaults && (!value.providerId || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(value.model))) throw new Error('新会话默认模型配置无效');
+    this.transaction(() => {
+      this.db.run('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId ?? null, value.createdAt, JSON.stringify(value)]);
+      // 只在会话设置成功保存时同步新会话默认值，不跟随运行状态或 Runtime 切换改写。
+      if (options.rememberModelDefaults) this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['session-model-defaults', JSON.stringify({ providerId: value.providerId, model: value.model, ...(value.reasoningEffort !== undefined ? { reasoningEffort: value.reasoningEffort } : {}) })]);
+    });
   }
 
   events(sessionId: string): AgentEvent[] { return this.rows<AgentEvent>('SELECT value FROM events WHERE session_id = ? ORDER BY seq', [sessionId]); }
@@ -982,6 +1027,7 @@ export class LocalStore {
   appendEvent(event: AgentEvent): void {
     const value: AgentEvent = { id: event.id, sessionId: event.sessionId, type: event.type, text: event.text, createdAt: event.createdAt };
     if (event.requestId !== undefined) value.requestId = event.requestId;
+    if (event.approval !== undefined) value.approval = safeRuntimeApproval(event.approval);
     this.transaction(() => this.db.run('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)', [value.id, value.sessionId, JSON.stringify(value)]));
   }
 
@@ -989,18 +1035,58 @@ export class LocalStore {
     return this.rows<ProviderSettings>('SELECT value FROM settings WHERE key = ?', ['provider'])[0] ?? { baseUrl: '', model: '', hasKey: false };
   }
 
+  getSessionModelDefaults(): Pick<Session, 'providerId' | 'model' | 'reasoningEffort'> | undefined {
+    const value = this.rows<Pick<Session, 'providerId' | 'model' | 'reasoningEffort'>>('SELECT value FROM settings WHERE key = ?', ['session-model-defaults'])[0];
+    if (!value || typeof value.providerId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.providerId) || typeof value.model !== 'string' || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(value.model) || value.reasoningEffort !== undefined && !['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(value.reasoningEffort)) return undefined;
+    return { providerId: value.providerId, model: value.model, ...(value.reasoningEffort !== undefined ? { reasoningEffort: value.reasoningEffort } : {}) };
+  }
+
   /** 全局默认仅影响新建会话；缺失配置按 Codex 迁移并持久化。 */
   getRuntimeKind(): RuntimeKind {
     const value = this.rows<{ kind?: unknown }>('SELECT value FROM settings WHERE key = ?', ['runtime-kind'])[0];
-    if (value?.kind === 'jinggong' || value?.kind === 'codex' || value?.kind === 'claude_agent_sdk') return value.kind;
+    if (value?.kind === 'jinggong' || value?.kind === 'codex' || value?.kind === 'claude_agent_sdk' || value?.kind === 'grok_build_acp') return value.kind;
     this.saveRuntimeKind('codex');
     return 'codex';
   }
 
   saveRuntimeKind(kind: RuntimeKind): RuntimeKind {
-    if (kind !== 'jinggong' && kind !== 'codex' && kind !== 'claude_agent_sdk') throw new Error('Runtime 类型无效');
+    if (kind !== 'jinggong' && kind !== 'codex' && kind !== 'claude_agent_sdk' && kind !== 'grok_build_acp') throw new Error('Runtime 类型无效');
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['runtime-kind', JSON.stringify({ kind })]));
     return kind;
+  }
+
+  getGrokRuntime(): GrokRuntimeSettings {
+    const value = this.rows<GrokRuntimeSettings>('SELECT value FROM settings WHERE key = ?', ['grok-runtime'])[0];
+    return value ? safeGrokRuntime(value) : { enabled: false, executablePath: '' };
+  }
+
+  saveGrokRuntime(input: GrokRuntimeSettings): void {
+    const value = safeGrokRuntime(input);
+    this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['grok-runtime', JSON.stringify(value)]));
+  }
+
+  listGrokProviders(): Array<GrokProviderProfile & { sharedIdentity?: string }> {
+    return this.rows<Omit<GrokProviderProfile, 'models'> & { sharedIdentity?: string }>('SELECT value FROM grok_provider_profiles ORDER BY rowid').map(provider => ({
+      ...provider, hasKey: false,
+      models: this.rows<GrokModelProfile>('SELECT value FROM grok_model_profiles WHERE provider_id = ? ORDER BY rowid', [provider.id]),
+    }));
+  }
+
+  saveGrokProvider(input: GrokProviderProfile, sharedIdentity?: string): void {
+    const value = safeGrokProvider(input);
+    if (sharedIdentity !== undefined && !/^[a-f0-9]{64}$/.test(sharedIdentity)) throw new Error('Grok 共享模型配置绑定无效');
+    const providers = this.listGrokProviders();
+    if (!providers.some(provider => provider.id === value.id) && providers.length >= 20) throw new Error('最多保存 20 个 Grok 中转站');
+    const metadata = { id: value.id, name: value.name, baseUrl: value.baseUrl, enabled: value.enabled, hasKey: false, ...(sharedIdentity ? { sharedIdentity } : {}) };
+    this.transaction(() => {
+      this.db.run('INSERT INTO grok_provider_profiles(id, value) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET value=excluded.value', [value.id, JSON.stringify(metadata)]);
+      this.db.run('DELETE FROM grok_model_profiles WHERE provider_id = ?', [value.id]);
+      for (const model of value.models) this.db.run('INSERT INTO grok_model_profiles(provider_id, model_id, api_backend, enabled, value) VALUES (?, ?, ?, ?, ?)', [value.id, model.id, model.apiBackend, model.enabled ? 1 : 0, JSON.stringify(model)]);
+    });
+  }
+
+  deleteGrokProvider(id: string): void {
+    this.transaction(() => this.db.run('DELETE FROM grok_provider_profiles WHERE id = ?', [grokProfileId(id)]));
   }
 
   /** Claude 的模型和可选兼容 Base URL 仅保存为元数据；API Key 不进入 SQLite。 */

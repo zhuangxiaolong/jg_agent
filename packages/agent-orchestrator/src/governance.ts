@@ -116,8 +116,15 @@ export interface TaskGovernanceAuditEvent { readonly eventType: TaskGovernanceAu
 export interface GovernedToolInvocation { callId: string; toolName: string; arguments: unknown; requiredPermission: TaskPermission; paths?: readonly string[]; idempotencyKey?: string }
 export interface RecoveredToolCall { readonly callId: string; readonly argumentsHash: string; readonly toolName: string; readonly idempotencyKeyHash?: string; readonly outcome: 'completed' | 'failed' | 'unknown_outcome' | 'started' }
 export function normalizeTaskRelativePath(value: string): string {
-  if (typeof value !== 'string' || !value || /^[\\/]/.test(value) || /[:\x00-\x1f]/.test(value)) throw new GovernanceError('invalid_relative_path');
-  const parts = value.replaceAll('\\', '/').split('/');
+  // 模型有时会把路径包在 Markdown 代码标记或引号中；去掉外层标记后再做同一套相对路径校验。
+  let clean = value;
+  if (typeof clean === 'string' && clean.length >= 2) {
+    const first = clean[0];
+    const last = clean[clean.length - 1];
+    if ((first === '`' || first === "'" || first === '"') && first === last) clean = clean.slice(1, -1);
+  }
+  if (typeof clean !== 'string' || !clean || /^[\\/]/.test(clean) || /[:\x00-\x1f]/.test(clean)) throw new GovernanceError('invalid_relative_path');
+  const parts = clean.replaceAll('\\', '/').split('/');
   if (parts.some(part => !part || part === '.' || part === '..' || /[. ]$/.test(part))) throw new GovernanceError('invalid_relative_path');
   return parts.join('/');
 }

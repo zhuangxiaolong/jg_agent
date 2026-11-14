@@ -65,7 +65,6 @@ try {
   assert.ok(standaloneSession.workspacePath);
   await expect(page.getByRole('region', { name: '独立会话', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Git', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: /代码变更/ })).toBeDisabled();
   await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
   checks.push('无项目会话直接创建且无弹框或 mode 字段；独立会话列表显示，Git/差异/分支入口在关联项目后启用');
   await assert.rejects(page.evaluate(id => window.jinggong.sendTurn(id, '独立会话分享验收，未配置模型时不得请求外部服务'), standaloneSession.id), /配置/);
@@ -138,13 +137,12 @@ try {
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
   await expect(page.locator('.composer-attachment')).toHaveCount(2);
   checks.push('会话输入区可选择图片和普通文件，附件元数据通过主进程校验并显示在待发送列表');
-  await page.getByLabel('当前会话基准分支', { exact: true }).selectOption('feature/入口切换');
-  await expect(page.getByRole('status')).toContainText('已切换到基准分支 feature/入口切换');
+  await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
   const switched = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
-  assert.equal(switched?.baseBranch, 'feature/入口切换');
+  assert.equal(switched?.workspacePath, boot.projects[0].path, '项目会话直接使用已选项目目录');
   const switchedGit = await page.evaluate(id => window.jinggong.getGitState(id), session.id);
   assert.equal(switchedGit.branch, session.branch);
-  checks.push('会话输入区可切换本地基准分支，保留 agent 工作分支身份并刷新工作区差异');
+  checks.push('项目会话不提供隔离基准分支选择，直接使用已选项目目录和当前分支');
   await expect(page.locator('.project-item')).toHaveAttribute('aria-expanded', 'true');
   await page.locator('.project-item').click();
   await expect(page.locator('.session-item')).toBeHidden();
@@ -262,7 +260,7 @@ try {
   await expect(progress).toHaveCount(0);
   await sendProgress([{ id: 'smoke-progress-next-user', type: 'user', text: '下一轮进度验收' }, { id: 'smoke-progress-next-running', type: 'status', text: 'running' }]);
   await expect(progress).toHaveAttribute('aria-expanded', 'false');
-  await expect(progress).toContainText('正在准备运行环境…');
+  await expect(progress).toContainText('正在连接模型并等待首条响应…');
   await sendProgress([{ id: 'smoke-progress-next-end', type: 'status', text: 'interrupted' }]);
   checks.push('实际测试包运行中指示器随工具和连续文本事件更新，点击展开/收起，终态移除，下轮清空旧进度；事件为离线测试注入，未调用模型');
   await page.evaluate(() => {
@@ -395,13 +393,15 @@ try {
   await page.waitForFunction(() => { const element = document.querySelector('.messages'); return !!element && element.scrollHeight - element.scrollTop - element.clientHeight < 5; });
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\n真实 Diff 验证\n');
   await writeFile(path.join(session.workspacePath, '新增文件.txt'), '新增内容\n');
-  await page.getByRole('button', { name: '代码变更', exact: true }).click();
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
   await page.getByRole('button', { name: '刷新代码差异', exact: true }).click();
   await page.getByRole('button', { name: 'README.md', exact: false }).waitFor();
   const diffs = await page.evaluate(id => window.jinggong.getDiff(id), session.id);
   assert.equal(diffs.length, 2); assert.ok(diffs.some(diff => diff.diff.includes('+真实 Diff 验证')));
-  assert.equal(git(['status', '--porcelain']).trim(), '');
-  checks.push('依据 JZ.IMS.sln 自动识别 MES5；会话设置默认收起；完成事件提示音只播放一次；Markdown 标题/重点/路径/代码块和阅读位置保持；原生目录选择、真实隔离 Worktree 与 Diff');
+  const projectStatus = git(['status', '--porcelain']);
+  assert.match(projectStatus, /README\.md/);
+  assert.match(projectStatus, /\?\?/);
+  checks.push('依据 JZ.IMS.sln 自动识别 MES5；会话设置默认收起；完成事件提示音只播放一次；Markdown 标题/重点/路径/代码块和阅读位置保持；项目目录直接产生真实 Diff');
   await page.screenshot({ path: 'test-results/desktop-workspace.png' });
   await assert.rejects(page.evaluate(id => window.jinggong.sendTurn(id, '验证未配置凭据'), session.id), /配置|Jinggong Runtime 尚未就绪/);
   const events = await page.evaluate(id => window.jinggong.getEvents(id), session.id);
@@ -542,13 +542,8 @@ try {
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\nTODO 待修复\n');
   const blocked = await page.evaluate(id => window.jinggong.checkRequirements(id), session.id);
   assert.equal(blocked.find(item => item.documentId === policy.id).status, 'fail');
-  await assert.rejects(page.evaluate(id => window.jinggong.commitChanges(id, { message: '应被阻断', reviewedDocumentIds: [] }), session.id), /开发要求未通过/);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\n真实 Diff 验证\n');
-  await assert.rejects(page.evaluate(id => window.jinggong.commitChanges(id, { message: '需要复核', reviewedDocumentIds: [] }), session.id), /逐份核对/);
-  checks.push('MES5/MES6/WMS真实文件字典导入；JSON机器规则阻断违规提交；文字要求强制复核');
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false }); });
-  await assert.rejects(page.evaluate(input => window.jinggong.commitChanges(input.id, { message: '应取消提交', reviewedDocumentIds: [input.ruleId] }), { id: session.id, ruleId: writtenRule.id }), /已取消/);
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
+  checks.push('MES5/MES6/WMS真实文件字典导入；JSON机器规则仍可按需检查；提交不再强制机器检查或文字复核');
   await app.close(); app = undefined;
   page = await launch();
   await page.getByRole('button', { name: 'Git', exact: true }).click();
@@ -556,10 +551,11 @@ try {
   await page.waitForFunction(() => document.querySelector('#commit-message')?.value.length > 0);
   const generated = await page.locator('#commit-message').inputValue();
   assert.ok(generated.includes('README.md'));
-  await page.getByRole('button', { name: '检查开发要求', exact: true }).click();
-  await page.getByRole('checkbox', { name: '我已逐项核对“开发要求.md”', exact: true }).check();
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
-  await page.getByRole('button', { name: '审核并提交', exact: true }).click();
+  await app.evaluate(({ dialog }) => {
+    globalThis.__gitDialogs = [];
+    dialog.showMessageBox = async (_window, options) => { globalThis.__gitDialogs.push(options.title); return { response: 0, checkboxChecked: false }; };
+  });
+  await page.getByRole('button', { name: '提交代码', exact: true }).click();
   await page.getByText(/已提交：/).waitFor();
   await page.getByRole('button', { name: '推送分支', exact: true }).click();
   await page.getByText('当前分支已推送。', { exact: true }).waitFor();
@@ -570,7 +566,8 @@ try {
   assert.equal(git(['status', '--porcelain']).trim(), '');
   assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'main');
   await page.screenshot({ path: 'test-results/desktop-git.png' });
-  checks.push('Git界面真实历史/Diff生成message/提交/本地Bare推送同名agent分支，原main未改；系统确认取消生效');
+  assert.deepEqual(await app.evaluate(() => globalThis.__gitDialogs), []);
+  checks.push('Git界面真实历史/Diff生成message/提交/本地Bare推送当前项目分支；提交和推送不弹确认框');
   const backup = path.join(root, 'backup.db');
   await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, backup);
   assert.equal(await page.evaluate(() => window.jinggong.backup()), backup);

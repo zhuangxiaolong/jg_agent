@@ -153,12 +153,15 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
     } catch (reason) { if (request === timeZoneSequence.current) setTimeZoneError(`未能确认 Jira 时区：${readableError(reason)}。可手动选择日期后抓取，或重试“使用 Jira 今日”。`); }
     finally { if (request === timeZoneSequence.current) setTimeZoneLoading(false); }
   }
-  async function performSearch(query: QuerySelection, startAt = 0, automaticRequest = false) {
+  async function performSearch(query: QuerySelection, startAt = 0, automaticRequest = false, preserveDetail = false) {
     const context = contextSequence.current;
     const request = ++sequence.current;
     busy.current = true;
-    detailSequence.current += 1;
-    setLoading(true); setError(''); setDetailError(''); setIssue(null); setSelected(''); setDetailLoading(false);
+    if (!preserveDetail) {
+      detailSequence.current += 1;
+      setDetailError(''); setIssue(null); setSelected(''); setDetailLoading(false);
+    }
+    setLoading(true); setError('');
     try {
       const next = await api.searchJiraIssues({ date: query.date, startAt, onlyMine: query.onlyMine, scope: query.scope, projectKey: query.projectKey });
       if (request !== sequence.current || context !== contextSequence.current) return;
@@ -188,6 +191,10 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
   function search(startAt = 0) {
     markFiltersChanged(false);
     return performSearch({ date, onlyMine, scope, projectKey: jiraProjectKey, projectLabel: selectedProjectLabel }, startAt);
+  }
+  async function refreshAfterTransition(updated?: JiraIssue) {
+    if (updated) setIssue(updated);
+    if (searched) await performSearch(searched, result?.startAt ?? 0, false, true);
   }
   function automaticSearch(currentDate: string, force = false) {
     if (!autoGate.current.claim(currentDate, force)) return;
@@ -262,11 +269,11 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
     {error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}
     <div className="jira-browser">
       <section className="jira-results" aria-label="Jira 任务列表"><div className="jira-list-heading"><strong>{loading ? '正在读取 Jira' : result ? `共 ${result.total.toLocaleString('zh-CN')} 项任务` : '待抓取任务'}</strong>{result && <span>{result.issues.length ? `${result.startAt + 1}–${result.startAt + result.issues.length}` : '0'} / {result.total}</span>}</div>
-        {loading && !result ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在抓取任务</strong><p>通过已保存的 Jira 连接查询真实数据。</p></div> : result?.issues.length ? <div className="jira-issue-list">{result.issues.map(item => <button key={item.id || item.key} className={`jira-issue-row ${selected === item.key ? 'selected' : ''}`} aria-label={`查看 Jira 任务 ${item.key}`} aria-pressed={selected === item.key} disabled={changed || loading} onClick={() => read(item.key)}><div><strong>{item.key}</strong><span>{item.status}</span></div><b>{item.summary}</b><small>项目 {item.key.replace(/-\d+$/, '')} · {item.issueType} · {item.assignee || '未分配'}{item.priority ? ` · ${item.priority}` : ''}</small></button>)}</div> : <div className="jira-empty"><Icon name="file" /><strong>{result ? searched?.scope === 'daily' ? '该日期没有匹配任务' : '当前条件没有匹配任务' : '选择查询范围后抓取 Jira 任务'}</strong><p>{result ? '请检查项目范围、日期和负责人条件，调整后重新抓取。' : '无需先添加本地项目，即可查看需求。'}</p></div>}
+        {loading && !result ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在抓取任务</strong><p>通过已保存的 Jira 连接查询真实数据。</p></div> : result?.issues.length ? <div className="jira-issue-list">{result.issues.map(item => <button key={item.id || item.key} className={`jira-issue-row ${selected === item.key ? 'selected' : ''}`} aria-label={`查看 Jira 任务 ${item.key}`} aria-pressed={selected === item.key} disabled={changed || loading} onClick={() => read(item.key)}><div><strong>{item.key}</strong><span>{item.status}</span></div><b>{item.summary}</b><small>项目 {item.key.replace(/-\d+$/, '')} · {item.issueType} · {item.assignee || '未分配'} · 报告人：{item.reporter || '未提供'}{item.priority ? ` · ${item.priority}` : ''}</small></button>)}</div> : <div className="jira-empty"><Icon name="file" /><strong>{result ? searched?.scope === 'daily' ? '该日期没有匹配任务' : '当前条件没有匹配任务' : '选择查询范围后抓取 Jira 任务'}</strong><p>{result ? '请检查项目范围、日期和负责人条件，调整后重新抓取。' : '无需先添加本地项目，即可查看需求。'}</p></div>}
         {result && <div className="jira-pagination"><button className="secondary-button" aria-label="Jira 任务上一页" disabled={loading || changed || result.startAt <= 0} onClick={() => search(Math.max(0, result.startAt - result.maxResults))}>上一页</button><span>每页 {result.maxResults} 项</span><button className="secondary-button" aria-label="Jira 任务下一页" disabled={loading || changed || result.isLast || result.startAt + result.issues.length >= result.total} onClick={() => search(result.startAt + result.maxResults)}>下一页</button></div>}
       </section>
       <section className="jira-detail-panel" aria-label="任务详情与本地项目">
-        {detailLoading ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在读取 {selected}</strong><p>获取任务描述与附件元数据。</p></div> : detailError ? <div className="jira-detail-error"><div className="form-error" role="alert"><Icon name="alert" />{detailError}</div><button className="secondary-button" disabled={changed || loading} onClick={() => read(selected)}>重试任务详情</button></div> : issue ? <><JiraIssueDetails issue={issue} compact={compact} /><div className="jira-create-session"><label>关联本地项目<select aria-label="Jira 关联本地项目" value={projectId} onChange={event => onProjectChange(event.target.value)} disabled={creating}><option value="">请选择本地 Git 项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button" onClick={() => { if (searched && !changed) void onCreateIssue(issue.key, searched.projectKey); }} disabled={isJiraCreateSessionDisabled({ projectId, creating, changed, loading, hasSearch: !!searched })}><Icon name="plus" />{creating ? '正在创建会话…' : '从此任务创建会话'}</button><p>创建时重新读取 Jira 任务并保存真实快照，准备任务内容后由您点击发送。</p></div><JiraWorkflow key={issue.key} issue={issue} projectKey={searched?.projectKey} onUpdated={updated => setIssue(updated)} /></> : <div className="jira-empty"><Icon name="chat" /><strong>选择一项任务查看详情</strong><p>描述、附件与原始链接会显示在这里。</p></div>}
+        {detailLoading ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在读取 {selected}</strong><p>获取任务描述与附件元数据。</p></div> : detailError ? <div className="jira-detail-error"><div className="form-error" role="alert"><Icon name="alert" />{detailError}</div><button className="secondary-button" disabled={changed || loading} onClick={() => read(selected)}>重试任务详情</button></div> : issue ? <><JiraIssueDetails issue={issue} compact={compact} /><div className="jira-create-session"><label>关联本地项目<select aria-label="Jira 关联本地项目" value={projectId} onChange={event => onProjectChange(event.target.value)} disabled={creating}><option value="">请选择本地 Git 项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button" onClick={() => { if (searched && !changed) void onCreateIssue(issue.key, searched.projectKey); }} disabled={isJiraCreateSessionDisabled({ projectId, creating, changed, loading, hasSearch: !!searched })}><Icon name="plus" />{creating ? '正在创建会话…' : '从此任务创建会话'}</button><p>创建时重新读取 Jira 任务并保存真实快照，准备任务内容后由您点击发送。</p></div><JiraWorkflow key={issue.key} issue={issue} projectKey={searched?.projectKey} onUpdated={refreshAfterTransition} /></> : <div className="jira-empty"><Icon name="chat" /><strong>选择一项任务查看详情</strong><p>描述、附件与原始链接会显示在这里。</p></div>}
       </section>
     </div>
     {result && <details className="jira-query-details"><summary>查看本次查询信息</summary><code>{result.jql}</code><span>读取于 {new Date(result.fetchedAt).toLocaleString('zh-CN')}</span></details>}

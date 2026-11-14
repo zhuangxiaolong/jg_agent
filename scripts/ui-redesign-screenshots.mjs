@@ -36,7 +36,6 @@ try {
   await expect(page.getByRole('textbox', { name: '输入任务' })).toBeVisible();
   await page.getByLabel('当前会话本地项目', { exact: true }).selectOption({ label: '样本项目' });
   await expect(page.getByLabel('当前会话基准分支', { exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: '绑定项目', exact: true }).click();
   await expect(page.getByRole('button', { name: '绑定项目', exact: true })).toHaveCount(0, { timeout: 30000 });
   await expect(page.getByLabel('当前会话本地项目', { exact: true })).toBeEnabled();
 

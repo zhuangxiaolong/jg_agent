@@ -8,37 +8,68 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentEvent, Session } from '../packages/domain/src';
 import { JiraConnector } from '../packages/jira-connector/src';
-import { JiraTestImages, sessionTestResult } from '../apps/desktop/src/main/jira-workflow';
+import { JiraTestImages, jiraAttachmentPathsSchema, sessionTestResult } from '../apps/desktop/src/main/jira-workflow';
 import { LocalStore } from '../packages/storage/src';
 
-test('真实HTTP Jira流转失败明确报告部分写入，重试复用已上传图片，评论和状态同一请求', async () => {
-  const requests: { method: string; path: string; body: string }[] = []; let rejectTransition = true;
+test('拖入附件只接受有限数量的本机绝对文件路径', () => {
+  const filename = path.join(tmpdir(), '中文报告.md');
+  assert.deepEqual(jiraAttachmentPathsSchema.parse([filename]), [filename]);
+  assert.equal(jiraAttachmentPathsSchema.parse(Array(20).fill(filename)).length, 20);
+  for (const value of [[], [null], [''], ['relative.md'], ['https://example.invalid/report.md'], [filename + '\0.md'], Array(21).fill(filename)]) {
+    assert.equal(jiraAttachmentPathsSchema.safeParse(value).success, false);
+  }
+});
+
+test('真实HTTP混合上传图片、MD和二进制附件，流转失败后重试复用附件，评论和状态同一请求', async () => {
+  const requests: { method: string; path: string; body: string; bytes: Buffer }[] = []; let rejectTransition = true;
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
-    const body = Buffer.concat(chunks).toString(), pathname = new URL(request.url!, 'http://localhost').pathname;
-    requests.push({ method: request.method!, path: pathname, body });
+    const bytes = Buffer.concat(chunks), body = bytes.toString(), pathname = new URL(request.url!, 'http://localhost').pathname;
+    requests.push({ method: request.method!, path: pathname, body, bytes });
     const json = (value: unknown, status = 200) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(value)); };
     if (request.method === 'GET') return json({ transitions: [{ id: '101', name: '提交测试', to: { name: '待测试' } }] });
-    if (pathname.endsWith('attachments')) { assert.equal(request.headers['x-atlassian-token'], 'no-check'); return json([{ id: '1', filename: 'test.png' }]); }
+    if (pathname.endsWith('attachments')) { assert.equal(request.headers['x-atlassian-token'], 'no-check'); return json([{ id: '1', filename: /filename="([^"]+)"/.exec(body)![1] }]); }
     if (pathname.endsWith('transitions') && rejectTransition) return json({ errors: { resolution: '请选择解决结果' } }, 400);
     response.writeHead(204); response.end();
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-jira-flow-')), filename = path.join(root, 'test.png');
   await writeFile(filename, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF1sAAAAASUVORK5CYII=', 'base64'));
+  const markdown = '# 测试报告\n- 结论：本地合成验证通过。\n', binary = Buffer.from([0, 1, 255, 13, 10, 128]);
+  await writeFile(path.join(root, '测试报告.MD'), markdown); await writeFile(path.join(root, 'data.custom'), binary);
   const connector = new JiraConnector({ baseUrl: `http://127.0.0.1:${(server.address() as any).port}`, account: 'fixture', password: 'synthetic-only' });
-  const manager = new JiraTestImages(), images = await manager.add([filename]);
-  const input = { key: 'TEST-1', transitionId: '101', comment: '测试：真实合成接口失败用例', imageIds: [images[0].id], assignee: { id: 'tester', displayName: '测试人员', field: 'name' as const } };
+  const manager = new JiraTestImages(), images = await manager.add([filename, path.join(root, '测试报告.MD'), path.join(root, 'data.custom')]);
+  assert.match(images[0].preview!, /^data:image\/png;base64,/); assert.equal(images[1].preview, undefined); assert.equal(images[2].preview, undefined);
+  const input = { key: 'TEST-1', transitionId: '101', comment: '测试：真实合成接口失败用例', imageIds: images.map(item => item.id), assignee: { id: 'tester', displayName: '测试人员', field: 'name' as const } };
   try {
-    await assert.rejects(manager.submit(connector, 'scope', input), /图片 test.png 已上传.*经办人已设为.*状态流转未确认成功.*resolution.*请选择解决结果/);
-    assert.equal(requests.filter(item => item.path.endsWith('attachments')).length, 1);
+    await assert.rejects(manager.submit(connector, 'scope', input), /附件 test.png 已上传.*经办人已设为.*状态流转未确认成功.*resolution.*请选择解决结果/);
+    const uploads = requests.filter(item => item.path.endsWith('attachments'));
+    assert.equal(uploads.length, 3);
+    assert.match(uploads[1].body, /Content-Type: text\/markdown/); assert.ok(uploads[1].body.includes(markdown));
+    assert.match(uploads[2].body, /Content-Type: application\/octet-stream/); assert.ok(uploads[2].bytes.includes(binary));
     rejectTransition = false;
     assert.match(await manager.submit(connector, 'scope', input), /任务已流转至“待测试”/);
-    assert.equal(requests.filter(item => item.path.endsWith('attachments')).length, 1, '同任务重试不重复上传已有图片');
+    assert.equal(requests.filter(item => item.path.endsWith('attachments')).length, 3, '同任务重试不重复上传已有附件');
     const payload = JSON.parse(requests.filter(item => item.method === 'POST' && item.path.endsWith('transitions')).at(-1)!.body);
     assert.equal(payload.transition.id, '101'); assert.match(payload.update.comment[0].add.body, /真实合成接口失败用例[\s\S]*\[\^test.png\]/);
-    await assert.rejects(manager.submit(connector, 'scope', input), /图片已失效/);
+    assert.match(payload.update.comment[0].add.body, /\[\^测试报告.MD\]/); assert.match(payload.update.comment[0].add.body, /\[\^data.custom\]/);
+    await assert.rejects(manager.submit(connector, 'scope', input), /附件已失效/);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('普通附件保留数量和大小限制，伪造图片仍拒绝，目录不可作为附件', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-jira-attachments-'));
+  try {
+    const manager = new JiraTestImages(), filename = path.join(root, '报告.md');
+    await writeFile(filename, '# 普通 MD 附件');
+    await assert.rejects(manager.add(Array(21).fill(filename)), /最多选择 20 个附件/);
+    await assert.rejects(manager.add([root]), /普通文件/);
+    const fake = path.join(root, 'fake.png'); await writeFile(fake, '不是图片');
+    await assert.rejects(manager.add([fake]));
+    const large = path.join(root, 'large.md'); await writeFile(large, Buffer.alloc(8 * 1024 * 1024 + 1));
+    await assert.rejects(manager.add([large]), /8 MiB/);
+    assert.equal((await manager.add([filename]))[0].name, '报告.md');
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('自动带入50字内摘要限定最新一轮，不复制工具日志或声称测试通过', async () => {

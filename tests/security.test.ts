@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipboardTextSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema } from '../apps/desktop/src/main/security';
+
+test('提交不再要求复核资料列表，保留旧请求兼容与提交参数校验', () => {
+  assert.deepEqual(commitSchema.parse({ message: '提交本地修改' }), { message: '提交本地修改' });
+  assert.equal(commitSchema.safeParse({ message: '兼容旧请求', reviewedDocumentIds: [] }).success, true);
+  assert.equal(commitSchema.safeParse({ message: ' ' }).success, false);
+  assert.equal(commitSchema.safeParse({ message: '提交', authorEmail: '错误邮箱' }).success, false);
+  assert.equal(commitSchema.safeParse({ message: '提交', reviewedDocumentIds: ['../invalid'] }).success, false);
+});
 test('模型地址禁止非 HTTPS、URL 凭据与查询参数', () => {
   for (const baseUrl of ['http://example.com', 'https://user:pass@example.com', 'file:///secret', 'https://example.com?token=abc', 'https://example.com/#secret']) assert.equal(providerSchema.safeParse({ baseUrl, model: 'model' }).success, false);
   assert.equal(providerSchema.safeParse({ baseUrl: 'https://example.com/v1', model: 'model-1' }).success, true);

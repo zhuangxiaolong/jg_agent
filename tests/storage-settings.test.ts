@@ -33,15 +33,18 @@ test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，�
     assert.deepEqual(store.getSession(session.id), session);
     assert.deepEqual(store.events(session.id), [event]);
     assert.deepEqual(store.listProviders(), [{ id: LEGACY_PROVIDER_ID, name: '原有模型服务', baseUrl: 'https://old.example.invalid/v1', models: ['old-model'], hasKey: true }]);
-    store.saveSession({ ...session, providerId: LEGACY_PROVIDER_ID, system: 'MES6', runtimeCapabilitiesVersion: 2 });
+    store.saveSession({ ...session, providerId: LEGACY_PROVIDER_ID, system: 'MES6', runtimeCapabilitiesVersion: 2, runtimeExecutionRulesVersion: 1 });
     store.close(); store = await LocalStore.open(filename);
     assert.equal(store.listProviders().length, 1);
     assert.equal(Object.hasOwn(store.getSession(session.id)!, 'mode'), false);
     assert.equal(store.getSession(session.id)?.providerId, LEGACY_PROVIDER_ID);
     assert.equal(store.getSession(session.id)?.system, 'MES6');
     assert.equal(store.getSession(session.id)?.runtimeCapabilitiesVersion, 2);
+    assert.equal(store.getSession(session.id)?.runtimeExecutionRulesVersion, 1);
+    for (const invalid of [-1, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => store!.saveSession({ ...store!.getSession(session.id)!, runtimeExecutionRulesVersion: invalid }), /执行指引版本无效/);
+    assert.equal(store.getSession(session.id)?.runtimeExecutionRulesVersion, 1);
     const upgraded = new sql.Database(await readFile(filename));
-    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 10); upgraded.close();
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 11); upgraded.close();
     store.deleteModelProvider(LEGACY_PROVIDER_ID); store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.listProviders(), [], '删除旧 Provider 后不会在重启时被旧配置复活');
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
@@ -131,7 +134,7 @@ test('v4 升级到 v5 后可持久化无项目会话与事件，外键保持完�
     store.close(); store = undefined;
 
     const upgraded = new sql.Database(await readFile(filename));
-    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 10);
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 11);
     assert.deepEqual(upgraded.exec('PRAGMA foreign_key_check'), []);
     const nullProject = upgraded.exec('SELECT project_id FROM sessions WHERE id = \'standalone-session\'');
     assert.equal(nullProject[0].values[0][0], null);
@@ -213,7 +216,7 @@ test('Jira旧配置不补写默认，新项目及日期字段真实重开保留�
     assert.deepEqual(store.getJira(), configured);
     assert.equal((await readFile(filename)).includes(Buffer.from(secret)), false);
     const sql = await initSqlJs(); const db = new sql.Database(await readFile(filename));
-    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 10); db.close();
+    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 11); db.close();
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -221,7 +224,7 @@ function jiraIssue(): JiraIssue {
   return {
     id: '12345', key: 'NEWDEVGROUP-123', summary: '修复工单状态查询并保留历史说明',
     description: '# 需求正文\n按工单编号查询；验收条件：无匹配记录时返回空结果。\n',
-    status: '进行中', issueType: '需求', priority: '高', assignee: '研发负责人', updated: '2026-11-04T10:30:00+08:00',
+    status: '进行中', issueType: '需求', priority: '高', assignee: '研发负责人', reporter: '需求报告人', updated: '2026-11-04T10:30:00+08:00',
     url: 'http://jira.example.invalid/browse/NEWDEVGROUP-123', fetchedAt: '2026-11-04T03:00:00Z',
     attachments: [{ id: '5001', name: '需求附件 中文.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 357484, url: 'http://jira.example.invalid/secure/attachment/5001/spec.xlsx' }]
   };
@@ -268,6 +271,7 @@ test('Jira快照有界保存正文和附件，允许密码字段示例；超限�
     assert.equal(store.getSession(session.id)?.jiraIssue?.attachments.length, 200);
     const invalidCases: [JiraIssue, RegExp][] = [
       [{ ...issue, description: '文'.repeat(100001) }, /100000/],
+      [{ ...issue, reporter: '人'.repeat(501) }, /500/],
       [{ ...maximum, attachments: [...maximum.attachments, maximum.attachments[0]] }, /200/],
       [{ ...issue, url: 'https://jira.example.invalid/browse/T-1?token=synthetic-credential-only' }, /授权凭据/],
       [{ ...issue, attachments: [{ ...issue.attachments[0], size: -1 }] }, /附件大小/]

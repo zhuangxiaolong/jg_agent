@@ -4,9 +4,10 @@ import { Icon } from './ui';
 
 interface MenuPosition { x: number; y: number; trigger: HTMLElement }
 
-export function useRowActions({ kind, name, disabled, onRename, onDelete, onExport }: {
+export function useRowActions({ kind, name, disabled, createDisabled = disabled, onCreateSession, onRename, onDelete, onExport }: {
   kind: '项目' | '会话'; name: string; disabled: boolean; onRename: () => void; onDelete: () => void;
   onExport?: () => void;
+  onCreateSession?: () => void; createDisabled?: boolean;
 }) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const close = (restoreFocus = false) => { setPosition(null); if (restoreFocus) position?.trigger.focus(); };
@@ -21,12 +22,13 @@ export function useRowActions({ kind, name, disabled, onRename, onDelete, onExpo
     const trigger = event.currentTarget.querySelector('button');
     if (trigger) { const box = trigger.getBoundingClientRect(); setPosition({ x: box.left + 12, y: box.bottom, trigger }); }
   }
-  return { onContextMenu, onKeyDown, menu: position && <RowActionsMenu position={position} kind={kind} name={name} disabled={disabled} onClose={close} onRename={onRename} onDelete={onDelete} onExport={onExport} /> };
+  return { onContextMenu, onKeyDown, menu: position && <RowActionsMenu position={position} kind={kind} name={name} disabled={disabled} createDisabled={createDisabled} onCreateSession={onCreateSession} onClose={close} onRename={onRename} onDelete={onDelete} onExport={onExport} /> };
 }
 
-function RowActionsMenu({ position, kind, name, disabled, onClose, onRename, onDelete, onExport }: {
+function RowActionsMenu({ position, kind, name, disabled, createDisabled, onCreateSession, onClose, onRename, onDelete, onExport }: {
   position: MenuPosition; kind: '项目' | '会话'; name: string; disabled: boolean; onClose: (restoreFocus?: boolean) => void; onRename: () => void; onDelete: () => void;
   onExport?: () => void;
+  onCreateSession?: () => void; createDisabled: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [location, setLocation] = useState({ x: position.x, y: position.y });
@@ -57,6 +59,7 @@ function RowActionsMenu({ position, kind, name, disabled, onClose, onRename, onD
     buttons[next].focus();
   }
   return createPortal(<div ref={menuRef} className="row-actions-menu" role="menu" aria-label={`${kind} ${name} 操作`} tabIndex={-1} style={{ left: location.x, top: location.y }} onKeyDown={navigate} onContextMenu={event => event.preventDefault()}>
+    {onCreateSession && <button type="button" role="menuitem" disabled={createDisabled} onClick={() => { onClose(true); onCreateSession(); }}><Icon name="plus" />新建会话</button>}
     <button type="button" role="menuitem" disabled={disabled} onClick={() => { onClose(true); onRename(); }}><Icon name="edit" />修改名称</button>
     {onExport && <button type="button" role="menuitem" disabled={disabled} onClick={() => { onClose(true); onExport(); }}><Icon name="download" />导出会话</button>}
     <button type="button" role="menuitem" className="row-action-delete" disabled={disabled} onClick={() => { onClose(true); onDelete(); }}><Icon name="close" />删除{kind}</button>

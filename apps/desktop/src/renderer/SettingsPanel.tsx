@@ -1,4 +1,4 @@
-import { useTransientError } from './use-transient-error';
+import './jira-password.css';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
 import { Icon } from './ui';
@@ -9,6 +9,7 @@ import { RequirementsSyncPanel } from './RequirementsSyncPanel';
 import { PluginManagerPanel } from './PluginManagerPanel';
 import { SessionDataSettings } from './SessionDataSettings';
 import './provider-models.css';
+import './settings-feedback.css';
 
 export type SettingsTab = 'providers' | 'appearance' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions';
 type Tab = SettingsTab;
@@ -23,16 +24,15 @@ function validateUrl(value: string) {
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('请输入不含认证信息、查询参数的 HTTPS 地址。');
   return value.trim().replace(/\/$/, '');
 }
-export function SettingsPanel({ settings, sessions, projects, currentProjectId, onImportCompleted, onChanged, onClose, initialTab = 'providers' }: {
-  settings: SettingsSnapshot; sessions: Session[]; projects: Project[]; currentProjectId?: string; onImportCompleted?: (sessionId?: string) => Promise<void>; onChanged: (settings: SettingsSnapshot) => void; onClose: () => void; initialTab?: Tab;
+export function SettingsPanel({ settings, sessions, projects, currentProjectId, onImportCompleted, onRuntimeChecked, onChanged, onClose, initialTab = 'providers' }: {
+  settings: SettingsSnapshot; sessions: Session[]; projects: Project[]; currentProjectId?: string; onImportCompleted?: (sessionId?: string) => Promise<void>; onRuntimeChecked?: (kind: RuntimeKind, health: RuntimeHealth) => void; onChanged: (settings: SettingsSnapshot) => void; onClose: () => void; initialTab?: Tab;
 }) {
   const api = window.jinggong;
   const [snapshot, setSnapshot] = useState(settings);
   const [tab, setTab] = useState<Tab>(initialTab);
   useEffect(() => setSnapshot(settings), [settings]);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useTransientError();
-  const [notice, setNotice] = useState('');
+  const [feedback, setFeedback] = useState<{ kind: 'error' | 'notice'; text: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -40,12 +40,14 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
     return () => previous?.focus();
   }, []);
   async function act(work: () => Promise<unknown>, success: SuccessNotice = '已保存。') {
-    setPending(true); setError(''); setNotice('');
+    setPending(true);
     try {
       await work();
-      const next = await api.getSettings(); setSnapshot(next); onChanged(next); setNotice(typeof success === 'function' ? success() : success);
+      const next = await api.getSettings(); setSnapshot(next); onChanged(next);
+      const text = typeof success === 'function' ? success() : success;
+      setFeedback(text ? { kind: 'notice', text } : null);
       return true;
-    } catch (reason) { setError(failure(reason)); return false; }
+    } catch (reason) { setFeedback({ kind: 'error', text: failure(reason) }); return false; }
     finally { setPending(false); }
   }
   function key(event: KeyboardEvent<HTMLDivElement>) {
@@ -59,19 +61,19 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
   }
   return <div className="modal-backdrop"><div className="settings-shell" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={key}>
     <header className="settings-header"><div><h2 id="settings-title">设置</h2><p>管理本地研发环境与个人偏好</p></div><button className="icon-button" aria-label="关闭设置" title="关闭设置" onClick={onClose} disabled={pending}><Icon name="close" /></button></header>
-    <div className="settings-body"><nav className="settings-navigation" aria-label="设置分类">{tabs.map(item => <button key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => { setTab(item.id); setError(''); setNotice(''); }} disabled={pending}><Icon name={item.icon} />{item.name}</button>)}</nav>
+    <div className="settings-body"><nav className="settings-navigation" aria-label="设置分类">{tabs.map(item => <button key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => setTab(item.id)} disabled={pending}><Icon name={item.icon} />{item.name}</button>)}</nav>
       <div className="settings-content">
-        {error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}{notice && <div className="settings-notice" role="status"><Icon name="check" />{notice}</div>}
+        {feedback && <div className={`settings-feedback ${feedback.kind === 'error' ? 'form-error' : 'settings-notice'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}><Icon name={feedback.kind === 'error' ? 'alert' : 'check'} /><span>{feedback.text}</span><button type="button" className="icon-button" aria-label="关闭设置提示" title="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" /></button></div>}
         {tab === 'providers' && <Providers profiles={snapshot.providers} pending={pending} act={act} api={api} onSaved={onClose} />}
         {tab === 'appearance' && <Appearance preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
-        {tab === 'runtime' && <RuntimeSettings pending={pending} act={act} api={api} />}
+        {tab === 'runtime' && <RuntimeSettings pending={pending} api={api} onRuntimeChecked={onRuntimeChecked} />}
         {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
          {tab === 'sessions' && <SessionDataSettings sessions={sessions} projects={projects} currentProjectId={currentProjectId} onImportCompleted={onImportCompleted} pending={pending} act={act} api={api} />}
         {tab === 'wecom' && <WeComSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'updates' && <Updates snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'requirements' && <RequirementsSyncPanel api={api} state={snapshot.requirementsSync} pending={pending} act={act} />}
-        {(tab === 'documents' || tab === 'requirements') && <Documents key={tab} kind={tab === 'documents' ? 'dictionary' : 'requirement'} onKindChange={kind => { setTab(kind === 'dictionary' ? 'documents' : 'requirements'); setError(''); setNotice(''); }} documents={snapshot.documents} pending={pending} act={act} api={api} />}
+        {(tab === 'documents' || tab === 'requirements') && <Documents key={tab} kind={tab === 'documents' ? 'dictionary' : 'requirement'} onKindChange={kind => setTab(kind === 'dictionary' ? 'documents' : 'requirements')} documents={snapshot.documents} pending={pending} act={act} api={api} />}
         {tab === 'memories' && <Memories snapshot={snapshot} pending={pending} act={act} api={api} />}
       </div>
     </div>
@@ -89,7 +91,7 @@ const runtimeOptions: { kind: RuntimeKind; name: string; description: string; po
   { kind: 'claude_agent_sdk', name: 'Claude Agent SDK Runtime', description: '通过官方 Claude Agent SDK 运行，使用模型中转站中的地址、模型和凭据。', positioning: 'Claude Agent SDK 能力与 Anthropic-compatible 模型服务。' },
 ];
 
-function RuntimeSettings({ api, pending }: Operations) {
+function RuntimeSettings({ api, pending, onRuntimeChecked }: Pick<Operations, 'api' | 'pending'> & { onRuntimeChecked?: (kind: RuntimeKind, health: RuntimeHealth) => void }) {
   const [health, setHealth] = useState<Partial<Record<RuntimeKind, RuntimeHealth>>>({});
   const [checking, setChecking] = useState<RuntimeKind | ''>('');
 
@@ -98,9 +100,11 @@ function RuntimeSettings({ api, pending }: Operations) {
     try {
       const result = await api.checkRuntime(kind);
       setHealth(current => ({ ...current, [kind]: result }));
+      onRuntimeChecked?.(kind, result);
     } catch (reason) {
-      const detail = failure(reason);
-      setHealth(current => ({ ...current, [kind]: { available: false, compatible: false, version: '', detail } }));
+      const result = { available: false, compatible: false, version: '', detail: failure(reason) };
+      setHealth(current => ({ ...current, [kind]: result }));
+      onRuntimeChecked?.(kind, result);
     } finally {
       setChecking('');
     }
@@ -110,13 +114,20 @@ function RuntimeSettings({ api, pending }: Operations) {
     void Promise.all(runtimeOptions.map(async option => {
       try {
         const result = await api.checkRuntime(option.kind);
-        if (active) setHealth(current => ({ ...current, [option.kind]: result }));
+        if (active) {
+          setHealth(current => ({ ...current, [option.kind]: result }));
+          onRuntimeChecked?.(option.kind, result);
+        }
       } catch (reason) {
-        if (active) setHealth(current => ({ ...current, [option.kind]: { available: false, compatible: false, version: '', detail: failure(reason) } }));
+        if (active) {
+          const result = { available: false, compatible: false, version: '', detail: failure(reason) };
+          setHealth(current => ({ ...current, [option.kind]: result }));
+          onRuntimeChecked?.(option.kind, result);
+        }
       }
     }));
     return () => { active = false; };
-  }, [api]);
+  }, [api, onRuntimeChecked]);
 
   function healthText(value?: RuntimeHealth) {
     if (!value) return '正在检查运行时…';
@@ -135,7 +146,6 @@ function RuntimeSettings({ api, pending }: Operations) {
       })}
     </div>
     <div className="runtime-note"><Icon name="shield" /><p>运行时不会静默回退。运行时未就绪时，新会话会明确提示原因；请先检查对应组件和凭据后再创建新会话。</p></div>
-    <div className="runtime-note runtime-roadmap-note"><Icon name="box" /><p>Grok Runtime：下一版本兼容，当前版本暂不开放选择。</p></div>
   </section>;
 }
 
@@ -262,6 +272,29 @@ function Jira({ snapshot, api, act, pending }: Operations & { snapshot: Settings
   const [url, setUrl] = useState(snapshot.jira.baseUrl);
   const [account, setAccount] = useState(snapshot.jira.account);
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [savedPassword, setSavedPassword] = useState('');
+  const [revealing, setRevealing] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const revealVersion = useRef(0);
+  useEffect(() => {
+    revealVersion.current++;
+    setPasswordVisible(false); setSavedPassword(''); setRevealing(false); setPasswordError('');
+    return () => { revealVersion.current++; };
+  }, [url, account]);
+  async function togglePassword() {
+    if (passwordVisible) { setPasswordVisible(false); setSavedPassword(''); return; }
+    setPasswordError('');
+    if (password || !snapshot.jira.hasPassword) { setPasswordVisible(true); return; }
+    const version = ++revealVersion.current;
+    setRevealing(true);
+    try {
+      const value = await api.revealJiraPassword({ baseUrl: url.trim(), account: account.trim() });
+      if (version === revealVersion.current) { setSavedPassword(value); setPasswordVisible(true); }
+    } catch (reason) {
+      if (version === revealVersion.current) setPasswordError(failure(reason));
+    } finally { if (version === revealVersion.current) setRevealing(false); }
+  }
   const [projectKey, setProjectKey] = useState(snapshot.jira.projectKey || 'NEWDEVGROUP');
   const [dateFieldId, setDateFieldId] = useState(snapshot.jira.dateFieldId || '11116');
   const [testing, setTesting] = useState(false);
@@ -275,7 +308,7 @@ function Jira({ snapshot, api, act, pending }: Operations & { snapshot: Settings
       if (!snapshot.jira.hasPassword && !password) throw new Error('请填写 Jira 密码。');
       await api.saveJira({ baseUrl: url.trim(), account: account.trim(), projectKey: projectKey.trim() || 'NEWDEVGROUP', dateFieldId: dateFieldId.trim() || '11116', ...(password ? { password } : {}) });
     }, 'Jira 配置已保存，可测试连接或到 Jira 任务页抓取需求。');
-    if (saved) setPassword('');
+    if (saved) { revealVersion.current++; setPassword(''); setPasswordVisible(false); setSavedPassword(''); }
   }
   async function test() {
     setTesting(true);
@@ -288,11 +321,13 @@ function Jira({ snapshot, api, act, pending }: Operations & { snapshot: Settings
     {/^http:/i.test(url.trim()) && <p className="field-hint jira-http-hint">HTTP 传输未加密，请在可信网络使用。</p>}
     {snapshot.jira.baseUrl && <p className="field-hint">已保存连接：{snapshot.jira.baseUrl}</p>}
     <label htmlFor="jira-account">Jira 账号</label><input id="jira-account" value={account} onChange={e => setAccount(e.target.value)} required disabled={pending} autoComplete="off" />
-    <label htmlFor="jira-password">Jira 密码{snapshot.jira.hasPassword && <span className="saved-secret"><Icon name="check" />已安全保存</span>}</label><input id="jira-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required={!snapshot.jira.hasPassword} disabled={pending} autoComplete="new-password" placeholder={snapshot.jira.hasPassword ? '留空保留，更换地址或账号时重新填写' : '输入密码，保存后不回显'} />
+    <label htmlFor="jira-password">Jira 密码{snapshot.jira.hasPassword && <span className="saved-secret"><Icon name="check" />已安全保存</span>}</label>
+    <div className="jira-password-field"><input id="jira-password" type={passwordVisible ? 'text' : 'password'} value={password || savedPassword} onChange={e => { setPassword(e.target.value); setSavedPassword(''); setPasswordError(''); }} required={!snapshot.jira.hasPassword} disabled={pending || revealing} autoComplete="new-password" placeholder={snapshot.jira.hasPassword ? '留空保留，更换地址或账号时重新填写' : '输入密码，保存后可按需查看'} /><button type="button" className="jira-password-toggle" aria-label={passwordVisible ? '隐藏 Jira 密码' : '显示 Jira 密码'} title={revealing ? '正在读取已保存密码…' : passwordVisible ? '隐藏密码' : '显示密码'} aria-pressed={passwordVisible} disabled={pending || revealing} onClick={togglePassword}><Icon name={passwordVisible ? 'eye-off' : 'eye'} /></button></div>
+    {passwordError && <p className="form-error" role="alert">{passwordError}</p>}
     <div className="jira-settings-fields"><div><label htmlFor="jira-project-key">默认 Jira 项目（可在任务页切换）</label><input id="jira-project-key" value={projectKey} onChange={e => setProjectKey(e.target.value)} maxLength={80} disabled={pending} placeholder="NEWDEVGROUP" /></div><div><label htmlFor="jira-date-field">日报日期字段 ID</label><input id="jira-date-field" value={dateFieldId} onChange={e => setDateFieldId(e.target.value)} maxLength={80} disabled={pending} placeholder="11116" /></div></div>
     <p className="field-hint">项目页地址只用于提取默认项目，不限制整个任务工作台。默认日期字段 11116；测试连接会核对字段类型与 Jira 账户时区。</p>
     <div className="credential-note"><Icon name="shield" /><p>密码由 Windows 保护。修改连接地址或账号时需重新填写密码。</p></div>
-    <div className="settings-actions"><button className="secondary-button" type="button" disabled={pending || !snapshot.jira.hasPassword} onClick={test}>{testing ? '正在测试…' : '测试已保存连接'}</button><button className="primary-button" type="submit" disabled={pending}>保存 Jira 配置<Icon name="check" /></button></div>
+    <div className="settings-actions"><button className="secondary-button" type="button" disabled={pending || revealing || !snapshot.jira.hasPassword} onClick={test}>{testing ? '正在测试…' : '测试已保存连接'}</button><button className="primary-button" type="submit" disabled={pending || revealing}>保存 Jira 配置<Icon name="check" /></button></div>
   </form></section>;
 }
 
@@ -333,7 +368,7 @@ function Documents({ documents, api, act, pending, kind, onKindChange }: Operati
   return <section aria-label={requirements ? '开发要求与规范管理' : '数据字典管理'}>
     <div className="section-heading"><div><h3>{requirements ? '开发要求与规范' : '数据字典'}</h3><p>{requirements ? '上传文件或直接输入要求，按系统启用，并应用到任务开发与提交检查。' : '按系统维护本地字典，完整资料参与 Agent 全文检索。'}</p></div>{requirements && <button className="secondary-button" disabled={pending} onClick={() => { resetEditor(); editorRef.current?.scrollIntoView({ block: 'start' }); }}><Icon name="plus" />新增要求</button>}</div>
     <div className="document-controls"><label>适用系统<select aria-label="文档适用系统" value={system} onChange={e => { setSystem(e.target.value as ProductSystem); setSelected(''); setDeleting(''); resetEditor(); }} disabled={pending}>{['MES5', 'MES6', 'WMS', '前端', '通用'].map(value => <option key={value}>{value}</option>)}</select></label><label>资料类型<select aria-label="文档类型" value={kind} onChange={e => onKindChange(e.target.value as ManagedDocument['kind'])} disabled={pending}><option value="dictionary">数据字典</option><option value="requirement">开发要求与规范</option></select></label><button className="primary-button" disabled={pending} onClick={importFile}><Icon name="plus" />{importing ? '正在导入…' : '上传资料'}</button></div>
-    <p className="field-hint">{requirements ? '支持上传 TXT、MD、JSON、CSV、SQL、XLSX、DOCX，或在下方直接输入。正文最多 80,000 字符。JSON 机器规则自动阻断违规，其他正文在提交前逐份人工确认。' : '支持 TXT、MD、JSON、CSV、SQL、XLSX、DOCX。大字典按工作表分页，全文保留并可检索。'}</p>
+    <p className="field-hint">{requirements ? '支持上传 TXT、MD、JSON、CSV、SQL、XLSX、DOCX，或在下方直接输入。正文最多 80,000 字符。开发要求供 Agent 参考，提交前不再强制执行规则检查或逐份人工确认。' : '支持 TXT、MD、JSON、CSV、SQL、XLSX、DOCX。大字典按工作表分页，全文保留并可检索。'}</p>
     <div className="managed-list">{!list.length && <div className="settings-empty">暂无{system}{requirements ? '开发要求与规范，请上传文件或直接输入。' : '数据字典，请上传当前有效版本。'}</div>}{list.map(item => <div className={`managed-row ${item.id === doc?.id ? 'selected' : ''}`} key={item.id}><button className="managed-select" aria-label={`查看文档 ${item.name}`} onClick={() => setSelected(item.id)}><Icon name="file" /><span><strong>{item.name}</strong><small>{new Date(item.createdAt).toLocaleString('zh-CN')}</small></span></button><button className="toggle-button" role="switch" aria-checked={item.enabled} aria-label={`${item.enabled ? '停用' : '启用'} ${item.name}`} disabled={pending} onClick={() => act(() => api.setDocumentEnabled(item.id, !item.enabled), item.enabled ? '资料已停用。' : '资料已启用。')}><span />{item.enabled ? '已启用' : '已停用'}</button><button className="danger-button" disabled={pending} onClick={() => setDeleting(item.id)} aria-label={`删除文档 ${item.name}`}>删除</button></div>)}</div>
     {deleting && <div className="delete-confirm"><span>确认删除此资料？已有历史记录仍保留原引用。</span><button onClick={() => setDeleting('')} disabled={pending}>保留</button><button className="danger-button" disabled={pending} onClick={async () => { if (await act(() => api.deleteDocument(deleting), '资料已删除。')) { if (editingId === deleting) resetEditor(); setDeleting(''); } }}>确认删除</button></div>}
     {doc && <div className="document-preview"><div className="preview-heading"><strong>{doc.name}</strong><span>{doc.system} · {doc.enabled ? '已启用' : '已停用'}</span></div><p className="document-digest" title={doc.digest}>校验摘要：{doc.digest.slice(0, 24)}…</p>{doc.kind === 'dictionary' ? <DictionaryPreview key={doc.id} name={doc.name} content={doc.content} /> : <><pre aria-label="文档内容预览">{doc.content}</pre><div className="requirement-preview-actions"><span>{doc.content.length.toLocaleString('zh-CN')} 字符</span><button className="secondary-button" disabled={pending} onClick={() => edit(doc)}>编辑此要求</button></div></>}</div>}

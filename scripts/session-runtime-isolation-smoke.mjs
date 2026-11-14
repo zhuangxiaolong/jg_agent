@@ -9,7 +9,10 @@ import path from 'node:path';
 // 子进程换成可控 JSONL 端点；不替换 session:send/cancel，不访问真实模型或凭据。
 const root = await realpath(await mkdtemp(path.join(tmpdir(), 'jinggong-runtime-isolation-')));
 const dataRoot = path.join(root, 'data');
+const outputRoot = path.resolve(process.env.JINGGONG_TEST_OUTPUT || path.join(root, 'artifacts'));
+await mkdir(outputRoot, { recursive: true });
 const checks = [];
+const logs = [];
 const env = { ...process.env, JINGGONG_TEST_DATA: dataRoot };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
@@ -26,9 +29,9 @@ async function fixtureProject(name) {
   await app.evaluate(({ dialog }, repo) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] }); }, repo);
   return page.evaluate(() => window.jinggong.selectProject());
 }
-async function send(id, marker) { await page.evaluate(({ id, marker }) => window.jinggong.sendTurn(id, marker), { id, marker }); }
+async function send(id, marker) { return page.evaluate(({ id, marker }) => window.jinggong.sendTurn(id, marker), { id, marker }); }
 async function record(marker) {
-  return app.evaluate((_electron, marker) => globalThis.__sessionRuntimeFixture.records.filter(item => item.turns.some(turn => turn.prompt === marker)).map(item => ({ index: item.index, threadId: item.threadId, turns: item.turns, interruptions: item.interruptions, closed: item.closed })), marker);
+  return app.evaluate((_electron, marker) => globalThis.__sessionRuntimeFixture.records.filter(item => item.turns.some(turn => turn.prompt === marker)).map(item => ({ index: item.index, threadId: item.threadId, turns: item.turns, steers: item.steers, interruptions: item.interruptions, closed: item.closed })), marker);
 }
 async function notify(marker, type, text) {
   await app.evaluate((_electron, { marker, type, text }) => {
@@ -43,6 +46,8 @@ async function notify(marker, type, text) {
 
 try {
   app = await electron.launch({ ...(process.env.JINGGONG_TEST_EXE ? { executablePath: process.env.JINGGONG_TEST_EXE, args: [] } : { args: ['.'] }), env, cwd: process.cwd() });
+  app.process().stdout?.on('data', chunk => logs.push(String(chunk)));
+  app.process().stderr?.on('data', chunk => logs.push(String(chunk)));
   page = await app.firstWindow();
   await expect(page.locator('.brand strong')).toHaveText('精工Agent', { timeout: 30000 });
   await expect(page.locator('.top-nav').getByRole('button', { name: '新建会话', exact: true })).toBeEnabled();
@@ -60,13 +65,13 @@ try {
       const child = new EventEmitter();
       child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
       child.exitCode = null;
-      const item = { index: state.records.length, threadId: undefined, turns: [], interruptions: [], closed: false,
+      const item = { index: state.records.length, threadId: undefined, turns: [], steers: [], interruptions: [], closed: false,
         notify(method, params) { child.stdout.write(`${JSON.stringify({ method, params })}\n`); } };
       state.records.push(item);
       let buffer = '';
       const reply = (id, result) => child.stdout.write(`${JSON.stringify({ id, result })}\n`);
       const threadResult = (id, cwd) => ({ thread: { id, environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd,
-        sandbox: { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: true, excludeTmpdirEnvVar: true, excludeSlashTmp: true }, approvalPolicy: 'never' });
+        sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' });
       child.stdin.setEncoding('utf8');
       child.stdin.on('data', chunk => {
         buffer += chunk;
@@ -88,6 +93,9 @@ try {
             else acknowledge();
             item.notify('turn/started', { threadId: item.threadId, turn: { id: turn.id, status: 'inProgress' } });
             if (turn.prompt === 'MAIN-TERMINAL-BEFORE-ACK') item.notify('turn/completed', { threadId: item.threadId, turn: { id: turn.id, status: 'completed' } });
+          } else if (message.method === 'turn/steer') {
+            item.steers.push({ threadId: params.threadId, turnId: params.expectedTurnId, prompt: params.input.filter(input => input.type === 'text').map(input => input.text).join('') });
+            reply(message.id, { turnId: params.expectedTurnId });
           } else if (message.method === 'turn/interrupt') {
             item.interruptions.push({ threadId: params.threadId, turnId: params.turnId });
             reply(message.id, {});
@@ -120,10 +128,12 @@ try {
   assert.notEqual(firstA.threadId, firstB.threadId);
   checks.push('真实 session:send/getRuntime/RuntimeAdapter/JSONL 链路：项目 A 运行中可创建项目 B 和独立 C，会话配置成功，A/B 同时持有独立票据与 Runtime 实例');
 
-  await assert.rejects(send(a.id, 'MAIN-A-DUPLICATE'), /当前会话有正在执行的任务/);
+  assert.deepEqual(await send(a.id, 'MAIN-A-DUPLICATE'), { queued: false, steered: true });
   assert.equal((await record('MAIN-A-DUPLICATE')).length, 0);
+  assert.deepEqual((await record('MAIN-A-ROUND-1'))[0].steers, [{ threadId: firstA.threadId, turnId: firstA.turns[0].id, prompt: 'MAIN-A-DUPLICATE' }]);
+  assert.equal((await record('MAIN-B-ROUND-1'))[0].steers.length, 0);
   await expect.poll(activeIds).toEqual([a.id, b.id].sort());
-  checks.push('同会话重复发送由真实主进程拒绝，未启动多余 Runtime，不影响 A/B 活动状态');
+  checks.push('同会话运行中补充通过真实 turn/steer 发往 A 当前轮次，未启动多余 Runtime/turn，也不影响 B 或 A/B 活动状态');
 
   await page.evaluate(id => window.jinggong.cancelRun(id), a.id);
   await expect.poll(activeIds).toEqual([b.id]);
@@ -146,8 +156,10 @@ try {
   await notify('MAIN-A-ROUND-1', 'completed');
   await expect.poll(activeIds).toEqual([a.id, b.id].sort());
   assert.deepEqual(await events(a.id), aEventsBeforeLate);
-  await assert.rejects(send(a.id, 'MAIN-A-DUPLICATE-2'), /当前会话有正在执行的任务/);
-  checks.push('同线程新轮次恢复后，旧已关闭实例的延迟输出和完成事件被真实主进程丢弃，不能释放新票据或串入新对话');
+  assert.deepEqual(await send(a.id, 'MAIN-A-DUPLICATE-2'), { queued: false, steered: true });
+  assert.deepEqual((await record('MAIN-A-ROUND-2'))[0].steers, [{ threadId: nextA.threadId, turnId: nextA.turns[0].id, prompt: 'MAIN-A-DUPLICATE-2' }]);
+  assert.equal((await record('MAIN-A-ROUND-1'))[0].steers.length, 1);
+  checks.push('同线程新轮次恢复后，旧实例的延迟输出和完成事件被丢弃，补充仅送入新实例当前轮次，不能释放新票据或串入新对话');
 
   await notify('MAIN-B-ROUND-1', 'completed');
   await expect.poll(activeIds).toEqual([a.id]);
@@ -175,12 +187,17 @@ try {
   await expect.poll(async () => (await record('MAIN-TERMINAL-BEFORE-ACK'))[0].closed).toBe(true);
   await expect.poll(activeIds).toEqual([]);
   checks.push('真实 JSONL 交错：turn/completed 早于 turn/start ACK 时保留 pending RPC，补发 ACK 后 send 正常结算并关闭实例');
-  await mkdir('test-results', { recursive: true });
-  await writeFile('test-results/session-runtime-isolation-smoke.json', JSON.stringify({ passed: true, checks, scope: '真实 Electron IPC/SQLite/RuntimeAdapter，原生 Runtime 进程为合成 JSONL 端点；未调用真实模型/Jira' }, null, 2));
-  console.log(JSON.stringify({ passed: true, checks }, null, 2));
+  const scope = '真实 Electron IPC/SQLite/RuntimeAdapter，原生 Runtime 进程为合成 JSONL 端点；未调用真实模型/Jira';
+  await writeFile(path.join(outputRoot, 'session-runtime-isolation-smoke.json'), JSON.stringify({ passed: true, checks, scope, testData: root, outputRoot }, null, 2));
+  await writeFile(path.join(outputRoot, 'session-runtime-isolation-smoke.md'), `# 会话 Runtime 隔离回归\n\n结果：通过\n\n${checks.map(check => `- 通过：${check}`).join('\n')}\n\n范围：${scope}\n\n隔离数据：${root}\n`);
+  await page.screenshot({ path: path.join(outputRoot, 'session-runtime-isolation-smoke.png'), fullPage: true });
+  await writeFile(path.join(outputRoot, 'session-runtime-isolation-smoke.log'), logs.join(''));
+  console.log(JSON.stringify({ passed: true, checks, outputRoot }, null, 2));
 } catch (error) {
-  await mkdir('test-results', { recursive: true });
-  await writeFile('test-results/session-runtime-isolation-smoke.json', JSON.stringify({ passed: false, checks, error: error instanceof Error ? error.stack : String(error) }, null, 2));
+  await writeFile(path.join(outputRoot, 'session-runtime-isolation-smoke.json'), JSON.stringify({ passed: false, checks, error: error instanceof Error ? error.stack : String(error), testData: root, outputRoot }, null, 2));
+  await writeFile(path.join(outputRoot, 'session-runtime-isolation-smoke.log'), logs.join(''));
+  await page?.screenshot({ path: path.join(outputRoot, 'session-runtime-isolation-smoke-failed.png'), fullPage: true }).catch(() => {});
+  console.error(`回归产物：${outputRoot}`);
   throw error;
 } finally {
   await app?.close();

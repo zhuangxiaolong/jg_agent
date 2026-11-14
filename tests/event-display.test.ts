@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compactAgentEvent, compactToolEvent } from '../apps/desktop/src/renderer/branding';
+import { compactAgentEvent, compactToolEvent, runtimeAssistantName } from '../apps/desktop/src/renderer/branding';
+
+test('对话助手名称对应当前会话 Runtime，兼容未记录 Runtime 的旧会话', () => {
+  assert.equal(runtimeAssistantName('codex'), 'codex');
+  assert.equal(runtimeAssistantName('claude_agent_sdk'), 'claude');
+  assert.equal(runtimeAssistantName('grok_build_acp'), 'grok');
+  assert.equal(runtimeAssistantName('jinggong'), 'jinggong');
+  assert.equal(runtimeAssistantName(), 'codex');
+});
 
 test('会话工具事件压缩为用户可读摘要并隐藏内部噪声', () => {
   assert.equal(compactToolEvent('已按完整开发配置允许当前任务执行。'), null);

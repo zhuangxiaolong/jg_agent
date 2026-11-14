@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopApi, IpcResult } from '../../../../packages/domain/src';
 import { createIpcError } from '../../../../packages/domain/src/ipc';
 async function invoke(channel: string, ...args: unknown[]): Promise<any> {
@@ -105,6 +105,13 @@ const api: DesktopApi = {
   getSettings: () => invoke('settings:get'),
   savePreferences: input => invoke('settings:preferences', input),
   checkRuntime: kind => invoke('runtime:check', kind),
+  onRuntimeHealthChanged: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('runtime:health-changed', callback); return () => { ipcRenderer.removeListener('runtime:health-changed', callback); }; },
+  grok: {
+    saveRuntime: input => invoke('grok:runtime-save', input),
+    saveModels: (providerId, models) => invoke('grok:models-save', { providerId, models }),
+    testConnection: (providerId, modelId) => invoke('grok:test', { providerId, modelId }),
+  },
+  respondRuntimeApproval: (sessionId, requestId, decision) => invoke('runtime:approval', { sessionId, requestId, decision }),
   testClaudeConnection: () => invoke('runtime:claude-test'),
   saveRuntimeKind: kind => invoke('settings:runtime', kind),
   saveLayout: input => invoke('settings:layout', input),
@@ -122,6 +129,7 @@ const api: DesktopApi = {
   fetchProviderModels: input => invoke('settings:provider-models', input),
   deleteModelProvider: id => invoke('settings:provider-delete', id),
   saveJira: input => invoke('settings:jira', input),
+  revealJiraPassword: input => invoke('settings:jira-password', input),
   saveClaudeCredential: apiKey => invoke('settings:claude-credential', apiKey),
   saveClaudeRuntime: input => invoke('settings:claude-runtime', input),
   clearClaudeCredential: () => invoke('settings:claude-credential-clear'),
@@ -138,6 +146,11 @@ const api: DesktopApi = {
   getJiraWorkflow: (key, projectKey) => invoke('jira:workflow', key, projectKey),
   searchJiraAssignees: (key, query, projectKey) => invoke('jira:assignees', key, query, projectKey),
   selectJiraTestImages: () => invoke('jira:test-images'),
+  addJiraAttachments: files => {
+    const paths = files.map(file => webUtils.getPathForFile(file));
+    if (paths.some(filename => !filename)) return Promise.reject(new Error('无法读取文件路径，请从资源管理器拖入文件，或点击“上传附件”。'));
+    return invoke('jira:add-attachments', paths);
+  },
   transitionJira: input => invoke('jira:transition', input),
   getJiraImage: (key, attachmentId, sessionId) => invoke('jira:image', key, attachmentId, sessionId),
   importDocument: input => invoke('settings:document-import', input),
@@ -147,6 +160,9 @@ const api: DesktopApi = {
   deleteMemory: id => invoke('settings:memory-delete', id),
   getGitState: id => invoke('git:state', id),
   getProjectGitState: id => invoke('git:project-state', id),
+  getProjectFiles: target => invoke('git:project-files', target),
+  readProjectFile: (target, file) => invoke('git:project-file-read', target, file),
+  revealProjectFile: (target, file) => invoke('git:project-file-reveal', target, file),
   fetchProjectChanges: (id, remote) => invoke('git:project-fetch', id, remote),
   pullProjectChanges: (id, remote) => invoke('git:project-pull', id, remote),
   pushProjectChanges: (id, remote) => invoke('git:project-push', id, remote),

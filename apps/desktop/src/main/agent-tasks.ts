@@ -87,6 +87,8 @@ interface ActiveTask {
 
 /** 工具权限由平台固定路由决定；不能由模型参数指定 requiredPermission 或跳过路径检查。 */
 export function createAgentTaskToolGateway(options: { store: LocalStore; task: AgentTask; workspacePath: string; budget: TaskBudgetGuard; assertActive?: () => void }): NonNullable<RuntimeOptions['toolGateway']> {
+  // 兼容模型把绝对目录包在反引号或引号中的历史任务记录，避免 realpath 将标记当作目录名。
+  const workspacePath = options.workspacePath.trim().replace(/^[`'\"]+|[`'\"]+$/g, '').trim();
   const contract = options.store.getAgentTaskContractVersions(options.task.sessionId, options.task.id).at(-1)?.contract;
   if (!contract || contract.contractVersion !== options.task.contractVersion) throw new GovernanceError('contract_changed');
   let expectedVersion = options.store.listAgentTasks(options.task.sessionId).find(task => task.id === options.task.id)?.stateVersion;
@@ -98,7 +100,7 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
   };
   const snapshot = options.store.getTaskAuditSnapshot(options.task.sessionId, options.task.id);
   const calls = snapshot.toolEvents.filter(event => event.eventType === 'tool.started').map(event => ({ callId: String(event.payload.callId ?? event.correlationId), toolName: String(event.payload.toolName), argumentsHash: String(event.payload.argumentsHash), idempotencyKeyHash: typeof event.payload.idempotencyKeyHash === 'string' ? event.payload.idempotencyKeyHash : undefined, outcome: 'unknown_outcome' as const }));
-  const gateway = new GovernedToolGateway({ contract, workspacePath: options.workspacePath, budget: options.budget, initialCalls: calls, audit: event => {
+  const gateway = new GovernedToolGateway({ contract, workspacePath, budget: options.budget, initialCalls: calls, audit: event => {
     assertCurrent();
     const persisted = options.store.appendTaskAuditEvent(options.task.sessionId, options.task.id, { eventType: event.eventType, actor: 'platform-runner', payload: { ...event.payload }, correlationId: event.payload.callId });
     expectedVersion = persisted.aggregateVersion;
@@ -129,7 +131,7 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
     return gateway.execute({ callId, toolName: request.toolName, arguments: request.arguments, requiredPermission: permission, paths, idempotencyKey: `${contract.taskId}:${request.threadId}:${request.turnId}:${request.requestId}` }, async () => {
       assertCurrent();
       if (['read_project_file', 'list_project_files'].includes(request.toolName)) {
-        const root = await realpath(options.workspacePath);
+        const root = await realpath(workspacePath);
         for (const relative of paths) {
           const actual = await realpath(path.join(root, normalizeTaskRelativePath(relative)));
           assertTaskPathAllowed(contract, path.relative(root, actual).replaceAll('\\', '/'));

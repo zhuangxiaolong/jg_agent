@@ -1,7 +1,8 @@
 import { useTransientError } from './use-transient-error';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
+import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
+import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon, Mark } from './ui';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
 import { MarkdownContent } from './MarkdownContent';
@@ -12,10 +13,11 @@ import { DiffPreview } from './DiffPreview';
 import { JiraPanel } from './JiraPanel';
 import { jiraTaskPrompt } from './JiraIssueDetails';
 import { RequirementAdmissionPanel } from './RequirementAdmissionPanel';
-import { compactAgentEvent, engineText, engineVersion, sessionDisplayName, toolPlatformText } from './branding';
+import { compactAgentEvent, engineText, engineVersion, runtimeAssistantName, sessionDisplayName, toolPlatformText } from './branding';
 import { isSessionRunActive } from './session-run-state';
 import { isJiraSessionCreating } from './jira-create-state';
 import { ProjectRow } from './ProjectRow';
+import { GitChangesResizeHandle } from './GitChangesResizeHandle';
 import { SessionRow } from './SessionRow';
 import { AgentTasksPanel } from './AgentTasksPanel';
 import { agentTasksToReveal } from './agent-task-state';
@@ -23,9 +25,12 @@ import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
 import { latestRunningIndicator, runningIndicatorDetails } from './running-indicator';
 import { BrowserPanel } from './BrowserPanel';
+import { ProjectFilesPanel } from './ProjectFilesPanel';
+import { pendingRuntimeApprovals, sessionProviderChoices } from './grok-ui-state';
+import './runtime-approval.css';
 
 
-const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '运行中', completed: '已完成', failed: '失败', interrupted: '已中断' };
+const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '等待审批', completed: '已完成', failed: '失败', interrupted: '已中断' };
 const reasoningLabels: Record<ReasoningEffort, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高' };
 const defaultLayout: LayoutPreferences = { leftVisible: true, rightVisible: true, bottomVisible: false, leftWidth: 220, rightWidth: 420, bottomHeight: 180 };
 type ResizeKind = 'left' | 'right' | 'bottom' | 'composer';
@@ -35,7 +40,7 @@ interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
 function time(value: string) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
-function runtimeLabel(kind?: RuntimeKind): string { return kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
+function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? '当前引擎' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
 function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
 function buildDiffTree(files: FileDiff[]): DiffTreeNode[] {
   const roots: DiffTreeNode[] = [];
@@ -72,7 +77,10 @@ function mergeEvents(a: AgentEvent[], b: AgentEvent[]) {
 function timeline(events: AgentEvent[]) {
   const rows: { id: string; type: AgentEvent['type']; text: string; createdAt: string }[] = [];
   for (const event of events) {
-    if (event.type === 'approval') continue;
+    if (event.type === 'approval') {
+      if (event.approval && event.approval.state !== 'pending') rows.push({ ...event, type: 'status', text: `工具审批${event.approval.state === 'allowed' ? '已允许一次' : event.approval.state === 'expired' ? '已过期' : '已拒绝'}：${event.approval.title}` });
+      continue;
+    }
     if (event.type === 'message' && /^### (?:代码变更(?:已)?核验|构建、测试与报告核验)/.test(event.text.trim())) continue;
     const compactText = compactAgentEvent(event);
     if (compactText === null) continue;
@@ -88,6 +96,7 @@ function timeline(events: AgentEvent[]) {
 export function App() {
   const api = window.jinggong;
   const [data, setData] = useState<Bootstrap | null>(null);
+  const runtimeHealthUpdates = useRef({ version: 0, values: new Map<RuntimeKind, { version: number; health: RuntimeHealth }>() });
   const [projectId, setProjectId] = useState('');
   const [jiraLocalProjectId, setJiraLocalProjectId] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -97,6 +106,7 @@ export function App() {
   const [selectedFile, setSelectedFile] = useState('');
   const [diffExpanded, setDiffExpanded] = useState(false);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenu | null>(null);
+  const [filePreviewPath, setFilePreviewPath] = useState('');
   const [fileAction, setFileAction] = useState('');
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
   const prompt = sessionDrafts[sessionId]?.prompt || '';
@@ -114,8 +124,11 @@ export function App() {
     });
   }
   const [busy, setBusy] = useState('');
+  const [approvalBusy, setApprovalBusy] = useState<ReadonlySet<string>>(new Set());
+  const [approvalSubmitted, setApprovalSubmitted] = useState<ReadonlySet<string>>(new Set());
   const [requirementBusy, setRequirementBusy] = useState(false);
   const [diffBusy, setDiffBusy] = useState(false);
+  const [gitDiffHeight, setGitDiffHeight] = useState<number | null>(null);
   const [diffError, setDiffError] = useState('');
   const [unread, setUnread] = useState<Record<string, string>>({});
   const [error, setError] = useTransientError();
@@ -126,7 +139,8 @@ export function App() {
   const [showReturnLatest, setShowReturnLatest] = useState(false);
   const [updateDownloadedVersion, setUpdateDownloadedVersion] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('providers');
-  const [inspector, setInspector] = useState<'jira' | 'diff' | 'context' | 'git' | 'agents' | 'performance'>('jira');
+  const [inspector, setInspector] = useState<'jira' | 'context' | 'git' | 'files' | 'agents' | 'performance'>('jira');
+  const [expandedProjectSessions, setExpandedProjectSessions] = useState<Record<string, boolean>>({});
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout);
   const [activityTab, setActivityTab] = useState<'output' | 'tools'>('output');
   const [workingExpanded, setWorkingExpanded] = useState(false);
@@ -151,6 +165,7 @@ export function App() {
   const completionSoundRef = useRef<CompletionSound>('chime');
   const selectedSessionRef = useRef('');
   const diffSequence = useRef(0);
+  const diffInFlight = useRef(new Map<string, number>());
   const layoutRef = useRef<LayoutPreferences>(defaultLayout);
   const savedLayoutRef = useRef<LayoutPreferences>(defaultLayout);
   const settingsRefreshSequence = useRef(0);
@@ -170,13 +185,14 @@ export function App() {
   const browserOpen = !!session && !!browserState?.visible;
   const sessionProject = data?.projects.find(item => item.id === session?.projectId);
   const sessionRuntimeKind = session?.runtimeKind ?? 'codex';
-  const sessionReadAccess = session?.readAccess ?? { mode: 'full' as const, directories: [] };
-  const sessionRuntimeHealth = data?.runtimes?.[sessionRuntimeKind] ?? data?.runtime;
+  const assistantName = runtimeAssistantName(sessionRuntimeKind);
+  const sessionRuntimeHealth = sessionRuntimeKind === 'grok_build_acp' ? data?.runtimes?.grok_build_acp : data?.runtimes?.[sessionRuntimeKind] ?? data?.runtime;
   const sessionTitle = session ? sessionDisplayName(session) : '';
   const status = sessionId ? statuses[sessionId] || session?.status || 'idle' : 'idle';
   // status 是持久化展示状态，异常退出后可能仍为 running；输入锁定只看当前进程实际活动任务。
   const running = isSessionRunActive(sessionId, runningSessions.current, sendingSessions);
   const sessionEvents = events[sessionId] || [];
+  const runtimeApprovals = useMemo(() => sessionRuntimeKind === 'grok_build_acp' ? [] : pendingRuntimeApprovals(sessionEvents, sessionId, running), [sessionEvents, sessionId, running, sessionRuntimeKind]);
   const rows = useMemo(() => timeline(sessionEvents), [sessionEvents]);
   const workingDetails = useMemo(() => runningIndicatorDetails(sessionEvents), [sessionEvents]);
   const latestWorkingInfo = useMemo(() => latestRunningIndicator(sessionEvents), [sessionEvents]);
@@ -193,11 +209,18 @@ export function App() {
     }
     return compacted;
   }, [sessionEvents, activityTab]);
-  const activeDiff = diffs.find(file => file.path === selectedFile) || diffs[0];
-  const configuredProvider = data?.settings?.providers.find(item => item.id === session?.providerId) || (!session?.providerId ? data?.settings?.providers[0] : undefined);
+  const activeDiff = diffs.find(file => file.path === selectedFile);
+  const providerChoices = useMemo(() => sessionProviderChoices(data?.settings, sessionRuntimeKind), [data?.settings, sessionRuntimeKind]);
+  const defaultProvider = providerChoices.find(item => item.enabled && item.models.some(model => model.enabled));
+  const configuredProvider = providerChoices.find(item => item.id === session?.providerId) || (!session?.providerId ? defaultProvider : undefined);
+  const configuredModel = configuredProvider?.models.find(item => item.id === session?.model);
+  const configuredBackend = configuredModel?.backend || (sessionRuntimeKind === 'grok_build_acp' ? 'Chat Completions' : sessionRuntimeKind === 'claude_agent_sdk' ? 'Anthropic Messages' : 'Responses');
+  const claudeGrokSelection = sessionRuntimeKind === 'claude_agent_sdk' && !!configuredProvider && !!session?.model && isGrokModel(configuredProvider, session.model);
+  const grokProviderReady = providerChoices.some(provider => provider.enabled && provider.hasKey && provider.models.some(model => model.enabled));
+  const grokSelectable = Boolean((data?.runtimes?.grok_build_acp?.compatible || data?.runtimes?.grok_build_acp?.warmingUp) && grokProviderReady);
   completionSoundRef.current = data?.settings?.preferences.completionSound ?? 'chime';
-  const selectedProvider = data?.settings?.providers.find(item => item.id === draftProvider);
-  const configurationChanged = !!session && (draftProvider !== (session.providerId || data?.settings?.providers[0]?.id || '') || draftModel !== session.model || draftSystem !== (session.system || '通用') || draftReasoning !== (session.reasoningEffort || ''));
+  const selectedProvider = providerChoices.find(item => item.id === draftProvider);
+  const configurationChanged = !!session && (draftProvider !== (session.providerId || defaultProvider?.id || '') || draftModel !== session.model || draftSystem !== (session.system || '通用') || draftReasoning !== (session.reasoningEffort || ''));
   const projectBindingChanged = !!session && bindProjectId !== (session.projectId || '');
   sessionNames.current = new Map(data?.sessions.map(item => [item.id, sessionDisplayName(item)]) ?? []);
   sessionDraftsRef.current = sessionDrafts;
@@ -226,9 +249,19 @@ export function App() {
     if (imported) { setProjectId(imported.projectId || ''); setSessionId(imported.id); }
   }
   async function refresh() {
-    const next = await api.bootstrap();
+    const healthVersion = runtimeHealthUpdates.current.version;
+    const next = mergeRuntimeSnapshot(await api.bootstrap(), healthVersion);
     setData(next);
     return next;
+  }
+  function mergeRuntimeSnapshot(next: Bootstrap, healthVersion: number): Bootstrap {
+    const runtimes = { ...next.runtimes };
+    // 请求发出后的状态推送比旧快照更新，启动和刷新时都不能把已就绪覆盖成预热中。
+    for (const [kind, update] of runtimeHealthUpdates.current.values) {
+      if (update.version > healthVersion) runtimes[kind] = update.health;
+    }
+    const kind = next.runtime.kind ?? next.settings.runtimeKind ?? 'codex';
+    return { ...next, runtimes, runtime: runtimes[kind] ?? next.runtime };
   }
   async function discardEmptySession(id: string, allowSelected = false) {
     if (!id || emptySessionCleanup.current.has(id)) return;
@@ -285,11 +318,17 @@ export function App() {
     } catch (reason) { setError(message(reason)); }
     finally { setRequirementBusy(false); }
   }
+  const runtimeChecked = useCallback((kind: RuntimeKind, health: RuntimeHealth) => {
+    runtimeHealthUpdates.current.values.set(kind, { version: ++runtimeHealthUpdates.current.version, health });
+    setData(current => current ? { ...current, runtimes: { ...current.runtimes, [kind]: health }, runtime: (current.runtime.kind ?? current.settings.runtimeKind) === kind ? health : current.runtime } : current);
+  }, []);
   function settingsChanged(settings: SettingsSnapshot) {
     const sequence = ++settingsRefreshSequence.current;
+    const healthVersion = runtimeHealthUpdates.current.version;
     setData(current => current ? { ...current, settings } : current);
-    void api.bootstrap().then(next => {
+    void api.bootstrap().then(snapshot => {
       if (sequence !== settingsRefreshSequence.current) return;
+      const next = mergeRuntimeSnapshot(snapshot, healthVersion);
       setData(current => current ? { ...current, settings: next.settings, projects: next.projects, sessions: next.sessions, provider: next.provider, runtime: next.runtime, runtimes: next.runtimes } : current);
     }).catch(reason => setError(message(reason)));
   }
@@ -389,12 +428,12 @@ export function App() {
     return () => query.removeEventListener('change', apply);
   }, [data?.settings?.preferences]);
   useEffect(() => {
-    setDraftProvider(session?.providerId || data?.settings?.providers[0]?.id || '');
-    setDraftModel(session?.model || data?.settings?.providers[0]?.models[0] || '');
+    setDraftProvider(session?.providerId || defaultProvider?.id || '');
+    setDraftModel(session?.model || defaultProvider?.models.find(model => model.enabled)?.id || '');
     setDraftSystem(session?.system || '通用');
     setDraftReasoning(session?.reasoningEffort || '');
     setBindProjectId(session?.projectId || '');
-  }, [session?.id, session?.projectId, session?.providerId, session?.model, session?.system, session?.reasoningEffort, data?.settings?.providers[0]?.id, data?.settings?.providers[0]?.models[0]]);
+  }, [session?.id, session?.projectId, session?.providerId, session?.model, session?.system, session?.reasoningEffort, sessionRuntimeKind, defaultProvider?.id, defaultProvider?.models.find(model => model.enabled)?.id]);
   useEffect(() => {
     let alive = true;
     const target = data?.projects.find(item => item.id === (session ? bindProjectId : projectId));
@@ -424,20 +463,41 @@ export function App() {
   }
   async function switchSessionRuntime(kind: RuntimeKind) {
     if (!session || kind === sessionRuntimeKind || running || busy) return;
+    if (kind === 'grok_build_acp') { setError('该运行时已隐藏，请新建会话选择其他运行时。'); return; }
+    if (session.runtimeThreadId && sessionRuntimeKind === 'grok_build_acp') { setError('此会话已建立 Runtime 绑定，无法切换运行时。'); return; }
+    const choices = sessionProviderChoices(data?.settings, kind);
+    const usableProvider = (item: typeof choices[number]) => item.enabled && item.hasKey && item.models.some(model => model.enabled);
+    const provider = choices.find(item => item.id === session.providerId && usableProvider(item)) || choices.find(usableProvider);
+    if (kind === 'claude_agent_sdk' && !provider) { setSessionSettingsOpen(true); setError('Claude Runtime 不支持 Grok 模型，请先配置带有效凭据的非 Grok 模型。'); return; }
     setBusy('runtime'); setError(''); setNotice('');
     try {
-      const updated = await api.configureSession(session.id, { runtimeKind: kind });
+      const model = provider?.models.find(item => item.id === session.model && item.enabled) || provider?.models.find(item => item.enabled);
+      const updated = await api.configureSession(session.id, { runtimeKind: kind, ...(provider && model ? { providerId: provider.id, model: model.id } : {}) });
       setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
       setNotice(`当前会话已切换为 ${runtimeLabel(kind)}。`);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
+  }
+  async function respondApproval(requestId: string, decision: 'allow_once' | 'reject_once') {
+    const targetSessionId = sessionId;
+    const marker = `${targetSessionId}:${requestId}`;
+    if (!api.respondRuntimeApproval || approvalBusy.has(marker) || approvalSubmitted.has(marker) || !runtimeApprovals.some(event => event.approval?.requestId === requestId)) return;
+    setApprovalBusy(current => new Set(current).add(marker));
+    try {
+      await api.respondRuntimeApproval(targetSessionId, requestId, decision);
+      setApprovalSubmitted(current => new Set(current).add(marker));
+      const saved = await api.getEvents(targetSessionId);
+      setEvents(current => ({ ...current, [targetSessionId]: mergeEvents(saved, current[targetSessionId] || []) }));
+    } catch (reason) { setError(message(reason)); }
+    finally { setApprovalBusy(current => { const next = new Set(current); next.delete(marker); return next; }); }
   }
   async function bindCurrentSession(targetProjectId = bindProjectId) {
     if (!session || targetProjectId === (session.projectId || '') || running || busy) return;
     const targetProjectName = data?.projects.find(item => item.id === targetProjectId)?.name;
     setBusy('bind-project'); setError(''); setNotice('');
     try {
-      const updated = await api.bindSessionProject(session.id, targetProjectId, targetProjectId ? baseBranch || undefined : undefined);
+      const targetBaseBranch = targetProjectId ? await resolveBaseBranch(targetProjectId) : undefined;
+      const updated = await api.bindSessionProject(session.id, targetProjectId, targetBaseBranch);
       await refresh();
       setProjectId(updated.projectId || '');
       setSessionId(updated.id);
@@ -446,12 +506,13 @@ export function App() {
       try {
         const nextDiffs = updated.projectId ? await api.getDiff(updated.id) : [];
         setDiffs(nextDiffs);
-        setSelectedFile(current => nextDiffs.some(item => item.path === current) ? current : (nextDiffs[0]?.path || ''));
+        setSelectedFile('');
+        setDiffExpanded(false);
         setDiffError('');
       } catch (reason) {
         setDiffs([]); setSelectedFile(''); setDiffError(message(reason));
       }
-      if (targetProjectId) setNotice(`会话已切换到项目「${targetProjectName}」。原目录与其中的改动已保留，恢复路径见会话消息。`);
+      if (targetProjectId) setNotice(`会话已切换到项目「${targetProjectName}」。`);
       const savedEvents = await api.getEvents(updated.id);
       setEvents(current => ({ ...current, [updated.id]: mergeEvents(savedEvents, current[updated.id] || []) }));
     } catch (reason) { setError(message(reason)); }
@@ -464,6 +525,8 @@ export function App() {
       const updated = await api.switchSessionBranch(session.id, value);
       setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
       setEvents(current => ({ ...current, [updated.id]: [] }));
+      setSelectedFile('');
+      setDiffExpanded(false);
       await refreshDiff(updated.id);
       setNotice(`已切换到基准分支 ${value}，请重新发送任务。`);
     } catch (reason) { setError(message(reason)); }
@@ -478,49 +541,25 @@ export function App() {
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
-  async function authorizeSessionDirectory() {
-    if (!session || running) return;
-    setBusy('directory'); setError(''); setNotice('');
-    try {
-      const updated = await api.authorizeSessionDirectory(session.id);
-      setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
-      if (updated.readAccess?.mode === 'restricted') setNotice('已切换为指定目录只读，Runtime 将重新建立会话。');
-    } catch (reason) { setError(message(reason)); }
-    finally { setBusy(''); }
-  }
-  async function revokeSessionDirectory(grantId: string) {
-    if (!session || running) return;
-    setBusy('directory'); setError(''); setNotice('');
-    try {
-      const updated = await api.revokeSessionDirectory(session.id, grantId);
-      setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
-      setNotice(updated.readAccess?.directories.length ? '已撤销该目录授权。' : '已撤销全部目录授权，外部资料读取已关闭。');
-    } catch (reason) { setError(message(reason)); }
-    finally { setBusy(''); }
-  }
-  async function restoreSessionFullReadAccess() {
-    if (!session || running) return;
-    setBusy('directory'); setError(''); setNotice('');
-    try {
-      const updated = await api.restoreSessionFullReadAccess(session.id);
-      setData(current => current ? { ...current, sessions: current.sessions.map(item => item.id === updated.id ? updated : item) } : current);
-      setNotice('已恢复项目外资料全量只读。');
-    } catch (reason) { setError(message(reason)); }
-    finally { setBusy(''); }
-  }
-  async function refreshDiff(id = sessionId) {
+  async function refreshDiff(id = sessionId, background = false) {
     if (id !== selectedSessionRef.current) return;
+    if (background && diffInFlight.current.has(id)) return;
     const sequence = ++diffSequence.current;
     const targetSession = data?.sessions.find(item => item.id === id);
     if (!id || (targetSession && !targetSession.projectId) || (session?.id === id && !session.projectId)) { setDiffs([]); setSelectedFile(''); setDiffError(''); setDiffBusy(false); return; }
-    setDiffBusy(true); setDiffError('');
+    diffInFlight.current.set(id, sequence);
+    if (!background) setDiffBusy(true);
+    setDiffError('');
     try {
       const next = await api.getDiff(id);
       if (sequence !== diffSequence.current || id !== selectedSessionRef.current) return;
       setDiffs(next);
-      setSelectedFile(current => next.some(file => file.path === current) ? current : next[0]?.path || '');
-    } catch (reason) { if (sequence === diffSequence.current) { setDiffs([]); setDiffError(message(reason)); } }
-    finally { if (sequence === diffSequence.current) setDiffBusy(false); }
+      setSelectedFile(current => next.some(file => file.path === current) ? current : '');
+    } catch (reason) { if (sequence === diffSequence.current && id === selectedSessionRef.current) { setDiffs([]); setDiffError(message(reason)); } }
+    finally {
+      if (diffInFlight.current.get(id) === sequence) diffInFlight.current.delete(id);
+      if (sequence === diffSequence.current) setDiffBusy(false);
+    }
   }
 
   async function runFileAction(action: 'stage' | 'unstage' | 'discard', file: FileDiff) {
@@ -541,8 +580,13 @@ export function App() {
     let bootstrapping = true;
     const observedRunStatuses = new Set<string>();
     if (!api) { setError('桌面桥接未就绪，请通过精工Agent桌面程序打开。'); return; }
-    api.bootstrap().then(next => {
+    const healthVersion = runtimeHealthUpdates.current.version;
+    const offRuntime = api.onRuntimeHealthChanged?.(health => {
+      if (alive) runtimeChecked(health.kind, health);
+    });
+    api.bootstrap().then(snapshot => {
       if (!alive) return;
+      const next = mergeRuntimeSnapshot(snapshot, healthVersion);
       for (const id of next.activeSessionIds ?? []) {
         if (!observedRunStatuses.has(id)) runningSessions.current.add(id);
       }
@@ -559,9 +603,9 @@ export function App() {
       setEvents(current => ({ ...current, [event.sessionId]: mergeEvents(current[event.sessionId] || [], [event]) }));
       if (event.type === 'status' && event.text in statusLabels) {
         setStatuses(current => ({ ...current, [event.sessionId]: event.text as SessionStatus }));
-        if (bootstrapping && ['running', 'completed', 'failed', 'interrupted'].includes(event.text)) observedRunStatuses.add(event.sessionId);
+        if (bootstrapping && ['running', 'waiting-approval', 'completed', 'failed', 'interrupted'].includes(event.text)) observedRunStatuses.add(event.sessionId);
       }
-      if (event.type === 'status' && event.text === 'running') {
+      if (event.type === 'status' && ['running', 'waiting-approval'].includes(event.text)) {
         runningSessions.current.add(event.sessionId);
         if (event.sessionId === selectedSessionRef.current) setWorkingExpanded(false);
       }
@@ -594,7 +638,7 @@ export function App() {
     });
     return () => {
       alive = false;
-      off(); offTitle(); offReadAccess?.(); offUpdate();
+      off(); offTitle(); offReadAccess?.(); offRuntime?.(); offUpdate();
     };
   }, [api]);
 
@@ -629,6 +673,7 @@ export function App() {
     followLatest.current = true;
     setShowReturnLatest(false);
     setSessionSettingsOpen(false);
+    setSelectedFile('');
     setDiffExpanded(false);
     setWorkingExpanded(false);
     if (!sessionId || !api) { setDiffs([]); return; }
@@ -677,7 +722,19 @@ export function App() {
   useEffect(() => { if (layout.bottomVisible) activityEndRef.current?.scrollIntoView({ block: 'end' }); }, [activityEvents.length, layout.bottomVisible]);
   useEffect(() => {
     if (sessionId && !running) void refreshDiff(sessionId);
-  }, [status]);
+  }, [sessionId, status, running]);
+
+  useEffect(() => {
+    if (!running || !sessionId || !session?.projectId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refreshDiff(sessionId, true);
+      if (!stopped) timer = setTimeout(() => { void poll(); }, 2000);
+    };
+    timer = setTimeout(() => { void poll(); }, 1000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [sessionId, session?.projectId, running]);
 
   async function addProject(keepConversation = false) {
     setBusy('project'); setError(''); setNotice('');
@@ -751,7 +808,9 @@ export function App() {
   async function send(event?: FormEvent) {
     event?.preventDefault();
     if ((!prompt.trim() && !conversationAttachments.length) || !session || busy) return;
+    if (claudeGrokSelection) { setSessionSettingsOpen(true); setError('Claude Runtime 不支持 Grok 模型，请在会话设置中选择其他模型后应用。'); return; }
     if (!configuredProvider?.hasKey) { setSessionSettingsOpen(true); setError('请先在当前会话设置中选择已配置密钥的中转站，或管理中转站凭据。'); return; }
+    if (sessionRuntimeKind === 'grok_build_acp' && (!configuredProvider.enabled || !configuredModel?.enabled || !grokSelectable)) { setError('当前会话运行时或模型不可用，请检查运行时组件状态和会话模型选择。'); return; }
     if (projectBindingChanged) { setError('请先应用本地项目选择，再发送任务。'); return; }
     if (configurationChanged) { setError('请先应用会话设置，再发送任务。'); return; }
     const text = prompt.trim() || '请分析本轮上传的附件。';
@@ -815,13 +874,25 @@ export function App() {
     setShowReturnLatest(false);
     element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
   }
+  function openMessageFile(filePath: string) {
+    const candidate = project?.path || sessionProject?.path;
+    if (!candidate) { setError('请先选择项目后查看文件'); return; }
+    const normalized = filePath.replace(/\\/g, '/');
+    const root = candidate.replace(/\\/g, '/').replace(/\/$/, '');
+    const relative = normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? normalized.slice(root.length + 1) : filePath;
+    setFilePreviewPath(relative.replace(/^\.\//, ''));
+    setInspector('files');
+  }
 
   function renderProjectGroup(item: NonNullable<typeof data>['projects'][number]) {
+    const projectSessions = data?.sessions.filter(sessionItem => sessionItem.projectId === item.id) ?? [];
+    const expanded = !!expandedProjectSessions[item.id];
+    const visibleSessions = expanded ? projectSessions : projectSessions.slice(0, 3);
     return <section className="project-group" key={item.id} aria-label={`项目 ${item.name}`}>
-      <ProjectRow project={item} selected={item.id === projectId} disabled={!!busy || running} unread={data?.sessions.some(candidate => candidate.projectId === item.id && !!unread[candidate.id]) ?? false} onSelect={() => { setProjectId(item.id); void toggleProject(item.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (projectId === item.id) { const replacement = next.projects[0]; setProjectId(replacement?.id || ''); setSessionId(next.sessions.find(candidate => candidate.projectId === replacement?.id)?.id || ''); } }} />
+      <ProjectRow project={item} selected={item.id === projectId} disabled={!!busy || running} createDisabled={!!busy} unread={data?.sessions.some(candidate => candidate.projectId === item.id && !!unread[candidate.id]) ?? false} onSelect={() => { setProjectId(item.id); void toggleProject(item.id); }} onCreateSession={() => openCreateSession(item.id)} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (projectId === item.id) { const replacement = next.projects[0]; setProjectId(replacement?.id || ''); setSessionId(next.sessions.find(candidate => candidate.projectId === replacement?.id)?.id || ''); } }} />
       <div id={`project-sessions-${item.id}`} hidden={item.collapsed !== false}>
-        {data?.sessions.filter(sessionItem => sessionItem.projectId === item.id).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(item.id); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => candidate.projectId === item.id)?.id || ''); }} />)}
-        <button className="project-new-session text-button" disabled={!!busy} onClick={() => openCreateSession(item.id)}><Icon name="plus" />新建会话</button>
+        {visibleSessions.map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(item.id); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => candidate.projectId === item.id)?.id || ''); }} />)}
+        {projectSessions.length > 3 && <button type="button" className="project-more-sessions text-button" onClick={() => setExpandedProjectSessions(current => ({ ...current, [item.id]: !expanded }))}>{expanded ? '收起会话' : `… 还有 ${projectSessions.length - 3} 个会话`}</button>}
       </div>
     </section>;
   }
@@ -861,12 +932,22 @@ export function App() {
 
             {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
-               {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 使用独立工作目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
-               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : row.type === 'error' ? '运行错误' : '精工Agent'}</strong><time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} />}</div></div></article>)}
+               {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 直接使用所选项目目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
+               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong><time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div></div></article>)}
+              {runtimeApprovals.map(event => {
+                const approval = event.approval!;
+                const marker = `${sessionId}:${approval.requestId}`;
+                const decided = approvalSubmitted.has(marker);
+                return <section className="runtime-approval" aria-label="Grok 工具审批" key={event.id}>
+                  <strong>{approval.title || '工具执行请求'}</strong><p>{approval.toolName} · {runtimeLabel(sessionRuntimeKind)}</p>
+                  <pre>{approval.input}</pre><p>核对命令、文件路径和变更内容后，仅允许本次操作。可使用“停止”取消整轮任务。</p>
+                  <div className="runtime-approval-actions"><button type="button" className="primary-button" disabled={!api.respondRuntimeApproval || approvalBusy.has(marker) || decided} onClick={() => { void respondApproval(approval.requestId, 'allow_once'); }}>{decided ? '已提交决定' : '允许一次'}</button><button type="button" className="secondary-button" disabled={!api.respondRuntimeApproval || approvalBusy.has(marker) || decided} onClick={() => { void respondApproval(approval.requestId, 'reject_once'); }}>拒绝</button></div>
+                </section>;
+              })}
               {running && <div className={`working-indicator ${workingExpanded ? 'expanded' : ''}`}>
                 <button type="button" className="working-summary" aria-expanded={workingExpanded} aria-controls="working-details" onClick={() => setWorkingExpanded(value => !value)}>
                   <span className="working-dots" aria-hidden="true"><span /><span /><span /></span>
-                  <span className="working-text">Agent 正在处理任务</span>
+                  <span className="working-text">{assistantName} 正在处理任务</span>
                   <span className="working-latest" title={latestWorkingInfo}>{latestWorkingInfo}</span>
                   <Icon name="chevron" className={`working-chevron ${workingExpanded ? 'expanded' : ''}`} />
                 </button>
@@ -879,51 +960,55 @@ export function App() {
             <div className="composer-container">
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
-              {session && <div className="read-access-strip" aria-label="会话资料读取范围"><span><Icon name="shield" />项目外资料读取范围：{sessionReadAccess.mode === 'full' ? '全量只读（自动跳过系统、凭据和链接）' : sessionReadAccess.directories.length ? '指定目录只读' : '外部资料读取已关闭'}</span><div className="read-access-actions"><button className="attachment-button" type="button" onClick={() => { void authorizeSessionDirectory(); }} disabled={running || !!busy} title="选择并授权只读资料目录">{busy === 'directory' ? '处理中…' : '选择目录'}</button>{sessionReadAccess.mode === 'restricted' && <button className="text-button" type="button" onClick={() => { void restoreSessionFullReadAccess(); }} disabled={running || !!busy}>恢复全量读取</button>}</div>{sessionReadAccess.mode === 'restricted' && sessionReadAccess.directories.map(directory => <span className="read-access-grant" key={directory.id} title={directory.path}><span className="read-access-path">{directory.path}</span><button type="button" aria-label={`撤销目录 ${directory.path}`} title="撤销目录授权" onClick={() => { void revokeSessionDirectory(directory.id); }} disabled={running || !!busy}><Icon name="close" /></button></span>)}</div>}
+              {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send}>
-                <textarea aria-label="输入任务" placeholder="向精工Agent描述您的任务…" value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} rows={3} maxLength={32000} />
+                <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} rows={3} maxLength={32000} />
                 {conversationAttachments.length > 0 && <div className="composer-attachments" aria-label="待发送附件">{conversationAttachments.map(attachment => <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name={attachment.kind === 'image' ? 'box' : 'file'} /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}</div>}
-               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { const selectedProjectId = event.target.value; if (!selectedProjectId && session.projectId) void bindCurrentSession(''); else setBindProjectId(selectedProjectId); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => !projectBindingChanged && session.projectId ? void switchSessionBranch(event.target.value) : setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}{projectBindingChanged && <button className="attachment-button" type="button" disabled={running || !!busy || branchLoading} onClick={() => { void bindCurrentSession(bindProjectId); }}>{busy === 'bind-project' ? '切换中…' : !bindProjectId ? '解除关联' : session.projectId ? '切换项目' : '绑定项目'}</button>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !sessionRuntimeHealth?.compatible || configurationChanged || projectBindingChanged || !!busy} aria-label="发送任务" title={projectBindingChanged ? '请先应用本地项目选择' : configurationChanged ? '请先应用会话设置' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
+               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || configurationChanged || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : configurationChanged ? '请先应用会话设置' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
               </form>
-              <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型')} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'}</span><Icon name="chevron" /></button>
+              <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型') + ' / ' + configuredBackend} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'} · {configuredBackend}</span><Icon name="chevron" /></button>
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
               <div className="session-settings-heading"><strong>会话设置</strong><button type="button" className="icon-button" aria-label="关闭会话设置" onClick={() => { setSessionSettingsOpen(false); sessionSettingsTriggerRef.current?.focus(); }}><Icon name="close" /></button></div>
-              <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => { const profile = data?.settings.providers.find(item => item.id === e.target.value); setDraftProvider(e.target.value); setDraftModel(profile?.models[0] || ''); }}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{data?.settings?.providers.map(item => <option value={item.id} key={item.id}>{item.name}{item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
-              <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => setDraftModel(e.target.value)}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.includes(draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item}>{item}</option>)}</select></label>
+              <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => { const profile = providerChoices.find(item => item.id === e.target.value); setDraftProvider(e.target.value); setDraftModel(profile?.models.find(model => model.enabled)?.id || ''); }}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{providerChoices.map(item => <option value={item.id} key={item.id} disabled={!item.enabled}>{item.name}{!item.enabled ? '（已停用）' : item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
+              <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => setDraftModel(e.target.value)}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.some(model => model.id === draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item.id} value={item.id} disabled={!item.enabled}>{item.name || item.id}{item.name && item.name !== item.id ? ` · ${item.id}` : ''}{item.backend ? ` · ${item.backend}` : ''}{item.unavailableReason === 'claude-grok' ? '（Claude Runtime 不支持）' : item.enabled ? '' : '（已停用）'}</option>)}</select></label>
+              {claudeGrokSelection && <p className="grok-session-note">Claude Runtime 不支持 Grok 模型。请选择其他模型并应用设置后再发送。</p>}
               <label>系统<select aria-label="会话适用系统" value={draftSystem} disabled={running || !!busy} onChange={e => setDraftSystem(e.target.value as ProductSystem)}>{['通用', 'MES5', 'MES6', 'WMS', '前端'].map(item => <option key={item}>{item}</option>)}</select></label>
               <label>推理强度<select aria-label="推理强度" value={draftReasoning} disabled={running || !!busy} onChange={event => setDraftReasoning(event.target.value as ReasoningEffort | '')}>{([{ value: '', label: '模型默认' }, { value: 'none', label: '无' }, { value: 'minimal', label: '最低' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' }] as const).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <button className="secondary-button" disabled={running || !!busy || !configurationChanged || !draftProvider || !draftModel} onClick={configure}>{busy === 'configure' ? '应用中…' : '应用设置'}</button>
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
-</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span><label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label></div><span className={'status-label ' + status}><span className="status-dot" />{statusLabels[status]}</span></div>
+</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div><span className={'status-label ' + status}><span className="status-dot" />{statusLabels[status]}</span></div>
             </div>
-          </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>让想法，进入代码。</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>每个会话使用独立目录，执行时遵循本机安全策略。</span></div></div>}
+          </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>让想法，进入代码。</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>项目会话直接使用所选本地目录，执行时遵循本机安全策略。</span></div></div>}
         </main>
 
         {browserOpen && browserState && <BrowserPanel key={sessionId} api={api} state={browserState} suspended={showSettings || sessionSettingsOpen || !!fileContextMenu} onClose={() => { void closeBrowser(); }} onError={reason => setError(message(reason))} />}
         <aside id="right-panel" className="inspector" aria-label="右侧任务与代码面板" hidden={!layout.rightVisible || browserOpen}>
        <button type="button" className="panel-resize-handle inspector-resize-handle" role="separator" aria-label="调整右侧面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={840} aria-valuenow={Math.min(layout.rightWidth ?? 420, 840)} title="拖动调整右侧面板宽度" onPointerDown={event => beginResize('right', event)} onKeyDown={event => adjustResize('right', event)} onDoubleClick={() => changeLayout({ rightWidth: 420 })} />
-          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="diff-panel-tab" className={currentInspector === 'diff' ? 'active' : ''} aria-pressed={currentInspector === 'diff'} aria-controls="diff-panel" disabled={!session?.projectId} onClick={() => setInspector('diff')}>代码变更{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
+          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="files-panel-tab" className={currentInspector === 'files' ? 'active' : ''} aria-pressed={currentInspector === 'files'} aria-controls="files-panel" disabled={!project && !sessionProject} onClick={() => setInspector('files')}>项目文件</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
           <div id="jira-panel" className="inspector-panel jira-inspector-panel" role="region" aria-label="右侧 Jira 任务" hidden={currentInspector !== 'jira'}>{data?.settings && <JiraPanel compact api={api} settings={data.settings.jira} projects={data.projects} projectId={jiraAssociationId} onProjectChange={setJiraLocalProjectId} onConfigure={() => openSettings('jira')} onCreateIssue={sessionFromJira} creating={isJiraSessionCreating(busy)} />}</div>
           {hasAgentTasks && <div id="agents-panel" className="inspector-panel" role="region" aria-labelledby="agents-panel-tab" hidden={currentInspector !== 'agents'}><AgentTasksPanel api={api} session={session} tasks={agentTasks.tasks} events={agentTasks.events} refreshTasks={agentTasks.refreshTasks} onError={text => setError(message(text))} /></div>}
           <div id="performance-panel" className="inspector-panel" role="region" aria-label="执行监控" hidden={currentInspector !== 'performance'}>{currentInspector === 'performance' && <PerformancePanel api={api} session={session} />}</div>
-          <div id="diff-panel" className="inspector-panel" role="region" aria-labelledby="diff-panel-tab" hidden={currentInspector !== 'diff'}>
-             {diffs.length ? <div className="diff-content"><GitChangesTree files={diffs} selectedPath={activeDiff?.path || ''} onSelect={path => { setSelectedFile(path); setDiffExpanded(true); }} onContextMenu={(file, x, y) => { setSelectedFile(file.path); setFileContextMenu({ file, x, y }); }} />{activeDiff && <DiffPreview key={sessionId} file={activeDiff} expanded={diffExpanded} onToggle={() => setDiffExpanded(value => !value)} />}</div> : <div className="inspector-empty"><div className="empty-icon"><Icon name="layers" /></div><strong>{diffBusy ? '正在读取 Git 差异' : session ? diffError ? '项目目录暂不可用' : '项目目录暂无变更' : '代码差异将在这里显示'}</strong><p>{session ? diffError || '此处展示会话目录与基准提交的真实差异。' : '选择项目并创建会话，即可查看文件变更。'}</p></div>}
-            {fileContextMenu && <div className="file-context-menu" role="menu" aria-label={`文件 Git 操作：${fileContextMenu.file.path}`} style={{ left: Math.min(fileContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(fileContextMenu.y, Math.max(8, window.innerHeight - 210)) }}>
+          <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={currentInspector !== 'git'} style={{ '--git-diff-flex': gitDiffHeight === null ? '3 1 0' : `0 1 ${gitDiffHeight}px` } as CSSProperties}>
+             {diffs.length ? <div id="diff-panel" className="diff-content"><GitChangesTree files={diffs} selectedPath={activeDiff?.path || ''} onSelect={path => { setSelectedFile(path); setDiffExpanded(true); }} onContextMenu={(file, x, y) => { setFileContextMenu({ file, x, y }); }} />{activeDiff && <DiffPreview key={sessionId} file={activeDiff} expanded={diffExpanded} onToggle={() => setDiffExpanded(value => !value)} />}</div> : <div id="diff-panel" className="inspector-empty"><div className="empty-icon"><Icon name="layers" /></div><strong>{diffBusy ? '正在读取 Git 差异' : session ? diffError ? '项目目录暂不可用' : '本次会话暂无代码变更' : '代码差异将在这里显示'}</strong><p>{session ? diffError || '仅展示本会话任务产生的修改；历史未采集修改不推断归属。' : '选择项目并创建会话，即可查看文件变更。'}</p></div>}
+            {fileContextMenu && <div className="file-context-menu" role="menu" aria-label={`文件 Git 操作：${fileContextMenu.file.path}`} style={{ left: Math.min(fileContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(fileContextMenu.y, Math.max(8, window.innerHeight - 340)) }}>
               <div className="file-context-heading">{fileContextMenu.file.path}</div>
               <button role="menuitem" onClick={() => { setSelectedFile(fileContextMenu.file.path); setDiffExpanded(true); setFileContextMenu(null); }}><Icon name="layers" />查看对比</button>
               <button role="menuitem" onClick={() => { void api.copyText(fileContextMenu.file.path).then(() => { setFileContextMenu(null); setNotice('文件路径已复制。'); }).catch(reason => setError(message(reason))); }}><Icon name="copy" />复制文件路径</button>
               <button role="menuitem" onClick={() => { const file = fileContextMenu.file; setFileContextMenu(null); void api.openChangedFile(sessionId, file.path).catch(reason => setError(message(reason))); }}><Icon name="file" />用系统编辑器打开</button>
+              <button role="menuitem" onClick={() => { const file = fileContextMenu.file; setFileContextMenu(null); void api.revealProjectFile(sessionId, file.path).catch(reason => setError(message(reason))); }}><Icon name="folder" />使用资源管理器打开</button>
               {!fileContextMenu.file.staged && <button role="menuitem" disabled={!!fileAction} onClick={() => { void runFileAction('stage', fileContextMenu.file); }}><Icon name="check" />暂存此文件</button>}
               {fileContextMenu.file.staged && <button role="menuitem" disabled={!!fileAction} onClick={() => { void runFileAction('unstage', fileContextMenu.file); }}><Icon name="arrow" />取消暂存</button>}
               <button role="menuitem" className="danger-menu-item" disabled={!!fileAction} onClick={() => { void runFileAction('discard', fileContextMenu.file); }}><Icon name="close" />撤销此文件更改</button>
               <button role="menuitem" onClick={() => { setInspector('git'); setFileContextMenu(null); }}><Icon name="branch" />在 Git 面板中处理</button>
             </div>}
-             <div className="inspector-footnote"><Icon name="branch" /><span>{session ? '隔离目录 · 原始项目保持独立' : '每个会话使用独立 Git Worktree'}</span></div>
+             <GitChangesResizeHandle height={gitDiffHeight} onResize={setGitDiffHeight} />
+             <div className="inspector-footnote"><Icon name="branch" /><span>{session ? '仅展示本次会话任务产生的代码修改' : '选择会话后查看 Git 状态'}</span></div>
+             <div className="git-panel-unified"><div className="git-session-changes-heading"><strong>本次会话代码变更</strong><span>{diffs.length} 个文件</span></div>{sessionProject && !projectBindingChanged ? <GitPanel key={`${sessionId}-${sessionProject.id}-${session?.workspacePath}-${session?.system}`} sessionId={sessionId} project={sessionProject} jiraUrl={session?.jiraIssue?.url} running={running} onChanged={async () => { await refresh(); await refreshDiff(sessionId); }} /> : !session && project ? <ProjectGitPanel key={`project-${project.id}`} project={project} disabled={running || !!busy} onChanged={async () => { await refresh(); }} /> : null}</div>
           </div>
-          <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={currentInspector !== 'git'}>{sessionProject && !projectBindingChanged && (!project || project.id === sessionProject.id) ? <GitPanel key={`${sessionId}-${sessionProject.id}-${session?.workspacePath}-${session?.system}`} sessionId={sessionId} project={sessionProject} jiraUrl={session?.jiraIssue?.url} documents={data?.settings?.documents || []} running={running} onChanged={async () => { await refresh(); await refreshDiff(sessionId); }} /> : project ? <div className="git-panel"><ProjectGitPanel key={`project-${project.id}`} project={project} disabled={running || !!busy} onChanged={async () => { await refresh(); }} /></div> : <div className="inspector-empty"><div className="empty-icon"><Icon name="branch" /></div><strong>选择本地项目后管理 Git</strong><p>点击左侧项目即可获取远程更新、拉取与推送项目代码。</p></div>}</div>
-          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={currentInspector !== 'context'}><div className="context-content"><div className="context-label">当前项目</div><strong>{project?.name || '尚未选择'}</strong><code>{project?.path || '通过左侧 + 添加本地 Git 项目'}</code><div className="context-label">会话目录</div><code>{session?.workspacePath || '新建会话后创建独立目录'}</code><div className="context-label">适用系统</div><div className="context-value"><Icon name="shield" />{session?.system || '通用'}</div><p className="context-hint">只加载通用及当前系统资料。代码、构建、测试、网络和数据库操作遵循当前 Runtime 配置和本机安全策略。</p><div className="context-label">模型中转站</div><div className="context-value">{configuredProvider?.name || '未选择'} · Responses</div><code>{configuredProvider?.baseUrl || '尚未配置中转站'}</code><div className="context-label">已启用资料</div>{data?.settings?.documents.filter(item => item.enabled && (item.system === '通用' || item.system === (session?.system || '通用'))).map(item => <div className="context-document" key={item.id}><Icon name="file" /><span>{item.name}<small>{item.system} · {item.kind === 'dictionary' ? '数据字典' : '开发要求'}</small></span></div>)}<button className="text-button" onClick={() => openSettings('documents')} disabled={!data}>管理数据字典</button><button className="text-button" onClick={() => openSettings('requirements')} disabled={!data}>管理开发要求与规范</button><div className="context-label">本机环境</div><div className="environment-row"><span>精工Agent引擎</span><b>{engineVersion(data?.runtime.version) || '检查中'}</b></div><div className="environment-row"><span>Git</span><b>{data?.gitVersion || '未检测到'}</b></div><div className="context-label">本地数据目录</div><code>{data?.dataDirectory || '正在初始化'}</code></div></div>
+          <div id="files-panel" className="inspector-panel" role="region" aria-labelledby="files-panel-tab" hidden={currentInspector !== 'files'}>{(project || sessionProject) ? <ProjectFilesPanel project={project || sessionProject!} sessionId={sessionProject ? sessionId : undefined} initialPath={filePreviewPath} onError={reason => setError(message(reason))} /> : <div className="inspector-empty"><strong>选择项目查看文件</strong></div>}</div>
+          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={currentInspector !== 'context'}><div className="context-content"><div className="context-label">当前项目</div><strong>{project?.name || '尚未选择'}</strong><code>{project?.path || '通过左侧 + 添加本地 Git 项目'}</code><div className="context-label">项目目录</div><code>{session?.workspacePath || '选择项目后直接使用项目目录'}</code><div className="context-label">适用系统</div><div className="context-value"><Icon name="shield" />{session?.system || '通用'}</div><p className="context-hint">只加载通用及当前系统资料。代码、构建、测试、网络和数据库操作遵循当前 Runtime 配置和本机安全策略。</p><div className="context-label">当前 Runtime</div><div className="context-value">{runtimeLabel(sessionRuntimeKind)}</div><div className="context-label">模型中转站 / 模型 / backend</div><div className="context-value">{configuredProvider?.name || '未选择'} · {configuredModel?.name || session?.model || '未选择'} · {configuredBackend}</div><code>{configuredProvider?.baseUrl || '尚未配置中转站'}</code><div className="context-label">已启用资料</div>{data?.settings?.documents.filter(item => item.enabled && (item.system === '通用' || item.system === (session?.system || '通用'))).map(item => <div className="context-document" key={item.id}><Icon name="file" /><span>{item.name}<small>{item.system} · {item.kind === 'dictionary' ? '数据字典' : '开发要求'}</small></span></div>)}<button className="text-button" onClick={() => openSettings('documents')} disabled={!data}>管理数据字典</button><button className="text-button" onClick={() => openSettings('requirements')} disabled={!data}>管理开发要求与规范</button><div className="context-label">本机环境</div><div className="environment-row"><span>精工Agent引擎</span><b>{engineVersion(data?.runtime.version) || '检查中'}</b></div><div className="environment-row"><span>Git</span><b>{data?.gitVersion || '未检测到'}</b></div><div className="context-label">本地数据目录</div><code>{data?.dataDirectory || '正在初始化'}</code></div></div>
         </aside>
       </div>
       <section id="bottom-panel" className="activity-panel" aria-label="运行输出和工具活动" hidden={!layout.bottomVisible}>
@@ -933,7 +1018,7 @@ export function App() {
       </section>
       <footer className="statusbar"><div><span className="statusbar-dot" />本地会话</div><div><span>Windows 桌面 PoC</span><span className="statusbar-separator">·</span><span>{configuredProvider?.hasKey || !session && data?.settings?.providers.some(item => item.hasKey) ? '模型凭据已加密保存' : '模型凭据待配置'}</span></div></footer>
     </div>
-    {showSettings && data?.settings && <SettingsPanel settings={data.settings} sessions={data.sessions} projects={data.projects} currentProjectId={projectId} onImportCompleted={importedShare} initialTab={settingsTab} onClose={() => setShowSettings(false)} onChanged={settingsChanged} />}
+    {showSettings && data?.settings && <SettingsPanel settings={data.settings} sessions={data.sessions} projects={data.projects} currentProjectId={projectId} onImportCompleted={importedShare} onRuntimeChecked={runtimeChecked} initialTab={settingsTab} onClose={() => setShowSettings(false)} onChanged={settingsChanged} />}
   </div>;
 }
 

@@ -157,10 +157,10 @@ test('v8 迁移前备份原始字节，升级保留旧任务且不补造契约�
   try {
     store.saveAgentTasksForSession('session', [f.task]); store.close(); store = undefined;
     const sql = await initSqlJs(); const db = new sql.Database(await readFile(f.path));
-    db.run('DROP TABLE agent_task_contracts; DROP TABLE agent_task_lifecycle_events; DROP TABLE agent_task_evidence; DROP TABLE verification_executions; PRAGMA user_version = 8');
+    db.run('DROP TABLE agent_task_contracts; DROP TABLE agent_task_lifecycle_events; DROP TABLE agent_task_evidence; DROP TABLE verification_executions; DROP TABLE grok_provider_profiles; DROP TABLE grok_model_profiles; PRAGMA user_version = 8');
     const original = Buffer.from(db.export()); db.close(); await writeFile(f.path, original);
     store = await LocalStore.open(f.path);
-    const backups = (await readdir(f.root)).filter(name => name.includes('.pre-v10-from-v8-'));
+    const backups = (await readdir(f.root)).filter(name => name.includes('.pre-v11-from-v8-'));
     assert.equal(backups.length, 1); assert.deepEqual(await readFile(join(f.root, backups[0])), original);
     assert.equal(store.listAgentTasks('session')[0].id, 'task');
     assert.equal(store.listAgentTasks('session')[0].contractVersion, undefined);

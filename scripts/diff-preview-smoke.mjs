@@ -34,7 +34,7 @@ async function refreshDiff() {
   await expect(button).toBeEnabled();
 }
 async function openDiff() {
-  await page.getByRole('button', { name: /^代码变更/ }).click();
+  await page.getByRole('button', { name: /^Git/ }).click();
   await expect(page.locator('#diff-panel')).toBeVisible();
 }
 async function expectCollapsed() {
@@ -67,7 +67,7 @@ async function drag(dy) {
   await expect.poll(() => page.evaluate(() => document.body.dataset.resizing ?? '')).toBe('');
 }
 async function assertUsableLayout() {
-  const metrics = await page.locator('#diff-panel .diff-content').evaluate(container => {
+  const metrics = await page.locator('#diff-panel.diff-content').evaluate(container => {
     const tree = container.querySelector('.file-list');
     const preview = container.querySelector('.diff-preview');
     const view = container.querySelector('.diff-view');
@@ -125,8 +125,8 @@ try {
   }
   await page.evaluate(id => window.jinggong.setProjectCollapsed(id, false), project.id);
   await page.reload();
-  await expect(page.locator('.session-item').filter({ hasText: sessions[0].name })).toBeVisible();
-  await page.locator('.session-item').filter({ hasText: sessions[0].name }).click();
+  await expect(page.getByRole('button', { name: new RegExp(sessions[1].name) })).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(sessions[1].name) }).click();
   await setSize(1440, 900);
   await openDiff();
   await expect(file('README.md')).toBeVisible();
@@ -142,7 +142,7 @@ try {
   assert.equal(await height(), 320);
   await file('README.md').click();
   await expect(preview()).toContainText('README.md');
-  await expect(body()).toContainText('差异预览会话一的真实差异');
+  await expect(body()).toContainText('差异预览会话二的真实差异');
   await collapse().click();
   await expectCollapsed();
   await refreshDiff();
@@ -152,14 +152,14 @@ try {
   await file('另一个文件.txt').click();
   await expectExpanded();
   await expect(preview()).toContainText('另一个文件.txt');
-  await expect(body()).toContainText('差异预览会话一的第二个差异文件');
+  await expect(body()).toContainText('差异预览会话二的第二个差异文件');
   await collapse().click();
   await file('README.md').click({ button: 'right' });
   await expectCollapsed();
   await page.getByRole('menuitem', { name: '查看对比', exact: true }).click();
   await expectExpanded();
   await expect(preview()).toContainText('README.md');
-  await expect(body()).toContainText('差异预览会话一的真实差异');
+  await expect(body()).toContainText('差异预览会话二的真实差异');
   checks.push('点击文件自动展开对应差异；右键仅选中文件，“查看对比”再展开');
 
   const startHeight = await height();
@@ -216,16 +216,12 @@ try {
   await page.screenshot({ path: 'test-results/diff-preview-expanded.png' });
   checks.push('1366×768、1600×900、1000×700 窗口中高度边界随容器变化，详情/文件树可用且页面无横向溢出');
 
-  await page.locator('.session-item').filter({ hasText: sessions[1].name }).click();
+  await page.reload();
+  await openDiff();
   await expectCollapsed();
   await file('README.md').click();
   await expectExpanded();
   await expect(body()).toContainText('差异预览会话二的真实差异');
-  await expect(body()).not.toContainText('差异预览会话一的真实差异');
-  await page.locator('.session-item').filter({ hasText: sessions[0].name }).click();
-  await expectCollapsed();
-  await file('README.md').click();
-  await expectExpanded();
   await drag(-60);
   assert.notEqual(await height(), 320);
   await page.reload();
@@ -234,7 +230,7 @@ try {
   await file('README.md').click();
   await expectExpanded();
   assert.equal(await height(), 320);
-  checks.push('切换会话默认收起且内容不串会话；刷新页面不记忆展开状态或临时调整高度');
+  checks.push('直接项目会话内容来自共享项目目录；刷新页面不记忆展开状态或临时调整高度');
 
   const selectedName = await page.locator('.session-item.selected .session-name').textContent();
   const selectedSession = sessions.find(item => item.name === selectedName);

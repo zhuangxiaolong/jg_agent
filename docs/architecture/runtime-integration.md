@@ -36,7 +36,9 @@ Runtime 使用应用自己的 `CODEX_HOME`，从不复制、读取或修改用�
 
 本机 `windowsSandbox/readiness` 仍可能返回 `notConfigured`，这只表示没有额外的 OS 沙箱边界，不影响精工 Agent 默认的完整开发执行策略。真实 Runtime 测试已验证固定版本、完整开发会话、命令执行、HTTP、SQLite、旧会话恢复和 CLI 独立调用。
 
-所有 turn 的原生执行策略固定为完整访问；CLI 显式开启 Shell，关闭 Code Mode、子 Agent、插件、Hooks、Apps、Computer Use、图像、全局记忆和工作区依赖功能，并开启实时 `web_search=live`。命令行和工作区执行仍通过 turn 的 `networkAccess=false` 沙箱边界约束，网页搜索走 Runtime 原生能力；动态项目工具仍受主进程的 Worktree、规则、路径和凭据检查约束。
+所有 turn 的原生执行策略固定为完整访问；CLI 显式开启 Shell，并按会话注册受控 Computer Use 工具，关闭 Code Mode、子 Agent、插件、Hooks、Apps、图像、全局记忆和工作区依赖功能，并开启实时 `web_search=live`。命令行和工作区执行仍通过 turn 的 `networkAccess=false` 沙箱边界约束，网页搜索走 Runtime 原生能力；动态项目工具仍受主进程的 Worktree、规则、路径和凭据检查约束。
+
+Computer Use 由桌面主进程提供 `computer_action`，仅 Codex 与精工 Runtime 会话注册。截图使用 Electron 采集主显示器；鼠标和键盘输入由 Windows `SendInput` 执行，参数经过动作、坐标、按键和文本长度白名单校验，不开放任意脚本或命令。工具调用校验当前线程与活动 turn，任务取消或切换后丢弃迟到结果。该能力会操作当前 Windows 桌面；截图仅限主显示器，Claude Agent SDK 与 Grok Runtime 暂不支持。自动化测试不模拟真实鼠标键盘动作，真实桌面操作仍需在用户授权的交互会话中验收。
 
 跨进程 `thread/resume` 会重新传入完整访问参数；`turn/start` 每轮覆盖为 `dangerFullAccess`，不能因旧会话或旧配置回落到只读。已加入真实跨进程恢复与发送字段回归。
 

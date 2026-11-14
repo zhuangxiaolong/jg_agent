@@ -69,5 +69,13 @@ export function runningIndicatorDetails(events: AgentEvent[], limit = 5): Runnin
 }
 
 export function latestRunningIndicator(events: AgentEvent[]): string {
-  return runningIndicatorDetails(events, 1)[0]?.text ?? '正在准备运行环境…';
+  const latest = runningIndicatorDetails(events, 1)[0]?.text;
+  if (latest) return latest;
+  const terminalStatuses = new Set(['completed', 'failed', 'interrupted']);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type === 'status' && terminalStatuses.has(event.text)) break;
+    if (event.type === 'user') return '正在连接模型并等待首条响应…';
+  }
+  return '正在准备运行环境…';
 }

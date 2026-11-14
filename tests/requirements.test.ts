@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { JiraIssue, RequirementCheckItem, RequirementResolution } from '../packages/domain/src';
+import { jiraExecutionInstructions, requiresRequirementAdmission } from '../packages/domain/src/jira-requirements';
+import { jiraReadiness, jiraTaskPrompt } from '../apps/desktop/src/renderer/JiraIssueDetails';
+import { buildDeveloperInstructions } from '../packages/agent-runtime/src';
+import { buildClaudeExecutionInstructions } from '../packages/agent-runtime/src/claude-execution';
 import {
   applyRequirementResolutions,
   calculateRequirementAdmission,
@@ -16,6 +20,40 @@ import {
 const issue = (overrides: Partial<JiraIssue> = {}): JiraIssue => ({
   id: '1001', key: 'MES-10', summary: '完善生产报工数量校验', description: '需求描述\r\n验收标准：数量不能超过工单剩余数。', status: 'Open', issueType: 'Story',
   url: 'https://jira.example.invalid/browse/MES-10', fetchedAt: '2026-11-10T01:00:00.000Z', attachments: [], ...overrides,
+});
+
+test('Jira 仅需求先输出两份方案，优化和缺陷不进入需求准入流程', () => {
+  for (const issueType of ['需求', 'requirement', 'Story', ' Ｓｔｏｒｙ ']) {
+    const task = issue({ issueType });
+    assert.equal(requiresRequirementAdmission(task), true, issueType);
+    assert.match(jiraTaskPrompt(task), /修改代码前，先在会话中输出「需求方案」.*「代码修改方案」.*然后继续实施/s);
+    assert.match(jiraExecutionInstructions(task), /续聊且需求范围未变时沿用已有方案/);
+    assert.doesNotMatch(jiraTaskPrompt(task), /无需等待方案阶段/);
+  }
+  for (const issueType of ['优化', 'Improvement', ' improvement ', '缺陷', 'Bug', '故障', 'Task']) {
+    const task = issue({ issueType, summary: '需求方案相关缺陷', description: '' });
+    assert.equal(requiresRequirementAdmission(task), false, issueType);
+    assert.deepEqual(jiraReadiness(task), []);
+    assert.equal(requirementAdmissionAllowsWrites(undefined, task), true);
+    assert.match(jiraTaskPrompt(task), /优化、缺陷按任务直接定位并修改代码/);
+    assert.doesNotMatch(jiraTaskPrompt(task), /【Jira 需求流程】|需求准入状态/);
+  }
+  assert.equal(jiraExecutionInstructions(), '');
+});
+
+test('三个 Runtime 的任务上下文保留 Jira 流程和实际代码修改要求', () => {
+  for (const task of [issue(), issue({ issueType: 'Bug' }), issue({ issueType: '优化' })]) {
+    const flow = jiraExecutionInstructions(task);
+    for (const [runtime, instructions] of [
+      ['codex', buildDeveloperInstructions({ developerInstructions: flow })],
+      ['jinggong', buildDeveloperInstructions({ developerInstructions: flow })],
+      ['claude', buildClaudeExecutionInstructions(flow)],
+    ]) {
+      assert.ok(instructions.includes(flow), runtime);
+      assert.match(instructions, /检查现有实现并实际修改文件/);
+      assert.match(instructions, /不重复说明可修改代码、完整访问或执行权限/);
+    }
+  }
 });
 
 const makeItem = (overrides: Partial<RequirementCheckItem> = {}): RequirementCheckItem => ({

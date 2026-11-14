@@ -32,7 +32,7 @@ export class PerformanceTelemetry {
     let loaded: PerformanceState | undefined;
     try { const candidate = options.load?.() as PerformanceState | undefined; if (candidate?.version === 1 && candidate.settings && typeof candidate.settings === 'object' && Array.isArray(candidate.traces)) loaded = candidate; } catch { /* 性能历史不可用时不阻断开发流程。 */ }
     this.state = loaded
-      ? { version: 1, settings: { ...defaultPerformanceSettings(), ...loaded.settings }, traces: loaded.traces.filter(trace => trace && typeof trace.id === 'string' && typeof trace.sessionId === 'string' && typeof trace.startedAt === 'string' && STATUSES.has(trace.status) && ['codex', 'jinggong', 'claude_agent_sdk'].includes(trace.runtimeKind) && Array.isArray(trace.spans) && trace.spans.length <= MAX_SPANS && trace.spans.every(span => span && typeof span.id === 'string' && typeof span.stage === 'string' && typeof span.operation === 'string' && STATUSES.has(span.status))).slice(-MAX_TRACES) }
+      ? { version: 1, settings: { ...defaultPerformanceSettings(), ...loaded.settings }, traces: loaded.traces.filter(trace => trace && typeof trace.id === 'string' && typeof trace.sessionId === 'string' && typeof trace.startedAt === 'string' && STATUSES.has(trace.status) && ['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(trace.runtimeKind) && Array.isArray(trace.spans) && trace.spans.length <= MAX_SPANS && trace.spans.every(span => span && typeof span.id === 'string' && typeof span.stage === 'string' && typeof span.operation === 'string' && STATUSES.has(span.status))).slice(-MAX_TRACES) }
       : { version: 1, settings: defaultPerformanceSettings(), traces: [] };
     for (const trace of this.state.traces) {
       if (trace.status === 'running') { trace.status = 'interrupted'; trace.endedAt = new Date().toISOString(); }
@@ -65,7 +65,7 @@ export class PerformanceTelemetry {
     }
     if (patch.testStrategy !== undefined && !['recommend', 'targeted', 'full_approval'].includes(patch.testStrategy)) throw new Error('测试策略无效');
     for (const key of ['runtimeOverrides', 'workspaceOverrides'] as const) if (patch[key] !== undefined) {
-      const value = patch[key]; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([name, enabled]) => typeof enabled !== 'boolean' || !/^[\w.:-]{1,128}$/.test(name) || key === 'runtimeOverrides' && !['codex', 'jinggong', 'claude_agent_sdk'].includes(name))) throw new Error('性能覆盖规则无效');
+      const value = patch[key]; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([name, enabled]) => typeof enabled !== 'boolean' || !/^[\w.:-]{1,128}$/.test(name) || key === 'runtimeOverrides' && !['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(name))) throw new Error('性能覆盖规则无效');
     }
     this.state.settings = { ...this.state.settings, ...structuredClone(patch), version: this.state.settings.version + 1, updatedAt: new Date().toISOString() };
     this.prune(); this.persist(); return this.getSettings();

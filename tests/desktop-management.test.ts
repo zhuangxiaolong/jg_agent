@@ -44,11 +44,12 @@ test('Jira抓取记录与详情在真实SQLite重开恢复，按连接隔离、�
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
   try {
     const saved = store.saveJiraQuery(scope, input, page());
-    const detailed = { ...issue(), description: '已读取的完整需求正文' };
+    const detailed = { ...issue(), description: '已读取的完整需求正文', reporter: '合成报告人' };
     store.saveJiraIssue(scope, detailed);
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.listJiraQueries(scope), [saved]);
     assert.equal(store.getCachedJiraIssue(scope, 'CD-435')!.description, detailed.description);
+    assert.equal(store.getCachedJiraIssue(scope, 'CD-435')!.reporter, '合成报告人');
     assert.deepEqual(store.listJiraQueries(otherScope), []);
     assert.equal(store.getCachedJiraIssue(otherScope, 'CD-435'), undefined);
     const replacement = store.saveJiraQuery(scope, input, { ...page(), issues: [], total: 0 });

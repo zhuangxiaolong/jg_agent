@@ -1,4 +1,4 @@
-type IconName = 'plus' | 'folder' | 'chat' | 'settings' | 'arrow' | 'branch' | 'refresh' | 'close' | 'check' | 'copy' | 'chevron' | 'file' | 'box' | 'shield' | 'download' | 'stop' | 'terminal' | 'alert' | 'layers' | 'edit' | 'panel-left' | 'panel-right' | 'panel-bottom';
+type IconName = 'plus' | 'folder' | 'chat' | 'settings' | 'arrow' | 'branch' | 'refresh' | 'close' | 'check' | 'copy' | 'chevron' | 'file' | 'box' | 'shield' | 'download' | 'stop' | 'terminal' | 'alert' | 'layers' | 'edit' | 'panel-left' | 'panel-right' | 'panel-bottom' | 'eye' | 'eye-off';
 const paths: Record<IconName, string> = {
   plus: 'M12 5v14M5 12h14', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10H3Z',
   chat: 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z',
@@ -14,6 +14,8 @@ const paths: Record<IconName, string> = {
   'panel-left': 'M3 3h18v18H3ZM9 3v18',
   'panel-right': 'M3 3h18v18H3ZM15 3v18',
   'panel-bottom': 'M3 3h18v18H3ZM3 15h18',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  'eye-off': 'm3 3 18 18M10.5 5.1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3.1 4M6.3 6.3A20 20 0 0 0 2 12s3.5 7 10 7c1.7 0 3.2-.5 4.5-1.2M10 10a3 3 0 0 0 4 4',
 };
 export function Icon({ name, className = '' }: { name: IconName; className?: string }) {
   return <svg className={`icon ${className}`} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;

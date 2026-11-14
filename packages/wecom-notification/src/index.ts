@@ -1,5 +1,5 @@
 export type WeComEventType = 'session.completed' | 'session.failed' | 'session.error' | 'session.cancelled' | 'session.interrupted';
-export type WeComRuntimeKind = 'codex' | 'jinggong' | 'claude_agent_sdk';
+export type WeComRuntimeKind = 'codex' | 'jinggong' | 'claude_agent_sdk' | 'grok_build_acp';
 export type WeComErrorCode = 'NETWORK_TIMEOUT' | 'NETWORK_UNAVAILABLE' | 'WEBHOOK_INVALID' | 'RATE_LIMITED' | 'MESSAGE_INVALID' | 'MENTION_INVALID' | 'REMOTE_REJECTED' | 'CREDENTIAL_MISSING' | 'DELIVERY_INTERRUPTED';
 
 export interface WeComEventPolicy {
@@ -148,7 +148,7 @@ function formatDuration(durationMs?: number): string {
 }
 
 function runtimeLabel(kind: WeComRuntimeKind): string {
-  return kind === 'codex' ? 'Codex' : kind === 'jinggong' ? 'Jinggong' : 'Claude Agent SDK';
+  return kind === 'grok_build_acp' ? 'Grok Build' : kind === 'codex' ? 'Codex' : kind === 'jinggong' ? 'Jinggong' : 'Claude Agent SDK';
 }
 
 /** 仅输出必要摘要，不包含代码、Diff、对话推理、密钥或本机可访问性不明的链接。 */

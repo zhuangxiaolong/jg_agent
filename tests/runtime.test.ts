@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
@@ -41,8 +41,12 @@ test('Runtime 错误脱敏与凭据环境隔离', () => {
 test('开发规范完整注入且超容量明确拒绝', () => {
   const document = '完整开发规范\n'.repeat(30000);
   assert.ok(buildDeveloperInstructions({ developerInstructions: document }).endsWith(document));
-  assert.match(buildDeveloperInstructions({}), /可直接读取、修改和执行/);
+  assert.match(buildDeveloperInstructions({}), /检查现有实现并实际修改文件/);
   assert.doesNotMatch(buildDeveloperInstructions({}), /只读|逐次审批|必须.*publish_change_plan/);
+  const withDocuments = buildDeveloperInstructions({ authorizedDirectories: () => ({ mode: 'restricted', directories: [] }) });
+  assert.match(withDocuments, /【资料解析工具】/);
+  assert.match(withDocuments, /不限制原生文件和命令工具访问或修改工作区外文件/);
+  assert.doesNotMatch(withDocuments, /全盘只读范围|不访问工作区外路径|先调用 list_authorized_directories/);
   assert.throws(() => buildDeveloperInstructions({ developerInstructions: '中'.repeat(800000) }), /不会静默截断/);
 });
 
@@ -98,11 +102,11 @@ test('独立 Jinggong Fork CLI 版本识别与协议身份校验', { timeout: 30
 });
 
 for (const kind of ['codex', 'jinggong'] as const) {
-  test(`真实 Windows ${kind} workspace-write 会话在非 Git 目录创建并冷恢复，不调用外部模型`, { timeout: 45000 }, async (t) => {
-    if (process.platform !== 'win32') return t.skip('仅验证 Windows 原生 Runtime workspace-write 协议');
+  test(`真实 Windows ${kind} 完全访问会话冷恢复并创建、修改、删除工作区外临时文件，不调用外部模型`, { timeout: 45000 }, async (t) => {
+    if (process.platform !== 'win32') return t.skip('仅验证 Windows 原生 Runtime 完全访问协议');
     const executable = path.resolve('apps/desktop/resources/runtime', kind, 'bin', kind === 'jinggong' ? 'jinggong-runtime.exe' : 'codex.exe');
     try { await access(executable); } catch { return t.skip('请先执行 stage-runtime'); }
-    const root = await realpath(await mkdtemp(path.join(tmpdir(), `jinggong-${kind}-workspace-write-`)));
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), `jinggong-${kind}-full-access-`)));
     const workspace = path.join(root, '独立会话 带空格');
     await mkdir(workspace);
     const runtime = new CodexRuntime({
@@ -123,19 +127,36 @@ for (const kind of ['codex', 'jinggong'] as const) {
       const threadId = await runtime.startSession(workspace);
       assert.ok(threadId.length > 10);
       // 只注入探针用户消息触发真实 rollout 持久化，不发起 turn 或模型请求。
-      await actualRequest('thread/inject_items', { threadId, items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'workspace-write 协议创建与恢复验证，不请求模型。' }] }] });
+      await actualRequest('thread/inject_items', { threadId, items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: '完全访问协议创建与恢复验证，不请求模型。' }] }] });
       await runtime.close();
       assert.equal(await runtime.resumeSession(threadId, workspace), threadId);
       assert.deepEqual(responses.map(response => response.method), ['thread/start', 'thread/resume']);
       for (const { result } of responses) {
-        assert.deepEqual(result.sandbox, { type: 'workspaceWrite', networkAccess: true, excludeTmpdirEnvVar: true, excludeSlashTmp: true, writableRoots: [] });
+        assert.deepEqual(result.sandbox, { type: 'dangerFullAccess' });
         assert.equal(result.approvalPolicy, 'never');
         assert.equal(result.cwd, workspace);
         assert.deepEqual(result.thread.environments, [{ environmentId: 'local', cwd: workspace, runtimeWorkspaceRoots: [workspace] }]);
       }
-      await assert.rejects(runtime.sendTurn(threadId, 'workspace-write 协议验证', workspace), /尚未配置模型 API Key/);
+      const outside = path.join(root, '工作区外临时目录');
+      await mkdir(outside);
+      const outsideFile = path.join(outside, '完整访问验证.txt');
+      const literal = `'${outsideFile.replaceAll("'", "''")}'`;
+      const command = async (script: string) => {
+        const result = await actualRequest('command/exec', {
+          command: [path.join(process.env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(`$ErrorActionPreference = 'Stop'; ${script}`, 'utf16le').toString('base64')],
+          timeoutMs: 10000, cwd: outside, sandboxPolicy: { type: 'dangerFullAccess' },
+        });
+        assert.equal(result.exitCode, 0, `原生 Runtime 命令失败：${result.stderr}`);
+      };
+      await command(`Set-Content -LiteralPath ${literal} -Value 'created-outside' -NoNewline -Encoding UTF8`);
+      assert.equal((await readFile(outsideFile, 'utf8')).replace(/^\uFEFF/, ''), 'created-outside');
+      await command(`Set-Content -LiteralPath ${literal} -Value 'modified-outside' -NoNewline -Encoding UTF8`);
+      assert.equal((await readFile(outsideFile, 'utf8')).replace(/^\uFEFF/, ''), 'modified-outside');
+      await command(`Remove-Item -LiteralPath ${literal}`);
+      await assert.rejects(access(outsideFile), { code: 'ENOENT' });
+      await assert.rejects(runtime.sendTurn(threadId, '完全访问协议验证', workspace), /尚未配置模型 API Key/);
       assert.equal(turnRequests, 0);
-    } finally { await runtime.close(); }
+    } finally { await runtime.close(); await rm(root, { recursive: true, force: true }); }
   });
 }
 
@@ -190,16 +211,16 @@ test('真实 Windows Runtime 接受开发工具 Schema 与完整规范并恢复�
   const connector = new GitConnector(path.join(root, 'workspaces'));
   const workspace = await connector.createWorkspace(await connector.register(source), 'protocol-develop');
   const developerInstructions = '# 项目强制开发规范\n每次修改必须检查边界和保留人工修改。\n'.repeat(1000) + '\n接口示例 password="business-example"\nAuthorization: Bearer synthetic-business-example';
-  const runtime = new CodexRuntime({ executable, home: path.join(root, 'runtime-home'), baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4', developerInstructions, beforeWrite: async () => undefined, browser: async () => ({ text: '协议验证，不操作真实页面' }) });
+  const runtime = new CodexRuntime({ executable, home: path.join(root, 'runtime-home'), baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4', developerInstructions, beforeWrite: async () => undefined, browser: async () => ({ text: '协议验证，不操作真实页面' }), computer: async () => ({ text: '协议验证，不操作真实桌面' }) });
   const rpc = runtime as unknown as { request(method: string, params: Record<string, any>): Promise<any> };
   const actualRequest = rpc.request.bind(runtime);
   let startParams: Record<string, any> | undefined;
   rpc.request = async (method, params) => { if (method === 'thread/start') startParams = params; return actualRequest(method, params); };
   try {
     const threadId = await runtime.startSession(workspace.path);
-    assert.deepEqual(startParams!.dynamicTools.map((tool: { name: string }) => tool.name), ['list_project_files', 'read_project_file', 'write_project_file', 'delete_project_file', 'publish_change_plan', 'search_dictionary', 'read_dictionary', 'browser_action']);
+    assert.deepEqual(startParams!.dynamicTools.map((tool: { name: string }) => tool.name), ['list_project_files', 'read_project_file', 'write_project_file', 'delete_project_file', 'publish_change_plan', 'search_dictionary', 'read_dictionary', 'browser_action', 'computer_action']);
     assert.equal(startParams!.environments, undefined);
-    assert.equal(startParams!.sandbox, 'workspace-write');
+    assert.equal(startParams!.sandbox, 'danger-full-access');
     assert.equal(startParams!.approvalPolicy, 'never');
     assert.equal(startParams!.approvalsReviewer, undefined);
     assert.ok(startParams!.developerInstructions.endsWith(developerInstructions));
@@ -226,9 +247,7 @@ test('turn 终态先于 RPC 微任务时不能重建幽灵活动任务（无模�
     assert.equal(method, 'turn/start');
     assert.equal(params?.environments, undefined);
     assert.equal(params?.approvalPolicy, 'never');
-    assert.equal(params?.sandboxPolicy.type, 'workspaceWrite');
-    assert.deepEqual(params?.sandboxPolicy.writableRoots, [path.resolve('D:\\test')]);
-    assert.equal(params?.sandboxPolicy.networkAccess, true);
+    assert.deepEqual(params?.sandboxPolicy, { type: 'dangerFullAccess' });
     state.receive({ method: 'turn/started', params: { threadId: 'thread-race', turn: { id: 'turn-race', status: 'inProgress' } } });
     state.receive({ method: 'turn/completed', params: { threadId: 'thread-race', turn: { id: 'turn-race', status: 'completed' } } });
     return { turn: { id: 'turn-race', status: 'inProgress' } };

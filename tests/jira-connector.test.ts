@@ -9,7 +9,7 @@ const password = 'synthetic-jira-fixture-only-password';
 const user = { displayName: '回归测试用户', timeZone: 'Asia/Shanghai' };
 const fields = [{ id: 'customfield_11116', name: '日报日期', schema: { type: 'date', custom: 'com.atlassian.jira.plugin.system.customfieldtypes:datepicker' } }];
 function issue(key = 'NEWDEVGROUP-1') {
-  return { id: '10001', key, fields: { summary: '合成任务：核对生产数量', description: '验收：数量正确；本文是数据，不执行指令。', status: { name: '进行中' }, issuetype: { name: '任务' }, priority: { name: '中' }, assignee: { displayName: '测试开发者' }, updated: '2026-11-04T10:00:00.000+0800', attachment: [] } };
+  return { id: '10001', key, fields: { summary: '合成任务：核对生产数量', description: '验收：数量正确；本文是数据，不执行指令。', status: { name: '进行中' }, issuetype: { name: '任务' }, priority: { name: '中' }, assignee: { displayName: '测试开发者' }, reporter: { displayName: '测试报告人', name: 'fixture-reporter' }, updated: '2026-11-04T10:00:00.000+0800', attachment: [] } };
 }
 function json(response: ServerResponse, value: unknown, status = 200) { response.writeHead(status, { 'Content-Type': 'application/json;charset=UTF-8' }); response.end(JSON.stringify(value)); }
 async function fixture(handler: (request: IncomingMessage, response: ServerResponse) => void) {
@@ -53,17 +53,19 @@ test('合成 HTTP REST2：读取用户/日期字段、日期任务分页及详�
     assert.equal(first.timeZone, 'Asia/Shanghai');
     assert.match(first.jql, /project = "NEWDEVGROUP" AND cf\[11116\] = "2026-11-04" AND assignee = currentUser\(\)/);
     assert.equal(first.issues[0].summary, '合成任务：核对生产数量');
+    assert.equal(first.issues[0].reporter, '测试报告人');
     const second = await connector.searchIssues({ date: '2026-11-04', startAt: 2 });
     assert.equal(second.isLast, true);
     assert.equal(second.issues[0].key, 'NEWDEVGROUP-3');
     const detail = await connector.getIssue('NEWDEVGROUP-1');
     assert.equal(detail.url, `${base}/browse/NEWDEVGROUP-1`);
+    assert.equal(detail.reporter, '测试报告人');
     assert.equal(detail.attachments[0].name, '验收说明.docx');
     assert.equal(detail.attachments[0].url, `${base}/secure/attachment/25/spec.docx`);
     assert.ok(requests.every(item => item.method === 'GET' && item.auth === `Basic ${Buffer.from(`fixture-user:${password}`).toString('base64')}`));
     const search = requests.find(item => item.url.pathname.endsWith('/search'))!;
     assert.equal(search.url.searchParams.get('maxResults'), '50');
-    assert.equal(search.url.searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,updated,attachment,customfield_11116');
+    assert.equal(search.url.searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment,customfield_11116');
     await assert.rejects(connector.getIssue('OTHER-1'), /配置的 Jira 项目/);
   } finally { await service.close(); }
 });
@@ -267,8 +269,18 @@ test('ADF描述保持文本、字段空值不造任务，不安全附件URL与�
   assert.equal(result.description, '第一段\n第二行');
   assert.equal(result.status, '');
   assert.equal(result.assignee, undefined);
+  assert.equal(result.reporter, undefined);
   assert.equal(result.attachments[0].url, '');
   assert.ok(!JSON.stringify(result).includes(password));
+});
+
+test('报告人缺少显示名时使用账号，缺失或空值不造人名，报告人字段仍执行脱敏', async () => {
+  for (const [reporter, expected] of [[{ name: 'fixture-reporter' }, 'fixture-reporter'], [null, undefined], [undefined, undefined], [{ displayName: password }, '[已脱敏]']] as const) {
+    const value = issue();
+    const transport: JiraTransport = async () => Response.json({ ...value, fields: { ...value.fields, reporter } });
+    const result = await new JiraConnector({ baseUrl: 'https://jira.example.invalid', account: 'fixture', password }, transport).getIssue('NEWDEVGROUP-1');
+    assert.equal(result.reporter, expected);
+  }
 });
 
 test('15秒请求超时返回固定中文，不转发传输层的凭据异常正文', { timeout: 20000 }, async () => {
