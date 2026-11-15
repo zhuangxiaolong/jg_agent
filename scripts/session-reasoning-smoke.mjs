@@ -26,7 +26,7 @@ const fixture = `
 const now = '2026-11-13T00:00:00Z';
 const copy = value => JSON.parse(JSON.stringify(value));
 const provider = {id:'common',name:'合成中转站',baseUrl:'https://relay.invalid/v1',models:['gpt-test'],hasKey:true};
-const settings = {runtimeKind:'grok_build_acp',preferences:{theme:'dark',style:'minimal',completionSound:'off'},providers:[provider],jira:{baseUrl:'',account:'',hasPassword:false},documents:[],memories:[],update:{state:'disabled',message:'合成离线回归'},appVersion:'0.6.9',updateUrl:'https://update.invalid'};
+const settings = {runtimeKind:'grok_build_acp',preferences:{theme:'dark',style:'minimal',completionSound:'off'},providers:[provider],jira:{baseUrl:'',account:'',hasPassword:false},documents:[],memories:[],update:{state:'disabled',message:'合成离线回归'},appVersion:'0.7.0',updateUrl:'https://update.invalid'};
 const health = {available:true,compatible:true,version:'1.0.67',detail:'合成运行时状态'};
 let state = window.__initialFixture || {sessions:[],events:{},calls:[],sequence:0};
 const listeners = new Set();

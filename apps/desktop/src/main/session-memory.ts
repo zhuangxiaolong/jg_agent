@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Memory, Session } from '../../../../packages/domain/src';
 import type { LocalStore } from '../../../../packages/storage/src';
 
-const MEMORY_HEADER = '自动筛选的长期记忆，来自用户明确表述；使用前核对当前项目和适用范围。';
+const MEMORY_HEADER = '自动筛选的长期记忆，来自用户明确表述；模型结果未经独立核实；使用前核对当前项目和适用范围。';
+const LEGACY_MEMORY_HEADER = '自动筛选的长期记忆，来自用户明确表述；使用前核对当前项目和适用范围。';
 const MAX_ENTRIES = 12;
 type MemoryEntry = { kind: '偏好' | '约束' | '决策' | '经验'; text: string };
 
@@ -43,7 +44,7 @@ function uniqueEntries(entries: MemoryEntry[]): MemoryEntry[] {
   return entries.filter(entry => { const key = entryKey(entry.text); if (seen.has(key)) return false; seen.add(key); return true; });
 }
 function savedEntries(memory: Memory): MemoryEntry[] {
-  if (!memory.content.startsWith(MEMORY_HEADER + '\n')) return [];
+  if (!memory.content.startsWith(MEMORY_HEADER + '\n') && !memory.content.startsWith(LEGACY_MEMORY_HEADER + '\n')) return [];
   return memory.content.split('\n').flatMap(line => {
     const match = /^- (偏好|约束|决策|经验)：(.+)$/.exec(line);
     return match ? [{ kind: match[1] as MemoryEntry['kind'], text: match[2] }] : [];
@@ -78,9 +79,14 @@ export function rememberCompletedSession(store: LocalStore, session: Session, as
   const previous = existing ? savedEntries(existing) : [];
   const known = new Set(memories.filter(item => item.id !== existing?.id && (item.source !== 'session' || item.projectId === session.projectId))
     .flatMap(item => item.source === 'session' ? savedEntries(item).map(entry => entryKey(entry.text)) : [entryKey(item.content)]));
-  const selected = usefulMemoryEntries(task).filter(entry => !known.has(entryKey(entry.text)) && !previous.some(item => entryKey(item.text) === entryKey(entry.text)));
-  if (!selected.length || (!existing && memories.length >= 100)) return;
-  const entries = uniqueEntries([...previous, ...selected]).slice(-MAX_ENTRIES);
+  const selected = usefulMemoryEntries(task).filter(entry => !known.has(entryKey(entry.text)));
+  // 没有明确的长期偏好时仍保留本轮完成摘录；否则普通成功轮次无法形成可追溯记忆。
+  // 同一会话的记忆代表最新完成轮次，更新时替换旧轮次，避免把过期任务继续注入后续上下文。
+  const entries = (selected.length ? selected : [
+    { kind: '经验' as const, text: task },
+    { kind: '经验' as const, text: result.trim() }
+  ]).filter(entry => entry.text.trim()).slice(-MAX_ENTRIES);
+  if (!entries.length || (!existing && memories.length >= 100)) return;
   const content = MEMORY_HEADER + '\n\n' + entries.map(entry => `- ${entry.kind}：${entry.text}`).join('\n');
   assertClean(content);
   const memory: Memory = {

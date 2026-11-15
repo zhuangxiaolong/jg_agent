@@ -275,6 +275,12 @@ export class JiraConnector {
     if (!ISSUE_KEY.test(key) || !assignee.id || !['name', 'accountId'].includes(assignee.field)) throw new Error('Jira 经办人参数无效');
     await this.get(`issue/${encodeURIComponent(key)}/assignee`, undefined, { method: 'PUT', body: JSON.stringify({ [assignee.field]: assignee.id }) });
   }
+  async addComment(key: string, comment: string): Promise<{ id: string }> {
+    if (!ISSUE_KEY.test(key) || !comment.trim() || comment.length > 30000) throw new Error('Jira 评论须为 1 至 30000 字且任务 Key 有效');
+    const data = await this.get(`issue/${encodeURIComponent(key)}/comment`, undefined, { method: 'POST', body: JSON.stringify({ body: comment }) });
+    if (!object(data) || typeof data.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(data.id)) throw new Error('Jira 未返回评论 ID，请先在 Jira 核对是否已写入，避免重复提交');
+    return { id: data.id };
+  }
   async transition(key: string, transitionId: string, comment: string): Promise<void> {
     if (!ISSUE_KEY.test(key) || !/^[a-zA-Z0-9_-]{1,100}$/.test(transitionId) || !comment.trim() || comment.length > 30000) throw new Error('请选择状态并填写不超过 30000 字的测试结果');
     await this.get(`issue/${encodeURIComponent(key)}/transitions`, undefined, { method: 'POST', body: JSON.stringify({ transition: { id: transitionId }, update: { comment: [{ add: { body: comment } }] } }) });

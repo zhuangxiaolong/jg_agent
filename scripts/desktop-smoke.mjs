@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import initSqlJs from 'sql.js';
+import { tsImport } from 'tsx/esm/api';
+
+const { GitConnector } = await tsImport('../packages/git-connector/src/index.ts', import.meta.url);
+const { SessionGitService } = await tsImport('../apps/desktop/src/main/session-git.ts', import.meta.url);
 
 // 测试仓库和凭据仅用于真实本机 SQLite/Git/DPAPI 验证，不模拟 Agent 输出。
 const root = await mkdtemp(path.join(tmpdir(), 'jinggong-desktop-'));
@@ -26,6 +30,7 @@ git(['add', 'feature.txt']); git(['commit', '-m', '准备入口分支']);
 git(['checkout', 'main']);
 execFileSync('git', ['init', '--bare', bare], { windowsHide: true });
 git(['remote', 'add', 'origin', bare]);
+git(['push', '-u', 'origin', 'main']);
 await mkdir('test-results', { recursive: true });
 const checks = [];
 let app;
@@ -44,6 +49,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.evaluate(() => typeof window.process), 'undefined');
+  await expect(page.getByRole('heading', { name: '从后往前看，挑战一切不可能', exact: true })).toBeVisible();
   const prefs = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences());
   assert.equal(prefs.contextIsolation, true); assert.equal(prefs.nodeIntegration, false); assert.equal(prefs.sandbox, true);
   checks.push('实际 Electron 本地窗口、安全渲染配置与 preload 桥接');
@@ -112,7 +118,9 @@ try {
   await expect(page.locator('.project-item')).toHaveAttribute('aria-expanded', 'false');
   const projectGroup = page.getByRole('region', { name: '项目 样本项目 空格', exact: true });
   await projectGroup.locator('.project-item').click();
-  await projectGroup.getByRole('button', { name: '新建会话', exact: true }).click();
+  // 项目行不再常驻“新建会话”按钮；通过项目上下文菜单创建，避免把旧版入口当作产品契约。
+  await projectGroup.locator('.project-item').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '新建会话', exact: true }).click();
   await page.getByRole('textbox', { name: '输入任务' }).waitFor();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByLabel('当前会话运行时', { exact: true })).toBeEnabled();
@@ -120,6 +128,7 @@ try {
   const boot = await page.evaluate(() => window.jinggong.bootstrap());
   assert.equal(boot.projects.length, 1); assert.equal(boot.sessions.length, 1);
   const session = boot.sessions[0];
+  const sessionGit = new SessionGitService(new GitConnector(path.join(data, 'workspaces')), path.join(data, 'session-git'));
   assert.equal(session.runtimeKind, 'codex', '会话应使用会话运行时入口显式选择的 Codex Runtime');
   assert.equal(Object.hasOwn(session, 'mode'), false);
   const sessionDisplay = '新会话';
@@ -391,11 +400,13 @@ try {
   assert.ok(Math.abs(await page.locator('.messages').evaluate(element => element.scrollTop) - before) <= 2);
   await page.getByRole('button', { name: '回到最新消息', exact: true }).click();
   await page.waitForFunction(() => { const element = document.querySelector('.messages'); return !!element && element.scrollHeight - element.scrollTop - element.clientHeight < 5; });
+  await sessionGit.begin(session);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\n真实 Diff 验证\n');
   await writeFile(path.join(session.workspacePath, '新增文件.txt'), '新增内容\n');
+  await sessionGit.finish(session);
   await page.getByRole('button', { name: 'Git', exact: true }).click();
   await page.getByRole('button', { name: '刷新代码差异', exact: true }).click();
-  await page.getByRole('button', { name: 'README.md', exact: false }).waitFor();
+  await page.locator('#diff-panel .diff-file-row').filter({ hasText: 'README.md' }).waitFor();
   const diffs = await page.evaluate(id => window.jinggong.getDiff(id), session.id);
   assert.equal(diffs.length, 2); assert.ok(diffs.some(diff => diff.diff.includes('+真实 Diff 验证')));
   const projectStatus = git(['status', '--porcelain']);
@@ -535,14 +546,20 @@ try {
   const exampleMemory = await page.evaluate(content => window.jinggong.saveMemory({ title: '接口密码字段示例', content }), businessExample);
   assert.equal(exampleMemory.content, businessExample);
   await page.evaluate(id => window.jinggong.deleteMemory(id), exampleMemory.id);
+  await sessionGit.begin(session);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\n' + businessExample + '\n');
+  await sessionGit.finish(session);
   const exampleChecks = await page.evaluate(id => window.jinggong.checkRequirements(id), session.id);
   assert.equal(exampleChecks.some(item => item.status === 'fail'), false);
   checks.push('密码及Token业务示例可经真实IPC导入需求/字典、保存记忆并完成变更内容检查，正文保持原样，无疑似凭据误拦截；仅使用合成内容');
+  await sessionGit.begin(session);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\nTODO 待修复\n');
+  await sessionGit.finish(session);
   const blocked = await page.evaluate(id => window.jinggong.checkRequirements(id), session.id);
   assert.equal(blocked.find(item => item.documentId === policy.id).status, 'fail');
+  await sessionGit.begin(session);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\n真实 Diff 验证\n');
+  await sessionGit.finish(session);
   checks.push('MES5/MES6/WMS真实文件字典导入；JSON机器规则仍可按需检查；提交不再强制机器检查或文字复核');
   await app.close(); app = undefined;
   page = await launch();

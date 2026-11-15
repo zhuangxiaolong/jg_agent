@@ -131,7 +131,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     child.stdin.on('error', error => { if (this.child === child) void this.fail(new Error(`Grok ACP 输入管道已断开${errorCodeSuffix(error)}`)); });
     child.on('exit', (code, signal) => { if (this.child === child) void this.fail(new Error(`Grok ACP 进程已退出（${code ?? signal ?? '未知'}）`)); });
     try {
-      const result = await this.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'jinggong-agent', version: '0.6.9' } });
+      const result = await this.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'jinggong-agent', version: '0.7.0' } });
       if (result.protocolVersion !== 1) throw new Error('Grok ACP 协议版本不兼容');
       this.loadSession = result.agentCapabilities?.loadSession === true;
       this.initialized = true;

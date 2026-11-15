@@ -170,7 +170,7 @@ export class GitConnector {
     return { branch: state.branch, baseBranch: selectedBase };
   }
 
-  private async workspace(path: string): Promise<string> {
+  private async workspace(path: string, allowProjectRoot = false): Promise<string> {
     for (const candidate of [resolve(this.rootWorkspaces), resolve(path)]) {
       let ancestor = candidate;
       while (true) {
@@ -184,8 +184,10 @@ export class GitConnector {
     // 受管目录中可能存在旧版本创建的 NTFS 工作目录链接；祖先链接已在上方
     // 拒绝，这里保留用户传入的受管目录路径，避免 realpath 把它还原到旧缓存根。
     const canonical = resolve(path);
-    // 新版本项目会话直接使用用户登记的 Git 项目目录；旧版本会话仍按隔离工作区校验。
+    // 原始 workspace API 只接受受管隔离工作区。项目会话直接使用项目根目录时，
+    // 由主进程在完成项目绑定校验后显式传入 allowProjectRoot。
     if (!inside(root, canonical) || !samePath(dirname(canonical), root) || !SAFE_ID.test(basename(canonical))) {
+      if (!allowProjectRoot) throw new Error('仅允许对受管隔离工作区执行此操作；项目根目录请使用项目 Git 操作');
       const registered = await this.register(canonical);
       return registered.path;
     }
@@ -215,8 +217,8 @@ export class GitConnector {
     return path;
   }
 
-  async diff(workspacePath: string): Promise<FileDiff[]> {
-    const workspace = await this.workspace(workspacePath);
+  async diff(workspacePath: string, allowProjectRoot = false): Promise<FileDiff[]> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const overrides = await this.filterOverrides(workspace);
     const tracked = (await this.run(workspace, [...overrides, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-status', '-z', 'HEAD', '--'])).text.split('\0');
     const staged = new Set((await this.run(workspace, [...overrides, 'diff', '--cached', '--name-only', '-z', '--'])).text.split('\0').filter(Boolean));
@@ -272,9 +274,9 @@ export class GitConnector {
   }
 
   /** 仅写独立索引和内部快照引用，保留项目真实索引、分支及工作目录。 */
-  async sessionSnapshot(workspacePath: string, ref: string): Promise<string> {
+  async sessionSnapshot(workspacePath: string, ref: string, allowProjectRoot = false): Promise<string> {
     if (!/^refs\/jinggong\/sessions\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(ref)) throw new Error('会话快照引用无效');
-    const workspace = await this.workspace(workspacePath);
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     return this.temporaryIndex(async indexFile => {
       const options = { indexFile };
       const overrides = await this.mutationOverrides(workspace);
@@ -287,8 +289,8 @@ export class GitConnector {
   }
 
   /** 将本会话每轮补丁应用到 HEAD 的独立索引，不收集真实暂存区和其他会话内容。 */
-  async prepareSessionChanges(workspacePath: string, changes: SessionGitChange[], includeDependencies = false): Promise<SessionGitPrepared> {
-    const workspace = await this.workspace(workspacePath);
+  async prepareSessionChanges(workspacePath: string, changes: SessionGitChange[], includeDependencies = false, allowProjectRoot = false): Promise<SessionGitPrepared> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const head = (await this.run(workspace, ['rev-parse', 'HEAD'])).text.trim();
     return this.temporaryIndex(async (indexFile, directory) => {
       const options = { indexFile };
@@ -344,8 +346,8 @@ export class GitConnector {
   }
 
   /** 分离失败时仍可只读展示已采集补丁，不把项目全量修改归入会话。 */
-  async previewSessionChanges(workspacePath: string, changes: SessionGitChange[], readOnlyReason: string): Promise<FileDiff[]> {
-    const workspace = await this.workspace(workspacePath);
+  async previewSessionChanges(workspacePath: string, changes: SessionGitChange[], readOnlyReason: string, allowProjectRoot = false): Promise<FileDiff[]> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const result = new Map<string, FileDiff>();
     for (const change of changes) {
       if (![change.before, change.after].every(value => /^[a-f0-9]{40,64}$/.test(value))) throw new Error('会话变更快照无效');
@@ -369,20 +371,20 @@ export class GitConnector {
     return [...result.values()].sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  async assertSessionFile(workspacePath: string, prepared: SessionGitPrepared, file: string): Promise<void> {
+  async assertSessionFile(workspacePath: string, prepared: SessionGitPrepared, file: string, allowProjectRoot = false): Promise<void> {
     if (!prepared.diffs.some(item => item.path === file)) throw new Error('该文件不属于本次会话变更');
-    const workspace = await this.workspace(workspacePath);
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const expected = (await this.run(workspace, ['ls-tree', prepared.tree, '--', file])).text;
     const ref = `refs/jinggong/sessions/check-${randomUUID()}/current`;
     try {
-      const current = await this.sessionSnapshot(workspace, ref);
+      const current = await this.sessionSnapshot(workspace, ref, allowProjectRoot);
       if ((await this.run(workspace, ['ls-tree', current, '--', file])).text !== expected) throw new Error('此文件包含会话以外的修改，不能整文件暂存或撤销；请使用本会话提交入口');
     } finally { await this.run(workspace, ['update-ref', '-d', ref]); }
   }
 
   /** 固定本会话 tree 创建提交，真实索引通过双树合并保留无关暂存内容。 */
-  async commitSessionChanges(workspacePath: string, prepared: SessionGitPrepared, input: { message: string; authorName?: string; authorEmail?: string; beforeCommit?: (files: Map<string, string | null>) => Promise<void>; onCommitCreated?: (hash: string) => Promise<void> }): Promise<string> {
-    const workspace = await this.workspace(workspacePath);
+  async commitSessionChanges(workspacePath: string, prepared: SessionGitPrepared, input: { message: string; authorName?: string; authorEmail?: string; beforeCommit?: (files: Map<string, string | null>) => Promise<void>; onCommitCreated?: (hash: string) => Promise<void> }, allowProjectRoot = false): Promise<string> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     if (!prepared.diffs.length || prepared.diffs.some(item => item.binary || item.truncated)) throw new Error('没有可完整校验的本会话文本变更');
     if (!input.message.trim() || input.message.length > 4000 || input.message.includes('\0')) throw new Error('提交说明无效');
     for (const file of prepared.diffs) await this.validateCommitPath(workspace, file.path);
@@ -441,14 +443,14 @@ export class GitConnector {
     } finally { await lock.close().catch(() => {}); await unlink(lockPath).catch(() => {}); }
   }
 
-  async containsSessionCommit(workspacePath: string, hash: string): Promise<boolean> {
+  async containsSessionCommit(workspacePath: string, hash: string, allowProjectRoot = false): Promise<boolean> {
     if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error('会话提交标识无效');
-    return (await this.run(await this.workspace(workspacePath), ['merge-base', '--is-ancestor', hash, 'HEAD'], { allowMissing: true })).code === 0;
+    return (await this.run(await this.workspace(workspacePath, allowProjectRoot), ['merge-base', '--is-ancestor', hash, 'HEAD'], { allowMissing: true })).code === 0;
   }
 
-  async removeSessionSnapshots(workspacePath: string, sessionId: string): Promise<void> {
+  async removeSessionSnapshots(workspacePath: string, sessionId: string, allowProjectRoot = false): Promise<void> {
     if (!SAFE_ID.test(sessionId)) throw new Error('会话标识无效');
-    const workspace = await this.workspace(workspacePath);
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const prefix = `refs/jinggong/sessions/${sessionId}/`;
     const refs = (await this.run(workspace, ['for-each-ref', '--format=%(refname)', prefix])).text.trim().split(/\r?\n/).filter(Boolean);
     for (const ref of refs) {
@@ -458,8 +460,8 @@ export class GitConnector {
   }
 
   /** 只允许推送属于本会话的待发布提交，不要求无关工作区修改被提交。 */
-  async pushSessionCommits(workspacePath: string, remote: string, commits: string[]): Promise<void> {
-    const workspace = await this.workspace(workspacePath), current = await this.state(workspace);
+  async pushSessionCommits(workspacePath: string, remote: string, commits: string[], allowProjectRoot = false): Promise<void> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot), current = await this.state(workspace, allowProjectRoot);
     const { url, transport } = await this.remoteTarget(workspace, remote, current.remotes, '推送');
     const branch = `refs/heads/${current.branch}`;
     const head = (await this.run(workspace, ['rev-parse', '--verify', branch])).text.trim();
@@ -474,10 +476,10 @@ export class GitConnector {
     catch (error) { if (/^https?:/i.test(url)) throw httpTransportError('推送', error); throw error; }
   }
 
-  private async changedFile(workspacePath: string, file: string): Promise<{ workspace: string; path: string; tracked: boolean; inHead: boolean }> {
-    const workspace = await this.workspace(workspacePath);
+  private async changedFile(workspacePath: string, file: string, allowProjectRoot = false): Promise<{ workspace: string; path: string; tracked: boolean; inHead: boolean }> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
-    const actual = (await this.diff(workspace)).find(item => item.path === file);
+    const actual = (await this.diff(workspace, allowProjectRoot)).find(item => item.path === file);
     if (!actual) throw new Error('所选文件已不在当前变更中，请刷新 Git 状态');
     const target = await this.safeFile(workspace, file);
     const info = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
@@ -488,31 +490,31 @@ export class GitConnector {
   }
 
   /** 返回指定文件当前相对 HEAD 的完整 Diff，供右键“对比”使用。 */
-  async fileDiff(workspacePath: string, file: string): Promise<FileDiff> {
-    const target = await this.changedFile(workspacePath, file);
-    const result = (await this.diff(target.workspace)).find(item => item.path === target.path);
+  async fileDiff(workspacePath: string, file: string, allowProjectRoot = false): Promise<FileDiff> {
+    const target = await this.changedFile(workspacePath, file, allowProjectRoot);
+    const result = (await this.diff(target.workspace, allowProjectRoot)).find(item => item.path === target.path);
     if (!result) throw new Error('所选文件已不在当前变更中，请刷新 Git 状态');
     return result;
   }
 
   /** 返回当前变更文件的受控绝对路径，供主进程交给系统编辑器打开。 */
-  async filePath(workspacePath: string, file: string): Promise<string> {
-    const target = await this.changedFile(workspacePath, file);
+  async filePath(workspacePath: string, file: string, allowProjectRoot = false): Promise<string> {
+    const target = await this.changedFile(workspacePath, file, allowProjectRoot);
     return this.safeFile(target.workspace, target.path);
   }
 
   /** 返回项目内受 Git 管理或未忽略的文件，供右侧项目文件树使用。 */
-  async files(workspacePath: string): Promise<GitFileEntry[]> {
-    const workspace = await this.workspace(workspacePath);
+  async files(workspacePath: string, allowProjectRoot = false): Promise<GitFileEntry[]> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const listed = (await this.run(workspace, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).text.split('\0').filter(Boolean);
-    const changed = await this.diff(workspace);
+    const changed = await this.diff(workspace, allowProjectRoot);
     const status = new Map(changed.map(file => [file.path, file.status]));
     return [...new Set(listed)].slice(0, MAX_FILES * 20).map(file => ({ path: file, ...(status.has(file) ? { status: status.get(file) } : {}) }));
   }
 
   /** 读取项目内 UTF-8 文本文件，供右侧快速预览使用。 */
-  async readFile(workspacePath: string, file: string): Promise<{ path: string; absolutePath: string; content: string }> {
-    const workspace = await this.workspace(workspacePath);
+  async readFile(workspacePath: string, file: string, allowProjectRoot = false): Promise<{ path: string; absolutePath: string; content: string }> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
     const target = await this.safeFile(workspace, file);
     const info = await lstat(target);
@@ -523,22 +525,22 @@ export class GitConnector {
     return { path: file, absolutePath: target, content: value };
   }
 
-  async pathForFile(workspacePath: string, file: string): Promise<string> {
-    const workspace = await this.workspace(workspacePath);
+  async pathForFile(workspacePath: string, file: string, allowProjectRoot = false): Promise<string> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     if (!file || /[\x00-\x1f\x7f]/.test(file) || isAbsolute(file) || file.split(/[\\/]/).some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw new Error('文件路径无效');
     return this.safeFile(workspace, file);
   }
 
   /** 将单个变更文件加入 Git 暂存区。 */
-  async stage(workspacePath: string, file: string): Promise<void> {
-    const target = await this.changedFile(workspacePath, file);
+  async stage(workspacePath: string, file: string, allowProjectRoot = false): Promise<void> {
+    const target = await this.changedFile(workspacePath, file, allowProjectRoot);
     await this.validateCommitPath(target.workspace, target.path);
     await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'add', '--', target.path]);
   }
 
   /** 从 Git 暂存区移除单个文件，但保留工作区内容。 */
-  async unstage(workspacePath: string, file: string): Promise<void> {
-    const target = await this.changedFile(workspacePath, file);
+  async unstage(workspacePath: string, file: string, allowProjectRoot = false): Promise<void> {
+    const target = await this.changedFile(workspacePath, file, allowProjectRoot);
     await this.validateCommitPath(target.workspace, target.path);
     const staged = (await this.run(target.workspace, ['diff', '--cached', '--name-only', '-z', '--', target.path])).text.split('\0').filter(Boolean);
     if (!staged.includes(target.path)) throw new Error('所选文件当前未暂存');
@@ -546,8 +548,8 @@ export class GitConnector {
   }
 
   /** 丢弃单个文件相对 HEAD 的全部修改；未跟踪文件会被删除。 */
-  async discard(workspacePath: string, file: string): Promise<void> {
-    const target = await this.changedFile(workspacePath, file);
+  async discard(workspacePath: string, file: string, allowProjectRoot = false): Promise<void> {
+    const target = await this.changedFile(workspacePath, file, allowProjectRoot);
     if (target.inHead) {
       await this.validateCommitPath(target.workspace, target.path);
       await this.run(target.workspace, [...await this.mutationOverrides(target.workspace), 'restore', '--source=HEAD', '--staged', '--worktree', '--', target.path]);
@@ -559,8 +561,8 @@ export class GitConnector {
     await unlink(resolve(target.workspace, target.path));
   }
 
-  async state(workspacePath: string): Promise<GitState> {
-    const workspace = await this.workspace(workspacePath);
+  async state(workspacePath: string, allowProjectRoot = false): Promise<GitState> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     return this.repositoryState(workspace);
   }
 
@@ -776,8 +778,8 @@ export class GitConnector {
     await this.run(dirname(commonDir), ['worktree', 'remove', workspace]);
   }
 
-  async generateCommitMessage(workspacePath: string, sessionDiffs?: FileDiff[]): Promise<string> {
-    const diffs = sessionDiffs ?? await this.diff(workspacePath);
+  async generateCommitMessage(workspacePath: string, sessionDiffs?: FileDiff[], allowProjectRoot = false): Promise<string> {
+    const diffs = sessionDiffs ?? await this.diff(workspacePath, allowProjectRoot);
     const actual = diffs.filter((item) => item.status !== '!');
     if (!actual.length) throw new Error('当前隔离工作区没有可提交变更');
     const counts = { A: 0, D: 0, M: 0 };
@@ -808,8 +810,8 @@ export class GitConnector {
     await this.safeFile(workspace, file);
   }
 
-  async commit(workspacePath: string, input: { message: string; authorName?: string; authorEmail?: string; files?: string[]; beforeCommit?: (files: Map<string, string | null>) => Promise<void> }): Promise<string> {
-    const workspace = await this.workspace(workspacePath);
+  async commit(workspacePath: string, input: { message: string; authorName?: string; authorEmail?: string; files?: string[]; beforeCommit?: (files: Map<string, string | null>) => Promise<void> }, allowProjectRoot = false): Promise<string> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const branchName = (await this.run(workspace, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowMissing: true })).text.trim();
     if (!branchName || branchName === '(detached)') throw new Error('项目处于分离 HEAD 状态，请先切换到本地分支');
     if (!input.message?.trim() || input.message.length > 4000 || /\x00/.test(input.message)) throw new Error('提交说明为空或超过长度限制');
@@ -850,7 +852,7 @@ export class GitConnector {
     }
     await input.beforeCommit?.(stagedContent);
     if ((await this.run(workspace, [...overrides, 'write-tree'])).text.trim() !== tree) throw new Error('规则检查期间暂存区发生并发变化，已停止提交');
-    await this.workspace(workspace);
+    await this.workspace(workspace, allowProjectRoot);
     // 固定 tree 创建对象，再以旧提交 SHA 为条件原子更新指定 agent 分支。
     const hash = (await this.run(workspace, [...overrides, ...author, 'commit-tree', tree, '-p', oldHead, '-m', input.message.trim()])).text.trim();
     await this.run(workspace, [...overrides, 'update-ref', '--create-reflog', '-m', '精工 Agent 提交', branch, hash, oldHead]);
@@ -901,13 +903,13 @@ export class GitConnector {
     return { url, transport: ['-c', 'core.sshCommand=ssh', '-c', 'core.askPass=', ...credentials, '-c', 'protocol.allow=never', '-c', 'protocol.http.allow=always', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', `protocol.file.allow=${local ? 'always' : 'never'}`] };
   }
 
-  async push(workspacePath: string, remote: string): Promise<void> {
-    const workspace = await this.workspace(workspacePath);
-    const current = await this.state(workspace);
+  async push(workspacePath: string, remote: string, allowProjectRoot = false): Promise<void> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
+    const current = await this.state(workspace, allowProjectRoot);
     if (current.dirty) throw new Error('请先提交或处理未提交变更，再推送当前 agent 分支');
     const { url, transport } = await this.remoteTarget(workspace, remote, current.remotes, '推送');
     const overrides = await this.mutationOverrides(workspace);
-    await this.workspace(workspace);
+    await this.workspace(workspace, allowProjectRoot);
     try {
       await this.run(workspace, [...overrides, ...transport, 'push', '--no-verify', '--no-follow-tags', '--recurse-submodules=no', url, `refs/heads/${current.branch}:refs/heads/${current.branch}`]);
     } catch (error) {
@@ -916,10 +918,10 @@ export class GitConnector {
     }
   }
 
-  async pull(workspacePath: string, remote: string): Promise<void> {
-    const workspace = await this.workspace(workspacePath);
-    const current = await this.state(workspace);
-    await this.pullRepository(workspace, remote, current, () => this.workspace(workspace));
+  async pull(workspacePath: string, remote: string, allowProjectRoot = false): Promise<void> {
+    const workspace = await this.workspace(workspacePath, allowProjectRoot);
+    const current = await this.state(workspace, allowProjectRoot);
+    await this.pullRepository(workspace, remote, current, () => this.workspace(workspace, allowProjectRoot));
   }
 
   private async pullRepository(workspace: string, remote: string, current: GitState, validateIdentity: () => Promise<unknown>): Promise<void> {

@@ -35,7 +35,7 @@ import { SettingsPanel } from './apps/desktop/src/renderer/SettingsPanel';
 import { useTransientError } from './apps/desktop/src/renderer/use-transient-error';
 import './apps/desktop/src/renderer/styles.css';
 const copy = value => JSON.parse(JSON.stringify(value));
-const settings = { preferences: { theme: 'dark', style: 'minimal', completionSound: 'off' }, providers: [], jira: { baseUrl: '', account: '', hasPassword: false }, documents: [], memories: [], update: { state: 'disabled', message: '合成界面测试' }, appVersion: '0.6.9', updateUrl: 'https://update.invalid' };
+const settings = { preferences: { theme: 'dark', style: 'minimal', completionSound: 'off' }, providers: [], jira: { baseUrl: '', account: '', hasPassword: false }, documents: [], memories: [], update: { state: 'disabled', message: '合成界面测试' }, appVersion: '0.7.0', updateUrl: 'https://update.invalid' };
 window.__closed = 0;
 window.__requests = [];
 window.jinggong = {

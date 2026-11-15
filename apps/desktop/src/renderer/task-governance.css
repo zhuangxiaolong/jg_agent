@@ -1,0 +1,10 @@
+.task-governance-panel { min-height:0; font-size:10px; }
+.task-governance-panel .iteration-feedback { margin:0; }
+.task-governance-panel section > ul, .task-governance-panel details ul { margin:0; padding-left:18px; line-height:1.6; overflow-wrap:anywhere; }
+.governance-edit-step, .governance-step { display:flex; flex-direction:column; gap:7px; min-width:0; padding:8px; border:1px solid var(--line); border-radius:5px; background:var(--surface-0); }
+.governance-edit-step > strong, .governance-step strong { color:var(--text); overflow-wrap:anywhere; }
+.governance-step p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+.governance-step small { color:var(--muted); overflow-wrap:anywhere; line-height:1.5; }
+.task-governance-panel label.governance-checkbox { display:flex; flex-direction:row; align-items:center; }
+.task-governance-panel label.governance-checkbox input { width:auto; min-height:0; }
+.task-governance-panel .iteration-section-heading { flex-wrap:wrap; }

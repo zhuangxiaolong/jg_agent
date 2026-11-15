@@ -1,6 +1,13 @@
 export * from './engineering';
 export * from './task-api';
 export * from './grok';
+export * from './iteration-07';
+export * from './iteration-governance';
+export * from './delivery';
+import type { DeliveryApi } from './delivery';
+import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
+import type { RecoveryStatus, TaskCheckpoint, TaskPlan, TaskPlanStep, TaskPlanStepStatus } from './iteration-governance';
+import type { FieldMapping, MappingConversionResult, MappingJobSelection, MappingJobView, MappingSourcePreview, MappingSuggestion, ProjectContextSnapshot, ProjectDecision, ProjectFact, ProjectResourceLink, ProjectWorkspaceContext } from './iteration-07';
 import type { GrokManagerApi, GrokSettingsSnapshot } from './grok';
 import type { TaskEngineeringApi } from './task-api';
 import type { TaskAcceptanceRecord, TaskAcceptanceStatus, TaskDependencyCondition, TaskExecutionStatus, TaskVerificationStatus } from './engineering';
@@ -246,7 +253,7 @@ export interface GitState { branch: string; commits: GitCommit[]; remotes: strin
 export interface GitFileEntry { path: string; status?: string }
 export interface ProjectFilePreview { path: string; absolutePath: string; content: string }
 export interface RequirementResult { documentId: string; name: string; status: 'pass' | 'fail' | 'review'; details: string[] }
-export type VerificationProfileId = 'build' | 'typecheck' | 'tests';
+export type VerificationProfileId = 'build' | 'typecheck' | 'tests' | 'dotnet-tests';
 export type VerificationStatus = 'passed' | 'failed' | 'not_run' | 'indeterminate' | 'stale';
 export type VerificationProcessStatus = 'not_started' | 'running' | 'completed' | 'cancelled' | 'timed_out' | 'crashed' | 'launch_failed';
 export interface VerificationRunSummary {
@@ -260,7 +267,70 @@ export interface VerificationRunDetail { summary: VerificationRunSummary; markdo
 export interface VerificationRunEvent { runId: string; sessionId: string; state: 'started' | 'completed'; status?: VerificationStatus; processStatus?: VerificationProcessStatus; exitCode?: number | null }
 export interface RuntimeHealth { available: boolean; version: string; compatible: boolean; detail: string; kind?: RuntimeKind; warmingUp?: boolean; capabilitiesVersion?: number; upstreamCommit?: string; buildNumber?: string; sandbox?: 'verified' | 'unverified' }
 export interface Bootstrap { projects: Project[]; sessions: Session[]; activeSessionIds?: string[]; provider: ProviderSettings; runtime: RuntimeHealth; runtimes?: Partial<Record<RuntimeKind, RuntimeHealth>>; dataDirectory: string; gitVersion: string; settings: SettingsSnapshot; layout: LayoutPreferences; closeToTray: boolean }
+export interface IterationApi {
+  getProjectContext(projectId: string): Promise<{ workspace?: ProjectWorkspaceContext; resources: ProjectResourceLink[]; facts: ProjectFact[]; decisions: ProjectDecision[] }>;
+  saveProjectContext(projectId: string, input: Omit<ProjectWorkspaceContext, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ProjectWorkspaceContext>;
+  saveProjectResource(projectId: string, input: Omit<ProjectResourceLink, 'id' | 'projectId' | 'linkedAt'> & { id?: string }): Promise<ProjectResourceLink>;
+  saveProjectFact(projectId: string, input: Omit<ProjectFact, 'id' | 'projectId' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ProjectFact>;
+  saveProjectDecision(projectId: string, input: Omit<ProjectDecision, 'id' | 'projectId' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ProjectDecision>;
+  buildProjectContext(projectId: string, taskId?: string): Promise<{ text: string; snapshot: ProjectContextSnapshot }>;
+  selectMappingSource(input: MappingJobSelection): Promise<{ job: MappingJobView; preview: MappingSourcePreview } | null>;
+  selectMappingTemplate(jobId: string): Promise<{ job: MappingJobView; preview: MappingSourcePreview } | null>;
+  selectProjectResource(projectId:string):Promise<ProjectResourceLink|null>;
+  exportProjectConfig(projectId:string):Promise<string|null>;
+  importProjectConfig(projectId:string):Promise<{facts:number;decisions:number;resources:number}|null>;
+  reparseMapping(input:{jobId:string;kind:'source'|'template';options:import('./iteration-07').MappingParseOptions}):Promise<MappingSourcePreview>;
+  mappingHistory(projectId:string):Promise<Array<{job:MappingJobView;runs:import('./iteration-07').MappingRun[]}>>;
+  reuseMappings(input:{jobId:string;ruleJobId:string}):Promise<FieldMapping[]>;
+  restoreMapping(jobId:string):Promise<{job:MappingJobView;source:MappingSourcePreview;template?:MappingSourcePreview;mappings:FieldMapping[]}>;
+  revealMapping(runId:string):Promise<void>;
+  suggestMappings(jobId: string): Promise<MappingSuggestion[]>;
+  convertMapping(input: { jobId: string; mappings: FieldMapping[]; format: 'csv' | 'xlsx'; warningsConfirmed?:boolean }): Promise<MappingConversionResult>;
+}
+
+/** 第二迭代 F03：任务计划、阶段推进、检查点与恢复审查。只记录状态，不隐式执行 Runtime 或命令。 */
+export interface TaskGovernanceApi {
+  listPlans(taskId: string): Promise<Array<{ plan: TaskPlan; steps: TaskPlanStep[] }>>;
+  createPlan(input: TaskGovernancePlanInput): Promise<{ plan: TaskPlan; steps: TaskPlanStep[] }>;
+  confirmPlan(planId: string): Promise<TaskPlan>;
+  refreshReadySteps(planId: string): Promise<TaskPlanStep[]>;
+  transitionStep(input: { planId: string; stepId: string; next: TaskPlanStepStatus; outputSummary?: string; evidenceRefs?: string[] }): Promise<TaskPlanStep>;
+  createCheckpoint(input: TaskGovernanceCheckpointInput): Promise<TaskCheckpoint>;
+  listCheckpoints(taskId: string): Promise<TaskCheckpoint[]>;
+  assessRecovery(checkpointId: string): Promise<TaskGovernanceRecoveryAssessment>;
+}
+export interface TaskGovernancePlanInput {
+  taskId: string;
+  projectId?: string;
+  goal: string;
+  assumptions?: string[];
+  acceptanceCriteria: string[];
+  steps: Array<{ stepKey: string; title: string; description?: string; order: number; dependsOn?: string[]; required?: boolean }>;
+}
+export interface TaskGovernanceCheckpointInput {
+  taskId: string;
+  planId: string;
+  stepId: string;
+  projectId?: string;
+  contextSnapshotId?: string;
+  runtimeId?: string;
+  runtimeSessionId?: string;
+  checkpointSummary: string;
+  completedActions: string[];
+  pendingActions: string[];
+  evidenceRefs: string[];
+}
+export interface TaskGovernanceRecoveryAssessment {
+  status: RecoveryStatus;
+  canStartPlatformResume: boolean;
+  requiresRevalidation: boolean;
+  reasons: string[];
+}
 export interface DesktopApi {
+  delivery?: DeliveryApi;
+  impactReview?: ImpactReviewApi;
+  iteration?: IterationApi;
+  taskGovernance?: TaskGovernanceApi;
   grok?: GrokManagerApi;
   respondRuntimeApproval?(sessionId: string, requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void>;
   performance?: {
@@ -378,7 +448,7 @@ export interface DesktopApi {
   cancelVerification(sessionId: string, runId: string): Promise<void>;
   listVerificationRuns(sessionId: string): Promise<VerificationRunSummary[]>;
   getVerificationRun(sessionId: string, runId: string): Promise<VerificationRunDetail>;
-  readVerificationArtifact(sessionId: string, runId: string, artifact: 'stdout.log' | 'stderr.log' | 'report.md' | 'manifest.json' | 'test-results/junit.xml'): Promise<string>;
+  readVerificationArtifact(sessionId: string, runId: string, artifact: 'stdout.log' | 'stderr.log' | 'report.md' | 'manifest.json' | 'test-results/junit.xml' | 'test-results/test.trx'): Promise<string>;
   onVerification(listener: (event: VerificationRunEvent) => void): () => void;
   generateCommitMessage(sessionId: string): Promise<string>;
   checkRequirements(sessionId: string): Promise<RequirementResult[]>;

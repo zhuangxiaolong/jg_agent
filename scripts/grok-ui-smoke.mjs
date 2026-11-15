@@ -30,7 +30,7 @@ const fixture = `
 const now = '2026-11-12T00:00:00Z';
 const copy = value => JSON.parse(JSON.stringify(value));
 const sharedProvider={id:'common',name:'通用中转站',baseUrl:'https://common.invalid/v1',models:['grok-4.5','second'],hasKey:true};
-const settings = { preferences: { theme: 'dark', style: 'minimal', completionSound: 'off' }, providers: [sharedProvider,{id:'backup',name:'备用中转站',baseUrl:'https://backup.invalid/v1',models:['backup-model'],hasKey:true}],jira:{baseUrl:'',account:'',hasPassword:false},documents:[],memories:[],update:{state:'disabled',message:'离线界面验收'},appVersion:'0.6.9',updateUrl:'https://update.invalid'};
+const settings = { preferences: { theme: 'dark', style: 'minimal', completionSound: 'off' }, providers: [sharedProvider,{id:'backup',name:'备用中转站',baseUrl:'https://backup.invalid/v1',models:['backup-model'],hasKey:true}],jira:{baseUrl:'',account:'',hasPassword:false},documents:[],memories:[],update:{state:'disabled',message:'离线界面验收'},appVersion:'0.7.0',updateUrl:'https://update.invalid'};
 const listeners=[];
 let events=[];
 window.__calls=[];

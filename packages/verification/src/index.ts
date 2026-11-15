@@ -4,6 +4,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 export const EVIDENCE_MANIFEST_VERSION = 1;
 export const WORKSPACE_FINGERPRINT_VERSION = 1;
 export const JUNIT_PARSER_VERSION = '2';
+export const TRX_PARSER_VERSION = '1';
 
 export type VerificationStatus = 'passed' | 'failed' | 'not_run' | 'indeterminate' | 'stale';
 export type VerificationRunType = 'build' | 'test' | 'lint' | 'typecheck' | 'custom';
@@ -18,7 +19,7 @@ export interface TestCaseResult {
 }
 
 export interface ParsedTestReport {
-  parserId: 'junit-xml';
+  parserId: 'junit-xml' | 'trx-xml';
   parserVersion: string;
   status: 'parsed' | 'empty' | 'invalid';
   total: number;
@@ -29,6 +30,41 @@ export interface ParsedTestReport {
   tests: TestCaseResult[];
   reportSha256: string;
   error?: string;
+}
+
+export function parseTestReport(source: string, format: 'junit' | 'trx'): ParsedTestReport {
+  return format === 'trx' ? parseTrxXml(source) : parseJUnitXml(source);
+}
+
+/** .NET VSTest TRX 的确定性解析器；只信任 UnitTestResult 节点，不信任控制台摘要。 */
+export function parseTrxXml(source: string): ParsedTestReport {
+  const reportSha256 = sha256(source);
+  if (!source.trim()) return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'empty', total: 0, passed: 0, failed: 0, skipped: 0, errors: 0, tests: [], reportSha256, error: 'TRX 报告为空' };
+  const validation = XMLValidator.validate(source);
+  if (validation !== true) return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'invalid', total: 0, passed: 0, failed: 0, skipped: 0, errors: 0, tests: [], reportSha256, error: `TRX XML 格式错误（第 ${validation.err.line} 行）` };
+  try {
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false, parseAttributeValue: false, trimValues: false, processEntities: false });
+    const parsed = parser.parse(source) as Record<string, unknown>;
+    const root = parsed.TestRun as Record<string, unknown> | undefined;
+    const results = root?.Results as Record<string, unknown> | undefined;
+    const rows = asArray(results?.UnitTestResult as Record<string, unknown> | Record<string, unknown>[] | undefined);
+    if (!root || !results || !rows.length) return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'empty', total: 0, passed: 0, failed: 0, skipped: 0, errors: 0, tests: [], reportSha256, error: 'TRX 报告没有 UnitTestResult' };
+    const tests: TestCaseResult[] = [];
+    for (const row of rows) {
+      const outcome = childText(row['@_outcome'])?.toLowerCase();
+      const status = outcome === 'passed' ? 'passed' : outcome === 'failed' ? 'failed' : outcome === 'error' ? 'error' : outcome === 'notexecuted' || outcome === 'skipped' ? 'skipped' : undefined;
+      if (!status) return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'invalid', total: 0, passed: 0, failed: 0, skipped: 0, errors: 0, tests: [], reportSha256, error: 'TRX 存在未知测试结果' };
+      const name = childText(row['@_testName']) ?? childText(row['@_testId']) ?? '(未命名测试)';
+      const message = childText(row['@_errorMessage'])
+        ?? childText((row.Output as Record<string, unknown> | undefined)?.ErrorInfo && ((row.Output as Record<string, unknown>).ErrorInfo as Record<string, unknown>).Message)
+        ?? childText((row.Output as Record<string, unknown> | undefined)?.StdErr);
+      tests.push({ name, status, ...(message ? { message } : {}) });
+    }
+    const failed = tests.filter(item => item.status === 'failed').length;
+    const errors = tests.filter(item => item.status === 'error').length;
+    const skipped = tests.filter(item => item.status === 'skipped').length;
+    return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'parsed', total: tests.length, passed: tests.length - failed - errors - skipped, failed, skipped, errors, tests, reportSha256 };
+  } catch { return { parserId: 'trx-xml', parserVersion: TRX_PARSER_VERSION, status: 'invalid', total: 0, passed: 0, failed: 0, skipped: 0, errors: 0, tests: [], reportSha256, error: 'TRX XML 无法解析' }; }
 }
 
 const junitParser = new XMLParser({

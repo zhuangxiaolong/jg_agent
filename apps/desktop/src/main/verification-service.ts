@@ -10,6 +10,7 @@ import {
   fingerprintWorkspace,
   generateMarkdownRunReport,
   parseJUnitXml,
+  parseTrxXml,
   verifyEvidenceManifest,
   type EvidenceManifest,
   type ParsedTestReport,
@@ -84,7 +85,7 @@ export interface VerificationRunResult {
   markdown: string;
 }
 
-export type VerificationProfileId = 'build' | 'typecheck' | 'tests';
+export type VerificationProfileId = 'build' | 'typecheck' | 'tests' | 'dotnet-tests';
 
 export interface VerificationRunSummary {
   record: VerificationRunRecord;
@@ -156,6 +157,11 @@ export async function verificationProfile(profileId: VerificationProfileId, work
       environment: { ELECTRON_RUN_AS_NODE: '1' },
     };
   }
+  if (profileId === 'dotnet-tests') {
+    const solutionFiles = await findSolutionFiles(repositoryRoot);
+    if (solutionFiles.length !== 1) throw new Error('MES/WMS .NET 验证要求工作区内存在唯一 .sln/.slnx');
+    return { runType: 'test', executable: 'dotnet', args: ['test', solutionFiles[0], '--logger', 'trx;LogFileName=test.trx', '--results-directory', 'TestResults'], testReportPath: 'TestResults/test.trx', timeoutMs: 2 * 60 * 60 * 1000, environment: {} };
+  }
   throw new Error('验证配置不存在');
 }
 
@@ -210,7 +216,7 @@ export function isVerificationRecordStale(record: VerificationRunRecord, current
   return Boolean(currentFingerprint && record.fingerprintAfter && record.fingerprintAfter !== currentFingerprint && record.status !== 'not_run');
 }
 
-export async function readVerificationArtifact(evidenceRoot: string, projectId: string, sessionId: string, runId: string, artifact: 'stdout.log' | 'stderr.log' | 'report.md' | 'manifest.json' | 'test-results/junit.xml'): Promise<string> {
+export async function readVerificationArtifact(evidenceRoot: string, projectId: string, sessionId: string, runId: string, artifact: 'stdout.log' | 'stderr.log' | 'report.md' | 'manifest.json' | 'test-results/junit.xml' | 'test-results/test.trx'): Promise<string> {
   if (!SAFE_PROJECT_ID.test(projectId) || !SAFE_SESSION_ID.test(sessionId) || !SAFE_SESSION_ID.test(runId)) throw new Error('验证记录标识无效');
   const folder = path.join(path.resolve(evidenceRoot), projectId, sessionId, runId);
   const folderInfo = await lstat(folder);
@@ -442,7 +448,8 @@ export class VerificationRunService {
           if (bytes.length <= MAX_REPORT_BYTES) {
             rawTestReport = Buffer.from(redact(bytes.toString('utf8')), 'utf8');
             await writeFile(testReportFile, rawTestReport, { flag: 'w' });
-            testReport = parseJUnitXml(rawTestReport.toString('utf8'));
+            const reportText = rawTestReport.toString('utf8');
+            testReport = /\.trx$/i.test(normalizedReportPath ?? '') ? parseTrxXml(reportText) : parseJUnitXml(reportText);
           }
         }
       } catch { /* Missing or unreadable machine output remains unverified. */ }

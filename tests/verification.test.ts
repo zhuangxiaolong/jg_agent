@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createEvidenceManifest, evaluateBuildRun, evaluateTestRun, fingerprintWorkspace, generateMarkdownRunReport, parseJUnitXml, verifyEvidenceManifest } from '../packages/verification/src';
+import { createEvidenceManifest, evaluateBuildRun, evaluateTestRun, fingerprintWorkspace, generateMarkdownRunReport, parseJUnitXml, parseTrxXml, verifyEvidenceManifest } from '../packages/verification/src';
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -24,6 +24,19 @@ test('JUnit XML 确定性解析通过、失败、错误、跳过与嵌套套件'
   assert.equal(first.status, 'parsed');
   assert.deepEqual({ total: first.total, passed: first.passed, failed: first.failed, errors: first.errors, skipped: first.skipped }, { total: 4, passed: 1, failed: 1, errors: 1, skipped: 1 });
   assert.equal(first.tests[1].message, '期望不符');
+});
+
+test('TRX 报告确定性解析成功、失败与未执行用例，未知和空报告 fail closed', () => {
+  const xml = `<TestRun><Results><UnitTestResult testName="成功" outcome="Passed"/><UnitTestResult testName="失败" outcome="Failed" errorMessage="断言失败"/><UnitTestResult testName="跳过" outcome="NotExecuted"/></Results></TestRun>`;
+  const first = parseTrxXml(xml);
+  assert.deepEqual(parseTrxXml(xml), first);
+  assert.equal(first.parserId, 'trx-xml');
+  assert.equal(first.status, 'parsed');
+  assert.deepEqual({ total: first.total, passed: first.passed, failed: first.failed, skipped: first.skipped }, { total: 3, passed: 1, failed: 1, skipped: 1 });
+  assert.equal(first.tests[1].message, '断言失败');
+  assert.equal(parseTrxXml('<TestRun><Results/></TestRun>').status, 'empty');
+  assert.equal(parseTrxXml('<TestRun><Results><UnitTestResult testName="不明" outcome="FutureState"/></Results></TestRun>').status, 'invalid');
+  assert.equal(parseTrxXml('<TestRun><Results></TestRun>').status, 'invalid');
 });
 
 test('JUnit 空白、零用例、统计冲突和损坏 XML 均不会伪装为有效通过报告', () => {

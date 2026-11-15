@@ -4,13 +4,13 @@ import type { TaskAuditAppend, TaskAuditSnapshot, TaskContract, TaskContractReco
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -531,6 +531,47 @@ export class LocalStore {
           `);
         });
       }
+      if (version <= 11) {
+        store.transaction(() => {
+          store.db.run(`
+            CREATE TABLE IF NOT EXISTS project_workspace_contexts (id TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS project_workspace_contexts_status ON project_workspace_contexts(status, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS project_resource_links (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, status TEXT NOT NULL, linked_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS project_resource_links_project ON project_resource_links(project_id, status, linked_at DESC);
+            CREATE TABLE IF NOT EXISTS project_facts (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS project_facts_project ON project_facts(project_id, status, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS project_decisions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS project_decisions_project ON project_decisions(project_id, status, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS project_context_snapshots (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS project_context_snapshots_project ON project_context_snapshots(project_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS mapping_jobs (id TEXT PRIMARY KEY, project_id TEXT, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS mapping_jobs_project ON mapping_jobs(project_id, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS mapping_rule_sets (id TEXT PRIMARY KEY, project_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS mapping_rule_sets_project ON mapping_rule_sets(project_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS mapping_runs (id TEXT PRIMARY KEY, job_id TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS mapping_runs_job ON mapping_runs(job_id, started_at DESC);
+            CREATE TABLE IF NOT EXISTS mapping_validation_issues (id TEXT PRIMARY KEY, mapping_run_id TEXT NOT NULL, severity TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS mapping_validation_issues_run ON mapping_validation_issues(mapping_run_id, severity, status);
+            CREATE TABLE IF NOT EXISTS task_plans (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, project_id TEXT, revision INTEGER NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS task_plans_task ON task_plans(task_id, revision DESC);
+            CREATE TABLE IF NOT EXISTS task_plan_steps (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, step_order INTEGER NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS task_plan_steps_plan ON task_plan_steps(plan_id, step_order, id);
+            CREATE TABLE IF NOT EXISTS task_checkpoints (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, plan_id TEXT NOT NULL, created_at TEXT NOT NULL, recovery_status TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS task_checkpoints_task ON task_checkpoints(task_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS impact_reports (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, project_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS impact_reports_task ON impact_reports(task_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS review_runs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, project_id TEXT, diff_fingerprint TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS review_runs_task ON review_runs(task_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS review_findings (id TEXT PRIMARY KEY, review_run_id TEXT NOT NULL, fingerprint TEXT NOT NULL, severity TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS review_findings_run ON review_findings(review_run_id, severity, status);
+            CREATE TABLE IF NOT EXISTS delivery_packages (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, project_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS delivery_packages_task ON delivery_packages(task_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS jira_writeback_records (id TEXT PRIMARY KEY, jira_key TEXT NOT NULL, operation TEXT NOT NULL, result_status TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS jira_writeback_records_issue ON jira_writeback_records(jira_key, created_at DESC);
+            PRAGMA user_version = 12;
+          `);
+        });
+      }
       if (options.recoverUnfinished !== false) {
         const pendingTools = new Map(store.listAgentTasks().filter(task => task.contractVersion).map(task => [task.id, store.getTaskAuditSnapshot(task.sessionId, task.id).pendingToolCalls]));
         const unfinishedTasks = store.listAgentTasks().filter(task => task.status === 'RUNNING' || task.verificationStatus === 'RUNNING' || pendingTools.get(task.id)?.length);
@@ -623,6 +664,107 @@ export class LocalStore {
     const value: Project = { id: project.id, name: project.name, path: project.path, branch: project.branch };
     if (typeof project.collapsed === 'boolean') value.collapsed = project.collapsed;
     this.transaction(() => this.db.run('INSERT INTO projects(id, path, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path=excluded.path, value=excluded.value', [value.id, value.path, JSON.stringify(value)]));
+  }
+
+  private iterationValue(value: { id: string }): string {
+    if (!value || typeof value.id !== 'string' || !value.id.trim()) throw new Error('第二迭代记录标识无效');
+    const serialized = JSON.stringify(value);
+    if (Buffer.byteLength(serialized, 'utf8') > 4 * 1024 * 1024) throw new Error('第二迭代记录不能超过 4 MiB');
+    return serialized;
+  }
+
+  listProjectWorkspaces(): ProjectWorkspaceContext[] { return this.rows<ProjectWorkspaceContext>('SELECT value FROM project_workspace_contexts ORDER BY updated_at DESC, rowid DESC'); }
+  getProjectWorkspace(id: string): ProjectWorkspaceContext | undefined { return this.rows<ProjectWorkspaceContext>('SELECT value FROM project_workspace_contexts WHERE id = ?', [id])[0]; }
+  saveProjectWorkspace(value: ProjectWorkspaceContext): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO project_workspace_contexts(id, status, updated_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [value.id, value.status, value.updatedAt, serialized]));
+  }
+
+  listProjectResourceLinks(projectId?: string): ProjectResourceLink[] { return projectId === undefined ? this.rows<ProjectResourceLink>('SELECT value FROM project_resource_links ORDER BY linked_at DESC, rowid DESC') : this.rows<ProjectResourceLink>('SELECT value FROM project_resource_links WHERE project_id = ? ORDER BY linked_at DESC, rowid DESC', [projectId]); }
+  saveProjectResourceLink(value: ProjectResourceLink): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO project_resource_links(id, project_id, status, linked_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, status=excluded.status, linked_at=excluded.linked_at, value=excluded.value', [value.id, value.projectId, value.status, value.linkedAt, serialized]));
+  }
+
+  listProjectFacts(projectId?: string): ProjectFact[] { return projectId === undefined ? this.rows<ProjectFact>('SELECT value FROM project_facts ORDER BY updated_at DESC, rowid DESC') : this.rows<ProjectFact>('SELECT value FROM project_facts WHERE project_id = ? ORDER BY updated_at DESC, rowid DESC', [projectId]); }
+  saveProjectFact(value: ProjectFact): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO project_facts(id, project_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [value.id, value.projectId, value.status, value.updatedAt, serialized]));
+  }
+
+  listProjectDecisions(projectId?: string): ProjectDecision[] { return projectId === undefined ? this.rows<ProjectDecision>('SELECT value FROM project_decisions ORDER BY updated_at DESC, rowid DESC') : this.rows<ProjectDecision>('SELECT value FROM project_decisions WHERE project_id = ? ORDER BY updated_at DESC, rowid DESC', [projectId]); }
+  saveProjectDecision(value: ProjectDecision): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO project_decisions(id, project_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [value.id, value.projectId, value.status, value.updatedAt, serialized]));
+  }
+
+  listProjectContextSnapshots(projectId?: string): ProjectContextSnapshot[] { return projectId === undefined ? this.rows<ProjectContextSnapshot>('SELECT value FROM project_context_snapshots ORDER BY created_at DESC, rowid DESC') : this.rows<ProjectContextSnapshot>('SELECT value FROM project_context_snapshots WHERE project_id = ? ORDER BY created_at DESC, rowid DESC', [projectId]); }
+  saveProjectContextSnapshot(value: ProjectContextSnapshot): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO project_context_snapshots(id, project_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId, value.createdAt, serialized]));
+  }
+
+  listMappingJobs(projectId?: string): MappingJob[] { return projectId === undefined ? this.rows<MappingJob>('SELECT value FROM mapping_jobs ORDER BY updated_at DESC, rowid DESC') : this.rows<MappingJob>('SELECT value FROM mapping_jobs WHERE project_id = ? ORDER BY updated_at DESC, rowid DESC', [projectId]); }
+  saveMappingJob(value: MappingJob): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO mapping_jobs(id, project_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [value.id, value.projectId ?? null, value.status, value.updatedAt, serialized]));
+  }
+  saveMappingRuleSet(value: MappingRuleSet): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO mapping_rule_sets(id, project_id, status, created_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, status=excluded.status, created_at=excluded.created_at, value=excluded.value', [value.id, value.projectId ?? null, value.status, value.createdAt, serialized]));
+  }
+  getMappingRuleSet(id: string): MappingRuleSet | undefined { return this.rows<MappingRuleSet>('SELECT value FROM mapping_rule_sets WHERE id = ?', [id])[0]; }
+  saveMappingRun(value: MappingRun): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO mapping_runs(id, job_id, status, started_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.jobId, value.status, value.startedAt, serialized]));
+  }
+  listMappingRuns(jobId?: string): MappingRun[] { return jobId === undefined ? this.rows<MappingRun>('SELECT value FROM mapping_runs ORDER BY started_at DESC, rowid DESC') : this.rows<MappingRun>('SELECT value FROM mapping_runs WHERE job_id = ? ORDER BY started_at DESC, rowid DESC', [jobId]); }
+  saveMappingValidationIssue(value: MappingValidationIssue): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO mapping_validation_issues(id, mapping_run_id, severity, status, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET severity=excluded.severity, status=excluded.status, value=excluded.value', [value.id, value.mappingRunId, value.severity, value.status, serialized]));
+  }
+  listMappingValidationIssues(mappingRunId: string): MappingValidationIssue[] { return this.rows<MappingValidationIssue>('SELECT value FROM mapping_validation_issues WHERE mapping_run_id = ? ORDER BY rowid', [mappingRunId]); }
+
+  listTaskPlans(taskId?: string): TaskPlan[] { return taskId === undefined ? this.rows<TaskPlan>('SELECT value FROM task_plans ORDER BY created_at DESC, rowid DESC') : this.rows<TaskPlan>('SELECT value FROM task_plans WHERE task_id = ? ORDER BY revision DESC, created_at DESC', [taskId]); }
+  saveTaskPlan(value: TaskPlan): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO task_plans(id, task_id, project_id, revision, status, created_at, value) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.taskId, value.projectId ?? null, value.revision, value.status, value.createdAt, serialized]));
+  }
+  listTaskPlanSteps(planId: string): TaskPlanStep[] { return this.rows<TaskPlanStep>('SELECT value FROM task_plan_steps WHERE plan_id = ? ORDER BY step_order, id', [planId]); }
+  saveTaskPlanStep(value: TaskPlanStep): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO task_plan_steps(id, plan_id, step_order, status, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET step_order=excluded.step_order, status=excluded.status, value=excluded.value', [value.id, value.planId, value.order, value.status, serialized]));
+  }
+  listTaskCheckpoints(taskId: string): TaskCheckpoint[] { return this.rows<TaskCheckpoint>('SELECT value FROM task_checkpoints WHERE task_id = ? ORDER BY created_at DESC, rowid DESC', [taskId]); }
+  getTaskCheckpoint(id: string): TaskCheckpoint | undefined { return this.rows<TaskCheckpoint>('SELECT value FROM task_checkpoints WHERE id = ?', [id])[0]; }
+  saveTaskCheckpoint(value: TaskCheckpoint): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO task_checkpoints(id, task_id, plan_id, created_at, recovery_status, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET recovery_status=excluded.recovery_status, value=excluded.value', [value.id, value.taskId, value.planId, value.createdAt, value.recoveryStatus, serialized]));
+  }
+  listImpactReports(taskId?: string): ImpactReport[] { return taskId === undefined ? this.rows<ImpactReport>('SELECT value FROM impact_reports ORDER BY created_at DESC, rowid DESC') : this.rows<ImpactReport>('SELECT value FROM impact_reports WHERE task_id = ? ORDER BY created_at DESC, rowid DESC', [taskId]); }
+  saveImpactReport(value: ImpactReport): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO impact_reports(id, task_id, project_id, status, created_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.taskId, value.projectId ?? null, value.status, value.createdAt, serialized]));
+  }
+  listReviewRuns(taskId?: string): ReviewRun[] { return taskId === undefined ? this.rows<ReviewRun>('SELECT value FROM review_runs ORDER BY created_at DESC, rowid DESC') : this.rows<ReviewRun>('SELECT value FROM review_runs WHERE task_id = ? ORDER BY created_at DESC, rowid DESC', [taskId]); }
+  saveReviewRun(value: ReviewRun): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO review_runs(id, task_id, project_id, diff_fingerprint, status, created_at, value) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.taskId, value.projectId ?? null, value.diffFingerprint, value.status, value.createdAt, serialized]));
+  }
+  listReviewFindings(reviewRunId: string): ReviewFinding[] { return this.rows<ReviewFinding>('SELECT value FROM review_findings WHERE review_run_id = ? ORDER BY severity, rowid', [reviewRunId]); }
+  saveReviewFinding(value: ReviewFinding): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO review_findings(id, review_run_id, fingerprint, severity, status, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.reviewRunId, value.fingerprint, value.severity, value.status, serialized]));
+  }
+  listDeliveryPackages(taskId?: string): DeliveryPackageRecord[] { return taskId === undefined ? this.rows<DeliveryPackageRecord>('SELECT value FROM delivery_packages ORDER BY created_at DESC, rowid DESC') : this.rows<DeliveryPackageRecord>('SELECT value FROM delivery_packages WHERE task_id = ? ORDER BY created_at DESC, rowid DESC', [taskId]); }
+  saveDeliveryPackage(value: DeliveryPackageRecord): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO delivery_packages(id, task_id, project_id, status, created_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value', [value.id, value.taskId, value.projectId ?? null, value.status, value.createdAt, serialized]));
+  }
+  listJiraWritebackRecords(jiraKey?: string): JiraWritebackRecord[] { return jiraKey === undefined ? this.rows<JiraWritebackRecord>('SELECT value FROM jira_writeback_records ORDER BY created_at DESC, rowid DESC') : this.rows<JiraWritebackRecord>('SELECT value FROM jira_writeback_records WHERE jira_key = ? ORDER BY created_at DESC, rowid DESC', [jiraKey]); }
+  saveJiraWritebackRecord(value: JiraWritebackRecord): void {
+    const serialized = this.iterationValue(value);
+    this.transaction(() => this.db.run('INSERT INTO jira_writeback_records(id, jira_key, operation, result_status, created_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET result_status=excluded.result_status, value=excluded.value', [value.id, value.jiraKey, value.operation, value.resultStatus, value.createdAt, serialized]));
   }
 
   renameProject(id: string, name: string): Project {
