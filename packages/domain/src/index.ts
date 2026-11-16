@@ -138,7 +138,7 @@ export interface RequirementAdmission { id: string; status: RequirementAdmission
 export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
-export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval }
+export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval; activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string } }
 export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'WAITING' | 'BLOCKED';
 export type AgentTaskRole = 'requirement' | 'architecture' | 'developer' | 'review' | 'testing' | 'documentation' | 'custom';
 export type AgentTaskWorkspaceMode = 'read' | 'worktree';
@@ -204,6 +204,7 @@ export interface LayoutPreferences {
   rightWidth?: number;
   bottomHeight?: number;
   composerHeight?: number;
+  standaloneSessionsHeight?: number;
 }
 export interface JiraSettings { baseUrl: string; account: string; hasPassword: boolean; projectKey?: string; dateFieldId?: string }
 export interface WeComTargetSummary {

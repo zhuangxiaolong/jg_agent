@@ -34,7 +34,7 @@ import './runtime-approval.css';
 const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '等待审批', completed: '已完成', failed: '失败', interrupted: '已中断' };
 const reasoningLabels: Record<ReasoningEffort, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高' };
 const defaultLayout: LayoutPreferences = { leftVisible: true, rightVisible: true, bottomVisible: false, leftWidth: 220, rightWidth: 420, bottomHeight: 180 };
-type ResizeKind = 'left' | 'right' | 'bottom' | 'composer';
+type ResizeKind = 'left' | 'right' | 'bottom' | 'composer' | 'standalone';
 interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; startValue: number; latest: number; pointerId: number; handle: HTMLButtonElement }
 interface FileContextMenu { file: FileDiff; x: number; y: number }
 interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
@@ -381,15 +381,15 @@ export function App() {
     handle.setPointerCapture(event.pointerId);
   }
   function resizeValue(kind: ResizeKind, current: LayoutPreferences) {
-    return kind === 'left' ? current.leftWidth ?? 220 : kind === 'right' ? current.rightWidth ?? 420 : kind === 'composer' ? current.composerHeight ?? 110 : current.bottomHeight ?? 180;
+    return kind === 'left' ? current.leftWidth ?? 220 : kind === 'right' ? current.rightWidth ?? 420 : kind === 'composer' ? current.composerHeight ?? 110 : kind === 'standalone' ? current.standaloneSessionsHeight ?? 30 : current.bottomHeight ?? 180;
   }
   function resizePatch(kind: ResizeKind, value: number): Partial<LayoutPreferences> {
-    return kind === 'left' ? { leftWidth: value } : kind === 'right' ? { rightWidth: value } : kind === 'composer' ? { composerHeight: value } : { bottomHeight: value };
+    return kind === 'left' ? { leftWidth: value } : kind === 'right' ? { rightWidth: value } : kind === 'composer' ? { composerHeight: value } : kind === 'standalone' ? { standaloneSessionsHeight: value } : { bottomHeight: value };
   }
   function resizeBounds(kind: ResizeKind) {
     const current = layoutRef.current;
-    const min = kind === 'left' ? 200 : kind === 'right' ? 320 : kind === 'composer' ? 80 : 100;
-    let max = kind === 'left' ? 520 : kind === 'right' ? 840 : kind === 'composer' ? 400 : 480;
+    const min = kind === 'left' ? 200 : kind === 'right' ? 320 : kind === 'composer' ? 80 : kind === 'standalone' ? 15 : 100;
+    let max = kind === 'left' ? 520 : kind === 'right' ? 840 : kind === 'composer' ? 400 : kind === 'standalone' ? 75 : 480;
     if (kind === 'left' || kind === 'right') {
       const responsiveMax = kind === 'left'
         ? 520
@@ -397,14 +397,14 @@ export function App() {
       max = Math.min(max, responsiveMax);
       const other = kind === 'left' ? current.rightVisible ? current.rightWidth ?? 420 : 0 : current.leftVisible ? current.leftWidth ?? 220 : 0;
       max = Math.min(max, window.innerWidth - other - 360);
-    } else {
+    } else if (kind !== 'standalone') {
       const available = document.querySelector(kind === 'composer' ? '.conversation' : '.workspace')?.clientHeight ?? window.innerHeight;
       max = Math.min(max, Math.round(available * (kind === 'composer' ? .5 : .55)));
     }
     return { min, max: Math.max(min, max) };
   }
   function adjustResize(kind: ResizeKind, event: ReactKeyboardEvent<HTMLButtonElement>) {
-    if (event.key === 'Home') { event.preventDefault(); changeLayout(resizePatch(kind, kind === 'left' ? 220 : kind === 'right' ? 420 : kind === 'composer' ? 110 : 180)); return; }
+    if (event.key === 'Home') { event.preventDefault(); changeLayout(resizePatch(kind, kind === 'left' ? 220 : kind === 'right' ? 420 : kind === 'composer' ? 110 : kind === 'standalone' ? 30 : 180)); return; }
     const step = event.shiftKey ? 40 : 12;
     let delta = 0;
     if (kind === 'left') delta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
@@ -647,10 +647,10 @@ export function App() {
     function move(event: PointerEvent) {
       const drag = resizeDrag.current;
       if (!drag || event.pointerId !== drag.pointerId) return;
-      const delta = drag.kind === 'left' ? event.clientX - drag.startX : drag.kind === 'right' ? drag.startX - event.clientX : drag.startY - event.clientY;
+      const delta = drag.kind === 'left' ? event.clientX - drag.startX : drag.kind === 'right' ? drag.startX - event.clientX : drag.kind === 'standalone' ? event.clientY - drag.startY : drag.startY - event.clientY;
       const { min, max } = resizeBounds(drag.kind);
       drag.latest = Math.max(min, Math.min(max, Math.round(drag.startValue + delta)));
-      const variable = drag.kind === 'left' ? '--sidebar-width' : drag.kind === 'right' ? '--inspector-width' : drag.kind === 'composer' ? '--composer-height' : '--activity-height';
+      const variable = drag.kind === 'left' ? '--sidebar-width' : drag.kind === 'right' ? '--inspector-width' : drag.kind === 'composer' ? '--composer-height' : drag.kind === 'standalone' ? '--standalone-height' : '--activity-height';
       document.querySelector<HTMLElement>('.dock-layout')?.style.setProperty(variable, `${drag.latest}px`);
     }
     function finish(event: PointerEvent) {
@@ -903,6 +903,7 @@ export function App() {
     '--inspector-width': `${layout.rightWidth ?? 420}px`,
     '--activity-height': `${layout.bottomHeight ?? 180}px`,
     '--composer-height': `${layout.composerHeight ?? 110}px`
+    ,'--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
@@ -912,8 +913,8 @@ export function App() {
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>
         {!data?.projects.length && <div className="sidebar-empty">可以添加 Git 项目，也可以直接创建独立会话。</div>}
         {data?.projects.map(item => renderProjectGroup(item))}
-         {!!data?.sessions.some(item => !item.projectId) && <section className="standalone-sessions" aria-label="独立会话"><div className="standalone-sessions-heading">独立会话</div>{data.sessions.filter(item => !item.projectId).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(''); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => !candidate.projectId)?.id || ''); }} />)}</section>}
       </div>
+      {!!data?.sessions.some(item => !item.projectId) && <><button type="button" className="panel-resize-handle standalone-resize-handle" role="separator" aria-label="调整独立会话区域高度" aria-orientation="horizontal" aria-valuemin={15} aria-valuemax={75} aria-valuenow={layout.standaloneSessionsHeight ?? 30} title="上下拖动调整独立会话区域高度" onPointerDown={event => beginResize('standalone', event)} onKeyDown={event => adjustResize('standalone', event)} onDoubleClick={() => changeLayout({ standaloneSessionsHeight: 30 })} /><section className="standalone-sessions" aria-label="独立会话"><div className="standalone-sessions-heading">独立会话</div>{data.sessions.filter(item => !item.projectId).map(sessionItem => <SessionRow key={sessionItem.id} session={sessionItem} status={statuses[sessionItem.id] || sessionItem.status} running={isSessionRunActive(sessionItem.id, runningSessions.current, sendingSessions)} selected={sessionItem.id === sessionId} disabled={!!busy || running} unread={!!unread[sessionItem.id]} onSelect={() => { readSession(sessionItem.id); setProjectId(''); setSessionId(sessionItem.id); }} onRenamed={async () => { await refresh(); }} onDeleted={async () => { const next = await refresh(); if (sessionId === sessionItem.id) setSessionId(next.sessions.find(candidate => !candidate.projectId)?.id || ''); }} />)}</section></>}
       <div className="sidebar-footer">
         <div className="sidebar-actions"><button onClick={() => openSettings()} disabled={!data}><Icon name="settings" />全局设置</button></div>
         <div className="local-caption"><Icon name="shield" />数据保存在当前 Windows 用户本机</div>

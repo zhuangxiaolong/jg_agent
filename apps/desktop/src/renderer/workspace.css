@@ -31,6 +31,7 @@ html[data-style="minimal"][data-theme="light"] {
 }
 html, body { color: var(--text); background: var(--surface-1); }
 .sidebar { background: var(--surface-0); }
+.dock-layout .sidebar { display: flex; flex-direction: column; min-height: 0; }
 .workspace, .conversation { background: var(--surface-1); }
 .inspector, .statusbar { background: var(--surface-0); }
 .workspace-header, .sidebar, .statusbar, .inspector, .inspector-tabs, .sessions-heading,
@@ -318,6 +319,8 @@ html[data-theme="light"] .diff-line.hunk { background: #e8f0f7; color: #526d87; 
 html[data-theme="light"] .diff-note { background: #f2f1df; color: #817c42; }
 html[data-theme="light"] .modal-backdrop { background: #26382d66; }
 .standalone-sessions { margin: 12px 12px 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.dock-layout .standalone-sessions { flex: 0 0 var(--standalone-height, 30%); height: var(--standalone-height, 30%); min-height: 72px; overflow-y: auto; margin: 0 12px 8px; padding-top: 8px; }
+.standalone-resize-handle { flex: 0 0 8px; width: 100%; min-height: 8px; cursor: row-resize; touch-action: none; }
 .standalone-sessions-heading { padding: 0 12px 5px; color: var(--muted); font-size: 10px; }
 html[data-style="minimal"] .brand span:not(.version), html[data-style="minimal"] .welcome-eyebrow { letter-spacing: .5px; }
 html[data-style="minimal"] .brand strong { font-weight: 500; }

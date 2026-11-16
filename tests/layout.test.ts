@@ -33,6 +33,23 @@ test('面板显示独立持久化，所有面板均可隐藏及恢复，拒绝�
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('独立会话区域高度默认30%，支持持久化并限制在15%至75%', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-layout-standalone-'));
+  const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
+  try {
+    assert.equal(store.getLayout().standaloneSessionsHeight, undefined);
+    const layout = { ...store.getLayout(), standaloneSessionsHeight: 42 };
+    assert.equal(layoutSchema.safeParse(layout).success, true);
+    store.saveLayout(layout);
+    assert.equal(store.getLayout().standaloneSessionsHeight, 42);
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.getLayout().standaloneSessionsHeight, 42);
+    assert.equal(layoutSchema.safeParse({ ...layout, standaloneSessionsHeight: 14 }).success, false);
+    assert.equal(layoutSchema.safeParse({ ...layout, standaloneSessionsHeight: 76 }).success, false);
+    assert.throws(() => store.saveLayout({ ...layout, standaloneSessionsHeight: 76 }), /独立会话区域/);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('重命名项目统一历史自动标题，保留普通会话和自定义标题', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-default-mode-'));
   const store = await LocalStore.open(path.join(root, 'agent.db'));

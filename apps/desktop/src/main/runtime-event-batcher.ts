@@ -1,15 +1,18 @@
 import type { RuntimeEvent } from '../../../../packages/agent-runtime/src';
 
-/** 仅合并连续的可见文本增量，工具、错误与终态前同步刷新，保留事件顺序。 */
+/** 合并连续的消息与同一命令输出增量，其他事件前同步刷新并保留顺序。 */
 export class RuntimeEventBatcher {
   private pending?: RuntimeEvent;
   private timer?: ReturnType<typeof setTimeout>;
   private firstDeltaPublished = false;
   constructor(private readonly publish: (event: RuntimeEvent) => void, private readonly delayMs = 80, private readonly immediateFirstDelta = false) {}
   push(event: RuntimeEvent): void {
-    if (event.type !== 'delta') { this.flush(); this.publish(event); return; }
+    const mergeable = event.type === 'delta' || event.activity?.kind === 'command_output';
+    if (!mergeable) { this.flush(); this.publish(event); return; }
     if (this.pending && this.pending.threadId !== event.threadId) this.flush();
-    if (this.immediateFirstDelta && !this.firstDeltaPublished && event.text.trim()) {
+    if (this.pending?.activity?.kind === 'command_output' && (event.activity?.kind !== 'command_output' || this.pending.activity.itemId !== event.activity.itemId)) this.flush();
+    if (this.pending && ((this.pending.type === 'delta') !== (event.type === 'delta'))) this.flush();
+    if (event.type === 'delta' && this.immediateFirstDelta && !this.firstDeltaPublished && event.text.trim()) {
       this.firstDeltaPublished = true;
       this.flush(); this.publish(event); return;
     }

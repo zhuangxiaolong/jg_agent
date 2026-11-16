@@ -28,6 +28,8 @@ export interface RuntimeEvent {
   text: string;
   requestId?: string | number;
   approval?: RuntimeApproval;
+  /** 安全的活动标记，供输出批处理和实时工作区刷新使用。 */
+  activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string };
   /** 原生或平台工具的公开生命周期；不包含参数、输出或隐藏推理。 */
   performance?: { callId: string; phase: 'started' | 'completed'; operation: string; stage: 'tool' | 'search' | 'read' | 'command' | 'test' | 'build'; exitCode?: number | null };
 }
@@ -520,6 +522,16 @@ export class CodexRuntime {
     if (message.method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
       if (typeof params.itemId === 'string') this.streamedItems.add(params.itemId);
       this.emit({ threadId, type: 'delta', text: params.delta });
+    } else if (message.method === 'turn/plan/updated') {
+      const steps = Array.isArray(params.plan) ? params.plan : Array.isArray(params.steps) ? params.steps : [];
+      const summary = steps.map((step: any, index: number) => `${step.status === 'completed' ? '✓' : step.status === 'inProgress' || step.status === 'in_progress' ? '●' : '○'} ${String(step.step ?? step.text ?? step.title ?? `步骤 ${index + 1}`).slice(0, 500)}`).join('\n');
+      if (summary) this.emit({ threadId, type: 'tool', text: `任务计划已更新\n${summary}` });
+    } else if (message.method === 'item/commandExecution/outputDelta' && typeof params.delta === 'string') {
+      // 输出增量挂到同一命令 item，由主进程批处理器聚合，避免逐行制造活动卡片。
+      this.emit({ threadId, type: 'tool', text: params.delta, activity: { kind: 'command_output', ...(typeof params.itemId === 'string' ? { itemId: params.itemId } : {}) } });
+    } else if (message.method === 'turn/diff/updated') {
+      // 通知作为最新快照刷新信号；文件内容从当前会话的 Git/Worktree 服务读取。
+      this.emit({ threadId, type: 'tool', text: '本轮代码差异已更新', activity: { kind: 'turn_diff_updated' } });
     }
     else if (message.method === 'turn/started' && threadId && params.turn?.id) {
       if (this.terminalTurns.has(params.turn.id)) return;

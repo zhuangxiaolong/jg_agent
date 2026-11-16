@@ -349,3 +349,18 @@ test('业务任务和模型消息中的密码Token示例保持原文，诊断脱
   assert.notEqual(redactRuntimeText(text), text);
   await runtime.close();
 });
+
+test('Codex App Server 计划、命令输出和 Diff 通知映射为可持久化活动事件', async () => {
+  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'test' });
+  const state = runtime as any, events: any[] = [];
+  runtime.onEvent(event => events.push(event));
+  try {
+    state.receive({ method: 'turn/plan/updated', params: { threadId: 'thread', plan: [{ status: 'in_progress', step: '读取项目' }, { status: 'pending', step: '执行测试' }] } });
+    state.receive({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread', itemId: 'cmd-1', delta: '编译中\n' } });
+    state.receive({ method: 'turn/diff/updated', params: { threadId: 'thread', diff: 'ignored-by-ui' } });
+    assert.equal(events[0].type, 'tool');
+    assert.match(events[0].text, /任务计划已更新/);
+    assert.deepEqual(events[1].activity, { kind: 'command_output', itemId: 'cmd-1' });
+    assert.deepEqual(events[2].activity, { kind: 'turn_diff_updated' });
+  } finally { await runtime.close(); }
+});

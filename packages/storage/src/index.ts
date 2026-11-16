@@ -1170,6 +1170,7 @@ export class LocalStore {
     const value: AgentEvent = { id: event.id, sessionId: event.sessionId, type: event.type, text: event.text, createdAt: event.createdAt };
     if (event.requestId !== undefined) value.requestId = event.requestId;
     if (event.approval !== undefined) value.approval = safeRuntimeApproval(event.approval);
+    if (event.activity !== undefined) value.activity = event.activity;
     this.transaction(() => this.db.run('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)', [value.id, value.sessionId, JSON.stringify(value)]));
   }
 
@@ -1285,7 +1286,8 @@ export class LocalStore {
       leftWidth: Number.isInteger(value?.leftWidth) && value.leftWidth! >= 180 && value.leftWidth! <= 520 ? value.leftWidth : 220,
       rightWidth: Number.isInteger(value?.rightWidth) && value.rightWidth! >= 260 && value.rightWidth! <= 840 ? value.rightWidth : 420,
       bottomHeight: Number.isInteger(value?.bottomHeight) && value.bottomHeight! >= 100 && value.bottomHeight! <= 480 ? value.bottomHeight : 180,
-      ...(Number.isInteger(value?.composerHeight) && value.composerHeight! >= 80 && value.composerHeight! <= 400 ? { composerHeight: value.composerHeight } : {})
+      ...(Number.isInteger(value?.composerHeight) && value.composerHeight! >= 80 && value.composerHeight! <= 400 ? { composerHeight: value.composerHeight } : {}),
+      ...(Number.isInteger(value?.standaloneSessionsHeight) && value.standaloneSessionsHeight! >= 15 && value.standaloneSessionsHeight! <= 75 ? { standaloneSessionsHeight: value.standaloneSessionsHeight } : {})
     };
   }
 
@@ -1297,6 +1299,10 @@ export class LocalStore {
     if (layout.composerHeight !== undefined) {
       if (!Number.isInteger(layout.composerHeight) || layout.composerHeight < 80 || layout.composerHeight > 400) throw new Error('输入框尺寸超出允许范围');
       value.composerHeight = layout.composerHeight;
+    }
+    if (layout.standaloneSessionsHeight !== undefined) {
+      if (!Number.isInteger(layout.standaloneSessionsHeight) || layout.standaloneSessionsHeight < 15 || layout.standaloneSessionsHeight > 75) throw new Error('独立会话区域尺寸超出允许范围');
+      value.standaloneSessionsHeight = layout.standaloneSessionsHeight;
     }
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['layout', JSON.stringify(value)]));
   }

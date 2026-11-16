@@ -490,8 +490,8 @@ function saveSessionJiraIssue(session: Session, issue: JiraIssue): Session {
   store.saveSession(updated);
   return updated;
 }
-function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval']): void {
-  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? settings.redactContent(text) : clean(text), requestId, ...(approval ? { approval } : {}), createdAt: new Date().toISOString() };
+function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity']): void {
+  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? settings.redactContent(text) : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), createdAt: new Date().toISOString() };
   store.appendEvent(event);
   if (type === 'status' && ['completed', 'failed', 'interrupted'].includes(text)) performanceService?.finish(sessionId, text as 'completed' | 'failed' | 'interrupted');
   if (type === 'status' && text === 'completed') {
@@ -781,7 +781,7 @@ async function getRuntime(ticket: RunTicket, session: Session): Promise<RuntimeA
       await sessionGit.finish(current).catch(error => emit(current.id, 'error', `会话变更归属核验失败：${error instanceof Error ? error.message : String(error)}`));
       if (!runs.isCurrent(ticket) || ticket.cancelled) { terminalSessions.delete(current.id); terminalOutcomes.delete(current.id); return; }
     }
-    emit(current.id, event.type, event.text, event.requestId, undefined, event.approval);
+    emit(current.id, event.type, event.text, event.requestId, undefined, event.approval, event.activity);
     if (event.type === 'status' && event.text === 'completed' && current.workspacePath) {
       try {
         const diffs = (await sessionGit.prepare(current)).diffs;

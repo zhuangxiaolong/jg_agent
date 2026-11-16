@@ -27,7 +27,8 @@ export const layoutSchema = z.object({
   leftWidth: z.number().int().min(180).max(520).optional(),
   rightWidth: z.number().int().min(260).max(840).optional(),
   bottomHeight: z.number().int().min(100).max(480).optional(),
-  composerHeight: z.number().int().min(80).max(400).optional()
+  composerHeight: z.number().int().min(80).max(400).optional(),
+  standaloneSessionsHeight: z.number().int().min(15).max(75).optional()
 }).strict();
 export const projectNameSchema = z.string().trim().min(1, '请输入项目显示名称').max(100, '项目显示名称最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '项目显示名称不能包含换行或控制字符');
 export const sessionAliasSchema = z.string().trim().max(100, '会话别名最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '会话别名不能包含换行或控制字符');

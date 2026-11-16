@@ -63,3 +63,14 @@ test('首字即时模式仍隔离不同线程，定时刷新和终态不丢字�
   await new Promise(resolve => setTimeout(resolve, 25));
   assert.deepEqual(rows.map(row => [row.threadId, row.text]), [['a', '首'], ['a', '一'], ['b', '二'], ['b', '三'], ['b', 'interrupted']]);
 });
+
+test('同一命令的输出增量批量合并并在其他命令活动前刷新', () => {
+  const rows: RuntimeEvent[] = [], batcher = new RuntimeEventBatcher(event => rows.push(event));
+  batcher.push({ type: 'tool', text: '第一行\n', threadId: 'a', activity: { kind: 'command_output', itemId: 'cmd-1' } });
+  batcher.push({ type: 'tool', text: '第二行\n', threadId: 'a', activity: { kind: 'command_output', itemId: 'cmd-1' } });
+  assert.equal(rows.length, 0);
+  batcher.push({ type: 'tool', text: '下一条命令', threadId: 'a', activity: { kind: 'command_output', itemId: 'cmd-2' } });
+  assert.deepEqual(rows.map(row => [row.text, row.activity?.itemId]), [['第一行\n第二行\n', 'cmd-1']]);
+  batcher.flush();
+  assert.deepEqual(rows.map(row => [row.text, row.activity?.itemId]), [['第一行\n第二行\n', 'cmd-1'], ['下一条命令', 'cmd-2']]);
+});
