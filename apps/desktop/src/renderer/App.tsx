@@ -405,7 +405,7 @@ export function App() {
   }
   function adjustResize(kind: ResizeKind, event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (event.key === 'Home') { event.preventDefault(); changeLayout(resizePatch(kind, kind === 'left' ? 220 : kind === 'right' ? 420 : kind === 'composer' ? 110 : kind === 'standalone' ? 30 : 180)); return; }
-    const step = event.shiftKey ? 40 : 12;
+    const step = kind === 'standalone' ? (event.shiftKey ? 10 : 5) : event.shiftKey ? 40 : 12;
     let delta = 0;
     if (kind === 'left') delta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
     else if (kind === 'right') delta = event.key === 'ArrowLeft' ? step : event.key === 'ArrowRight' ? -step : 0;
@@ -647,11 +647,18 @@ export function App() {
     function move(event: PointerEvent) {
       const drag = resizeDrag.current;
       if (!drag || event.pointerId !== drag.pointerId) return;
-      const delta = drag.kind === 'left' ? event.clientX - drag.startX : drag.kind === 'right' ? drag.startX - event.clientX : drag.kind === 'standalone' ? event.clientY - drag.startY : drag.startY - event.clientY;
       const { min, max } = resizeBounds(drag.kind);
-      drag.latest = Math.max(min, Math.min(max, Math.round(drag.startValue + delta)));
+      if (drag.kind === 'standalone') {
+        const sidebarHeight = document.querySelector<HTMLElement>('#project-sidebar')?.clientHeight ?? window.innerHeight;
+        const deltaPercent = sidebarHeight > 0 ? (event.clientY - drag.startY) / sidebarHeight * 100 : 0;
+        drag.latest = Math.max(min, Math.min(max, Math.round(drag.startValue + deltaPercent)));
+      } else {
+        const delta = drag.kind === 'left' ? event.clientX - drag.startX : drag.kind === 'right' ? drag.startX - event.clientX : drag.startY - event.clientY;
+        drag.latest = Math.max(min, Math.min(max, Math.round(drag.startValue + delta)));
+      }
       const variable = drag.kind === 'left' ? '--sidebar-width' : drag.kind === 'right' ? '--inspector-width' : drag.kind === 'composer' ? '--composer-height' : drag.kind === 'standalone' ? '--standalone-height' : '--activity-height';
-      document.querySelector<HTMLElement>('.dock-layout')?.style.setProperty(variable, `${drag.latest}px`);
+      const unit = drag.kind === 'standalone' ? '%' : 'px';
+      document.querySelector<HTMLElement>('.dock-layout')?.style.setProperty(variable, `${drag.latest}${unit}`);
     }
     function finish(event: PointerEvent) {
       const drag = resizeDrag.current;
@@ -902,8 +909,8 @@ export function App() {
     '--sidebar-width': `${layout.leftWidth ?? 220}px`,
     '--inspector-width': `${layout.rightWidth ?? 420}px`,
     '--activity-height': `${layout.bottomHeight ?? 180}px`,
-    '--composer-height': `${layout.composerHeight ?? 110}px`
-    ,'--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
+    '--composer-height': `${layout.composerHeight ?? 110}px`,
+    '--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
