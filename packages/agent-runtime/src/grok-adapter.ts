@@ -7,14 +7,14 @@ import path from 'node:path';
 import type { RuntimeHealth } from '../../domain/src/index';
 import type { RuntimeAdapter } from './manager';
 import { RUNTIME_CAPABILITIES_VERSION, redactRuntimeText, type RuntimeEvent } from './index';
-import { GROK_BUILD_RUNTIME_VERSION, GROK_CREDENTIAL_ENV, GROK_EXECUTION_RULES_VERSION, GROK_MANAGED_POLICY, GROK_RELAY_MODEL_ALIAS, buildGrokEnvironment, ensureGrokDirectory, grokBaseUrl, grokConfigToml, grokExecutionInstructions, samePath, validateGrokOptions, withinPath, type GrokRuntimeOptions } from './grok-config';
+import { GROK_BUILD_RUNTIME_VERSION, GROK_CANCEL_TIMEOUT_MS, GROK_CREDENTIAL_ENV, GROK_EXECUTION_RULES_VERSION, GROK_MANAGED_POLICY, GROK_RELAY_MODEL_ALIAS, GROK_RPC_TIMEOUT_MS, GROK_RUNTIME_CLIENT_VERSION, GROK_STREAM_IDLE_TIMEOUT_MS, buildGrokEnvironment, ensureGrokDirectory, grokBaseUrl, grokConfigToml, grokExecutionInstructions, samePath, validateGrokOptions, withinPath, type GrokRuntimeOptions } from './grok-config';
 
-export { GROK_BUILD_RUNTIME_VERSION, buildGrokEnvironment, grokConfigToml } from './grok-config';
+export { GROK_BUILD_RUNTIME_VERSION, GROK_CANCEL_TIMEOUT_MS, GROK_RPC_TIMEOUT_MS, GROK_RUNTIME_CLIENT_VERSION, GROK_STREAM_IDLE_TIMEOUT_MS, buildGrokEnvironment, grokConfigToml } from './grok-config';
 export type { GrokRuntimeOptions } from './grok-config';
 
 type RpcId = string | number;
 type JsonObject = Record<string, any>;
-interface Pending { resolve(value: JsonObject): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
+interface Pending { resolve(value: JsonObject): void; reject(error: Error): void; timer?: ReturnType<typeof setTimeout>; method: string; sessionId?: string; timeoutMs: number }
 interface Binding { sessionId: string; cwd: string; fingerprint: string }
 interface Turn { sessionId: string; cancelled: boolean; tools: Map<string, { name: string; stage: 'tool' | 'read' | 'command'; completed: boolean }>; cancelTimer?: ReturnType<typeof setTimeout> }
 
@@ -131,7 +131,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     child.stdin.on('error', error => { if (this.child === child) void this.fail(new Error(`Grok ACP 输入管道已断开${errorCodeSuffix(error)}`)); });
     child.on('exit', (code, signal) => { if (this.child === child) void this.fail(new Error(`Grok ACP 进程已退出（${code ?? signal ?? '未知'}）`)); });
     try {
-      const result = await this.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'jinggong-agent', version: '0.7.0' } });
+      const result = await this.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'jinggong-agent', version: GROK_RUNTIME_CLIENT_VERSION } });
       if (result.protocolVersion !== 1) throw new Error('Grok ACP 协议版本不兼容');
       this.loadSession = result.agentCapabilities?.loadSession === true;
       this.initialized = true;
@@ -227,7 +227,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     const turn: Turn = { sessionId: threadId, cancelled: false, tools: new Map() }; this.turn = turn;
     this.emit({ threadId, type: 'status', text: 'running' });
     try {
-      const result = await this.request('session/prompt', { sessionId: threadId, prompt: [{ type: 'text', text: prompt }] }, this.processes.promptTimeoutMs ?? 24 * 60 * 60 * 1000);
+      const result = await this.request('session/prompt', { sessionId: threadId, prompt: [{ type: 'text', text: prompt }] }, this.processes.promptTimeoutMs ?? GROK_STREAM_IDLE_TIMEOUT_MS);
       if (!['end_turn', 'cancelled', 'max_tokens', 'max_turn_requests', 'refusal'].includes(result.stopReason)) throw new Error('Grok ACP 未返回有效任务终态');
       if (turn.cancelled || result.stopReason === 'cancelled') this.emit({ threadId, type: 'status', text: 'interrupted' });
       else if (result.stopReason !== 'end_turn') throw new Error(`Grok 任务未完整完成：${result.stopReason}`);
@@ -244,7 +244,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
   async cancelRun(threadId: string): Promise<void> {
     const turn = this.turn; if (!turn || turn.sessionId !== threadId) return;
     if (!turn.cancelled) { turn.cancelled = true; this.notify('session/cancel', { sessionId: threadId }); }
-    turn.cancelTimer ??= setTimeout(() => { if (this.turn === turn) void this.fail(new Error('Grok 取消未返回终态，已回收进程')); }, this.processes.cancelTimeoutMs ?? 5000);
+    turn.cancelTimer ??= setTimeout(() => { if (this.turn === turn) void this.fail(new Error('Grok 取消未返回终态，已回收进程')); }, this.processes.cancelTimeoutMs ?? GROK_CANCEL_TIMEOUT_MS);
   }
 
   async respondApproval(_requestId: string, _decision: 'allow_once' | 'reject_once'): Promise<void> {
@@ -268,7 +268,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
         else pending.reject(new Error('Grok ACP 响应格式无效'));
       } else if (typeof message.method === 'string') {
         if (validId(message.id)) void this.serverRequest(message).catch(() => { void this.fail(new Error('Grok ACP 权限请求处理失败')); });
-        else if (message.method === 'session/update') this.update(message.params);
+        else if (message.method === 'session/update') { this.touchPrompt(message.params?.sessionId); this.update(message.params); }
       }
     }
     if (Buffer.byteLength(this.buffer, 'utf8') > MAX_LINE) void this.fail(new Error('Grok ACP 单行超过 4 MiB'));
@@ -288,6 +288,16 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     if (terminal && !previous?.completed) { turn.tools.set(update.toolCallId, { name, stage, completed: true }); this.emit({ threadId: turn.sessionId, type: 'tool', text: `${name}：${update.status === 'failed' ? '失败' : '完成'}`, performance: { callId: update.toolCallId, phase: 'completed', operation: name, stage, exitCode: update.status === 'failed' ? 1 : 0 } }); }
   }
 
+  /** ACP 流式事件代表任务仍在前进，按 Codex Runtime 的空闲保护续期 prompt 请求。 */
+  private touchPrompt(sessionId: unknown): void {
+    if (!validSession(sessionId)) return;
+    for (const [id, pending] of this.pending) {
+      if (pending.method !== 'session/prompt' || pending.sessionId !== sessionId) continue;
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.timer = this.pendingTimer(id, pending);
+    }
+  }
+
   private async serverRequest(message: JsonObject): Promise<void> {
     const rpcId = message.id as RpcId;
     const duplicate = `${typeof rpcId}:${rpcId}`;
@@ -303,14 +313,24 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     this.write({ jsonrpc: '2.0', id: rpcId, result: { outcome: { outcome: 'selected', optionId: allow.optionId } } });
   }
 
-  private request(method: string, params: JsonObject, timeoutMs = this.processes.rpcTimeoutMs ?? 30000): Promise<JsonObject> {
+  private pendingTimer(id: RpcId, pending: Pending): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      this.pending.delete(id);
+      const error = new Error(`Grok ACP ${pending.method} 超时，已回收进程`);
+      pending.reject(error);
+      void this.fail(error);
+    }, pending.timeoutMs);
+  }
+
+  private request(method: string, params: JsonObject, timeoutMs = this.processes.rpcTimeoutMs ?? GROK_RPC_TIMEOUT_MS): Promise<JsonObject> {
     if (!this.child || this.closed) return Promise.reject(new Error('Grok ACP 进程未运行'));
     if (this.pending.size >= 64) return Promise.reject(new Error('Grok ACP 在途请求超过限制'));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); const error = new Error(`Grok ACP ${method} 超时，已回收进程`); reject(error); void this.fail(error); }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      try { this.write({ jsonrpc: '2.0', id, method, params }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
+      const pending: Pending = { resolve, reject, method, sessionId: typeof params.sessionId === 'string' ? params.sessionId : undefined, timeoutMs };
+      this.pending.set(id, pending);
+      pending.timer = this.pendingTimer(id, pending);
+      try { this.write({ jsonrpc: '2.0', id, method, params }); } catch (error) { if (pending.timer) clearTimeout(pending.timer); this.pending.delete(id); reject(error); }
     });
   }
   private notify(method: string, params: JsonObject): void { this.write({ jsonrpc: '2.0', method, params }, true); }

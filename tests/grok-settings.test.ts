@@ -44,7 +44,7 @@ test('Grok 地址规范化只补根路径 /v1，拒绝凭据/查询参数与非�
   for (const url of ['http://relay.invalid', 'https://user:pass@relay.invalid', 'https://relay.invalid?token=x', 'https://relay.invalid#x']) assert.throws(() => normalizeGrokBaseUrl(url));
 });
 
-test('Grok 直接映射模型中转站和凭据，默认 Chat Completions，不要求重复保存密钥', async t => {
+test('Grok 直接映射模型中转站和凭据，默认 Responses，不要求重复保存密钥', async t => {
   const f = await fixture(t);
   try {
     f.store.saveRuntimeKind('claude_agent_sdk');
@@ -54,8 +54,8 @@ test('Grok 直接映射模型中转站和凭据，默认 Chat Completions，不�
     assert.equal(profile.id, providerId); assert.equal(profile.name, '共享模型中转站');
     assert.equal(profile.baseUrl, baseUrl); assert.equal(profile.hasKey, true); assert.equal(profile.enabled, true);
     assert.deepEqual(profile.models, [
-      { id: modelId, name: 'Grok 测试模型', enabled: true, apiBackend: 'chat_completions' },
-      { id: 'other-model', name: 'other-model', enabled: true, apiBackend: 'chat_completions' },
+      { id: modelId, name: 'Grok 测试模型', enabled: true, apiBackend: 'responses' },
+      { id: 'other-model', name: 'other-model', enabled: true, apiBackend: 'responses' },
     ]);
     assert.equal(profile.models[0].compatibility, undefined);
     assert.equal(f.settings.apiKey(providerId), 'synthetic-shared-key');
@@ -125,8 +125,9 @@ test('Grok 兼容性按共享地址、密钥、模型和协议失效，显示名
     assert.equal(f.settings.profiles()[0].models[0].compatibility?.level, 'agent');
     f.store.saveModelProvider({ ...provider, name: '新名称', modelCatalog: [{ id: modelId, name: '模型新名称' }] });
     assert.equal(f.settings.profiles()[0].models[0].compatibility?.level, 'agent');
-    f.settings.saveModels(providerId, [{ id: modelId, apiBackend: 'responses', compatibility: passed }]);
+    f.settings.saveModels(providerId, [{ id: modelId, apiBackend: 'chat_completions', compatibility: passed }]);
     assert.equal(f.settings.profiles()[0].models[0].compatibility, undefined);
+    f.settings.saveModels(providerId, [{ id: modelId, apiBackend: 'responses' }]);
     f.settings.saveCompatibility(providerId, modelId, passed);
     f.secrets.set(providerId, { key: 'synthetic-new-key', scope: baseUrl });
     assert.equal(f.settings.profiles()[0].models[0].compatibility, undefined);
@@ -219,7 +220,7 @@ test('旧独立 Grok 中转站和上游环境凭据不作为共享配置回退',
       assert.deepEqual(f.settings.profiles(), []);
       f.seed({}, ''); f.secrets.delete(providerId);
       assert.equal(f.settings.profiles()[0].hasKey, false);
-      assert.equal(f.settings.profiles()[0].models[0].apiBackend, 'chat_completions');
+      assert.equal(f.settings.profiles()[0].models[0].apiBackend, 'responses');
     } finally { if (original === undefined) delete process.env.XAI_API_KEY; else process.env.XAI_API_KEY = original; }
     assert.deepEqual(f.writes, []);
   } finally { await f.close(); }

@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { z } from 'zod';
 import { CredentialStore } from './credentials';
 import { profileIdSchema, redact } from './security';
-import { normalizeGrokBaseUrl, safeGrokCompatibility, safeGrokRuntime, type GrokCompatibilityResult, type GrokProviderProfile, type GrokRuntimeSettings, type GrokSettingsSnapshot } from '../../../../packages/domain/src/grok';
+import { DEFAULT_GROK_API_BACKEND, normalizeGrokBaseUrl, safeGrokCompatibility, safeGrokRuntime, type GrokCompatibilityResult, type GrokProviderProfile, type GrokRuntimeSettings, type GrokSettingsSnapshot } from '../../../../packages/domain/src/grok';
 import type { ProviderProfile } from '../../../../packages/domain/src';
 import type { LocalStore } from '../../../../packages/storage/src';
 
@@ -63,7 +63,7 @@ export class GrokSettingsService {
         models: provider.models.map(id => {
           // 协议可复用；兼容结论必须重新匹配当前服务地址和凭据。
           const prior = saved?.sharedIdentity ? saved.models.find(model => model.id === id) : undefined;
-          return { id, name: provider.modelCatalog?.find(model => model.id === id)?.name || id, apiBackend: prior?.apiBackend ?? 'chat_completions', enabled: true, ...(identityMatches && prior?.compatibility ? { compatibility: prior.compatibility } : {}) };
+          return { id, name: provider.modelCatalog?.find(model => model.id === id)?.name || id, apiBackend: prior?.apiBackend ?? DEFAULT_GROK_API_BACKEND, enabled: true, ...(identityMatches && prior?.compatibility ? { compatibility: prior.compatibility } : {}) };
         }),
       };
     });

@@ -31,7 +31,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsPanel } from './apps/desktop/src/renderer/SettingsPanel';
 import './apps/desktop/src/renderer/styles.css';
-const settings = { preferences: { theme: 'dark', style: 'jinggong', completionSound: 'off' }, providers: [], jira: { baseUrl: 'http://jira.invalid', account: '合成测试账号', hasPassword: true }, documents: [], memories: [], update: { state: 'disabled', message: '离线界面验收' }, appVersion: '0.7.0', updateUrl: 'https://update.invalid' };
+const settings = { preferences: { theme: 'dark', style: 'jinggong', completionSound: 'off' }, providers: [], jira: { baseUrl: 'http://jira.invalid', account: '合成测试账号', hasPassword: true }, documents: [], memories: [], update: { state: 'disabled', message: '离线界面验收' }, appVersion: '0.7.1', updateUrl: 'https://update.invalid' };
 window.__saved = [];
 window.jinggong = { getSettings: async () => settings, saveJira: async value => { window.__saved.push(value); }, testJiraConnection: async () => ({ displayName: '合成测试账号', timeZone: 'Asia/Shanghai', fieldName: '日报日期', fieldType: 'date' }) };
 createRoot(document.getElementById('root')).render(<SettingsPanel settings={settings} sessions={[]} projects={[]} initialTab="jira" onChanged={() => {}} onClose={() => {}} />);

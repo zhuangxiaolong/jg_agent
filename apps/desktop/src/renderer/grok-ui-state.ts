@@ -1,4 +1,5 @@
 import type { AgentEvent, ProviderProfile, RuntimeKind, SettingsSnapshot } from '../../../../packages/domain/src';
+import { DEFAULT_GROK_API_BACKEND } from '../../../../packages/domain/src/grok';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 
 export interface SessionProviderChoice { id: string; name: string; baseUrl: string; hasKey: boolean; enabled: boolean; models: Array<{ id: string; name: string; enabled: boolean; backend?: string; unavailableReason?: 'claude-grok' }> }
@@ -9,7 +10,7 @@ export function sessionProviderChoices(settings: SettingsSnapshot | undefined, r
     const grok = runtimeKind === 'grok_build_acp' ? settings?.grok?.providers.find(item => item.id === provider.id) : undefined;
     return { ...provider, enabled: true, models: provider.models.map(id => {
       const claudeGrok = runtimeKind === 'claude_agent_sdk' && isGrokModel(provider, id);
-      return { id, name: provider.modelCatalog?.find(model => model.id === id)?.name || id, enabled: !claudeGrok, ...(claudeGrok ? { unavailableReason: 'claude-grok' as const } : {}), ...(runtimeKind === 'grok_build_acp' ? { backend: grok?.models.find(model => model.id === id)?.apiBackend || 'chat_completions' } : {}) };
+      return { id, name: provider.modelCatalog?.find(model => model.id === id)?.name || id, enabled: !claudeGrok, ...(claudeGrok ? { unavailableReason: 'claude-grok' as const } : {}), ...(runtimeKind === 'grok_build_acp' ? { backend: grok?.models.find(model => model.id === id)?.apiBackend || DEFAULT_GROK_API_BACKEND } : {}) };
     }) };
   });
 }

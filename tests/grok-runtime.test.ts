@@ -5,7 +5,7 @@ import { rmSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GrokBuildRuntimeAdapter, GROK_BUILD_RUNTIME_VERSION, buildGrokEnvironment, grokConfigToml, grokRuntimeReuseKey, type GrokProcessFactory, type GrokRuntimeOptions } from '../packages/agent-runtime/src/grok-adapter';
+import { GrokBuildRuntimeAdapter, GROK_BUILD_RUNTIME_VERSION, GROK_CANCEL_TIMEOUT_MS, GROK_RPC_TIMEOUT_MS, GROK_RUNTIME_CLIENT_VERSION, GROK_STREAM_IDLE_TIMEOUT_MS, buildGrokEnvironment, grokConfigToml, grokRuntimeReuseKey, type GrokProcessFactory, type GrokRuntimeOptions } from '../packages/agent-runtime/src/grok-adapter';
 import type { RuntimeEvent } from '../packages/agent-runtime/src';
 import { SessionRuntimes } from '../apps/desktop/src/main/session-runtimes';
 import { RunLifecycle } from '../apps/desktop/src/main/lifecycle';
@@ -235,10 +235,11 @@ test('Grok ACP 启动 ENOENT 能区分消失的可执行文件与受管工作目
 async function waitFor(condition: () => boolean): Promise<void> { const deadline = Date.now() + 3000; while (!condition()) { if (Date.now() > deadline) throw new Error('等待合成协议事件超时'); await new Promise(resolve => setTimeout(resolve, 10)); } }
 
 test('Grok 静态配置与环境隔离，不含凭据、不允许 xAI 和隐式代理回退', () => {
-  const options: GrokRuntimeOptions = { executable: path.resolve('grok.exe'), home: path.resolve('managed-grok'), baseUrl: 'https://relay.invalid', model: 'grok-test', apiBackend: 'chat_completions', apiKey: syntheticKey };
+  const options: GrokRuntimeOptions = { executable: path.resolve('grok.exe'), home: path.resolve('managed-grok'), baseUrl: 'https://relay.invalid', model: 'grok-test', apiBackend: 'responses', apiKey: syntheticKey };
   const config = grokConfigToml(options);
   assert.equal(GROK_BUILD_RUNTIME_VERSION, '1.0.67'); assert.ok(!config.includes(syntheticKey));
-  assert.match(config, /base_url = "https:\/\/relay.invalid\/v1"/); assert.match(config, /permission_mode = "always-approve"/); assert.doesNotMatch(config, /ask = \["\*"\]/); assert.match(config, /login_shell_capture = false/);
+  assert.equal(GROK_RUNTIME_CLIENT_VERSION, '0.7.1'); assert.equal(GROK_RPC_TIMEOUT_MS, 20000); assert.equal(GROK_STREAM_IDLE_TIMEOUT_MS, 24 * 60 * 60 * 1000); assert.equal(GROK_CANCEL_TIMEOUT_MS, 5000);
+  assert.match(config, /base_url = "https:\/\/relay.invalid\/v1"/); assert.match(config, /api_backend = "responses"/); assert.match(config, /permission_mode = "always-approve"/); assert.doesNotMatch(config, /ask = \["\*"\]/); assert.match(config, /login_shell_capture = false/);
   assert.match(config, /\[sandbox\]\nprofile = "off"/);
   const env = buildGrokEnvironment(options);
   assert.equal(env.JINGGONG_GROK_API_KEY, syntheticKey); assert.equal(env.XAI_API_KEY, undefined); assert.equal(env.GROK_CODE_XAI_API_KEY, undefined); assert.equal(env.GROK_AUTH, undefined); assert.equal(env.GROK_MODELS_BASE_URL, undefined); assert.equal(env.HTTPS_PROXY, undefined); assert.equal(env.OPENAI_API_KEY, undefined);

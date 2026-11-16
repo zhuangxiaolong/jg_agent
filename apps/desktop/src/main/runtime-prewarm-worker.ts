@@ -6,6 +6,7 @@ import { parentPort } from 'node:worker_threads';
 import { createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createGrokBuildRuntimeAdapter, createJinggongRuntimeAdapter, JINGGONG_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, redactRuntimeText } from '../../../../packages/agent-runtime/src';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
 import type { RuntimeHealth } from '../../../../packages/domain/src';
+import { DEFAULT_GROK_API_BACKEND } from '../../../../packages/domain/src/grok';
 import { verifyRuntimeManifestAsync } from './runtime-integrity';
 import type { RuntimeManifest, RuntimePrewarmRequest, RuntimePrewarmResponse } from './runtime-prewarm-protocol';
 
@@ -90,7 +91,7 @@ async function check(request: Extract<RuntimePrewarmRequest, { kind: unknown }>)
     const home = path.join(request.dataRoot, 'runtime', 'homes', request.kind, 'prewarm');
     if (request.kind === 'grok_build_acp') {
       if (!request.grokExecutablePath) throw new Error('未检测到本机 Grok Runtime，请安装 Grok Build 1.0.67 后刷新组件状态');
-      adapter = createGrokBuildRuntimeAdapter({ executable: request.grokExecutablePath, home, baseUrl: 'https://health.invalid/v1', model: 'health', apiBackend: 'chat_completions', proxyUrl: request.proxyUrl });
+      adapter = createGrokBuildRuntimeAdapter({ executable: request.grokExecutablePath, home, baseUrl: 'https://health.invalid/v1', model: 'health', apiBackend: DEFAULT_GROK_API_BACKEND, proxyUrl: request.proxyUrl });
     } else if (request.kind === 'claude_agent_sdk') {
       adapter = createClaudeAgentSdkRuntimeAdapter({ model: 'health', executablePath: component(request).executable });
     } else {

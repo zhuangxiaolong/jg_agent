@@ -215,7 +215,7 @@ export function App() {
   const defaultProvider = providerChoices.find(item => item.enabled && item.models.some(model => model.enabled));
   const configuredProvider = providerChoices.find(item => item.id === session?.providerId) || (!session?.providerId ? defaultProvider : undefined);
   const configuredModel = configuredProvider?.models.find(item => item.id === session?.model);
-  const configuredBackend = configuredModel?.backend || (sessionRuntimeKind === 'grok_build_acp' ? 'Chat Completions' : sessionRuntimeKind === 'claude_agent_sdk' ? 'Anthropic Messages' : 'Responses');
+  const configuredBackend = configuredModel?.backend || (sessionRuntimeKind === 'grok_build_acp' ? 'Responses' : sessionRuntimeKind === 'claude_agent_sdk' ? 'Anthropic Messages' : 'Responses');
   const claudeGrokSelection = sessionRuntimeKind === 'claude_agent_sdk' && !!configuredProvider && !!session?.model && isGrokModel(configuredProvider, session.model);
   const grokProviderReady = providerChoices.some(provider => provider.enabled && provider.hasKey && provider.models.some(model => model.enabled));
   const grokSelectable = Boolean((data?.runtimes?.grok_build_acp?.compatible || data?.runtimes?.grok_build_acp?.warmingUp) && grokProviderReady);

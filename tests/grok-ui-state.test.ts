@@ -13,7 +13,7 @@ test('Grok 直接列共享中转站及模型，保留协议且验证失败不禁
   assert.deepEqual(choices.map(item => item.id), ['common']);
   assert.equal(choices[0].hasKey, true);
   assert.equal(choices[0].baseUrl, settings.providers[0].baseUrl);
-  assert.deepEqual(choices[0].models.map(model => [model.id, model.enabled, model.backend]), [['grok-4.5', true, 'chat_completions'], ['incompatible', true, 'responses'], ['new-model', true, 'chat_completions']]);
+  assert.deepEqual(choices[0].models.map(model => [model.id, model.enabled, model.backend]), [['grok-4.5', true, 'chat_completions'], ['incompatible', true, 'responses'], ['new-model', true, 'responses']]);
   assert.equal(choices[0].models[0].name, 'Grok 4.5');
 });
 
@@ -22,7 +22,7 @@ test('四种 Runtime 共用模型中转站，没有全局 Grok 设置也可在�
   assert.deepEqual(sessionProviderChoices(undefined, 'grok_build_acp'), []);
   const sharedOnly = sessionProviderChoices({ ...settings, grok: undefined }, 'grok_build_acp');
   assert.deepEqual(sharedOnly.map(item => [item.id, item.hasKey]), [['common', true]]);
-  assert.ok(sharedOnly[0].models.every(model => model.backend === 'chat_completions'));
+  assert.ok(sharedOnly[0].models.every(model => model.backend === 'responses'));
   assert.deepEqual(sessionProviderChoices({ ...settings, providers: [] }, 'grok_build_acp'), []);
 });
 
@@ -41,7 +41,7 @@ test('旧版 Grok 全局启用状态和模型列表不限制共享中转站的�
   const choices = sessionProviderChoices({ ...settings, grok: { ...settings.grok!, runtime: { enabled: false, executablePath: '' }, providers: [] } }, 'grok_build_acp');
   assert.deepEqual(choices.map(item => [item.id, item.hasKey]), [['common', true]]);
   assert.deepEqual(choices[0].models.map(model => model.id), settings.providers[0].models);
-  assert.ok(choices[0].models.every(model => model.enabled && model.backend === 'chat_completions'));
+  assert.ok(choices[0].models.every(model => model.enabled && model.backend === 'responses'));
 });
 
 function event(id: string, sessionId: string, requestId: string, state: 'pending' | 'allowed' | 'rejected' | 'expired'): AgentEvent {

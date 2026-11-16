@@ -1,4 +1,6 @@
 export type GrokApiBackend = 'chat_completions' | 'responses' | 'messages';
+/** 新建 Grok 模型配置默认走 OpenAI Responses；已保存的显式协议仍由用户配置决定。 */
+export const DEFAULT_GROK_API_BACKEND: GrokApiBackend = 'responses';
 export interface GrokRuntimeSettings { enabled: boolean; executablePath: string; proxyUrl?: string }
 export interface GrokCompatibilityResult { level: 'untested' | 'text' | 'agent'; status: 'passed' | 'failed'; checkedAt: string; detail: string }
 export interface GrokModelProfile { id: string; name: string; apiBackend: GrokApiBackend; enabled: boolean; compatibility?: GrokCompatibilityResult }

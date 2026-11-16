@@ -4,6 +4,11 @@ import type { ReasoningEffort } from '../../domain/src/index';
 import { buildRuntimeExecutionInstructions } from './execution-instructions';
 
 export const GROK_BUILD_RUNTIME_VERSION = '1.0.67';
+export const GROK_RUNTIME_CLIENT_VERSION = '0.7.1';
+export const GROK_RPC_TIMEOUT_MS = 20000;
+// 与 Codex Runtime 一致：长任务不设短总时限，只在持续无流式事件时回收。
+export const GROK_STREAM_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+export const GROK_CANCEL_TIMEOUT_MS = 5000;
 export const GROK_RELAY_MODEL_ALIAS = 'jinggong-relay';
 export const GROK_CREDENTIAL_ENV = 'JINGGONG_GROK_API_KEY';
 export const GROK_EXECUTION_RULES_VERSION = 2;
