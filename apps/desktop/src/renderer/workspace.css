@@ -320,7 +320,24 @@ html[data-theme="light"] .diff-note { background: #f2f1df; color: #817c42; }
 html[data-theme="light"] .modal-backdrop { background: #26382d66; }
 .standalone-sessions { margin: 12px 12px 0; padding-top: 10px; border-top: 1px solid var(--line); }
 .dock-layout .standalone-sessions { flex: 0 0 var(--standalone-height, 30%); height: var(--standalone-height, 30%); min-height: 72px; overflow-y: auto; margin: 0 12px 8px; padding-top: 8px; }
-.standalone-resize-handle { flex: 0 0 8px; width: 100%; min-height: 8px; cursor: row-resize; touch-action: none; }
+.dock-layout .standalone-resize-handle {
+  position: relative;
+  z-index: 6;
+  flex: 0 0 12px;
+  align-self: stretch;
+  width: auto;
+  min-height: 12px;
+  margin: 0 12px -4px;
+  cursor: row-resize;
+}
+.dock-layout .standalone-resize-handle::after {
+  top: 4px;
+  left: 50%;
+  width: 52px;
+  height: 3px;
+  transform: translateX(-50%);
+  background: var(--muted);
+}
 .standalone-sessions-heading { padding: 0 12px 5px; color: var(--muted); font-size: 10px; }
 html[data-style="minimal"] .brand span:not(.version), html[data-style="minimal"] .welcome-eyebrow { letter-spacing: .5px; }
 html[data-style="minimal"] .brand strong { font-weight: 500; }

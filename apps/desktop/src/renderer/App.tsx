@@ -650,7 +650,7 @@ export function App() {
       const { min, max } = resizeBounds(drag.kind);
       if (drag.kind === 'standalone') {
         const sidebarHeight = document.querySelector<HTMLElement>('#project-sidebar')?.clientHeight ?? window.innerHeight;
-        const deltaPercent = sidebarHeight > 0 ? (event.clientY - drag.startY) / sidebarHeight * 100 : 0;
+        const deltaPercent = sidebarHeight > 0 ? (drag.startY - event.clientY) / sidebarHeight * 100 : 0;
         drag.latest = Math.max(min, Math.min(max, Math.round(drag.startValue + deltaPercent)));
       } else {
         const delta = drag.kind === 'left' ? event.clientX - drag.startX : drag.kind === 'right' ? drag.startX - event.clientX : drag.startY - event.clientY;
