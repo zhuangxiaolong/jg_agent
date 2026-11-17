@@ -324,14 +324,19 @@ export class GitConnector {
         await this.safeFile(workspace, file);
         const patch = await this.run(workspace, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', head, tree, '--', file], { maxBytes: MAX_DIFF_BYTES, allowTruncate: true });
         const binary = /(?:^|\n)Binary files .+ differ(?:\n|$)/.test(patch.text);
-        diffs.push({ path: file, status: status[0], diff: patch.text, binary, truncated: patch.truncated, staged: staged.has(file) });
+        let oversized = false;
         if (status[0] === 'D') files.set(file, null);
         else if (!binary && !patch.truncated) {
           const entry = (await this.run(workspace, ['ls-tree', '-z', tree, '--', file])).text;
           const blob = /^(100644|100755) blob ([a-f0-9]{40,64})\t/.exec(entry);
           if (!blob) throw new Error('会话修改包含链接、子模块或特殊文件，无法安全处理');
-          files.set(file, (await this.run(workspace, ['cat-file', 'blob', blob[2]], { maxBytes: MAX_DIFF_BYTES, strictText: true })).text);
+          const size = Number((await this.run(workspace, ['cat-file', '-s', blob[2]])).text.trim());
+          // 差异面板只需 patch；大文件内容留空，交由提交前的显式容量门禁拦截。
+          if (!Number.isSafeInteger(size) || size < 0) throw new Error('Git 文件快照大小无效');
+          if (size <= MAX_DIFF_BYTES) files.set(file, (await this.run(workspace, ['cat-file', 'blob', blob[2]], { maxBytes: MAX_DIFF_BYTES, strictText: true })).text);
+          else oversized = true;
         }
+        diffs.push({ path: file, status: status[0], diff: patch.text, binary, truncated: patch.truncated || oversized, staged: staged.has(file) });
       }
       return { head, tree, diffs, files, ...(includeDependencies ? { dependencyFiles: diffs.map(file => file.path), dependencyTrees: [...new Set(changes.flatMap(change => [change.before, change.after]))] } : {}) };
     });

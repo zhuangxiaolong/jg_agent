@@ -121,6 +121,10 @@ test('Runtime 默认完全访问并自动执行工具', () => {
   assert.equal(config['sandbox_workspace_write.network_access'], undefined);
   assert.equal(config['windows.sandbox'], undefined);
   assert.equal(runtimeConfigOverrides({})['features.shell_tool'], true);
+  assert.equal(config['features.code_mode'], true);
+  assert.equal(config['features.code_mode_host'], true);
+  assert.equal(runtimeConfigOverrides({})['features.code_mode'], true);
+  assert.equal(runtimeConfigOverrides({})['features.code_mode_host'], true);
 });
 
 test('Runtime 自动继续当前 thread/turn 的普通命令和文件变更请求', async () => {

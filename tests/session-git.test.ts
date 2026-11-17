@@ -44,6 +44,27 @@ test('没有归属记录的历史会话不会显示项目原有修改；同项�
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('会话修改的大文本文件仍展示差异，但标记超限以阻止不完整校验和提交', async () => {
+  const f = await fixture();
+  try {
+    const filename = path.join(f.repo, '大型源码.cs');
+    const prefix = `// ${'基线内容\n'.repeat(70000)}`;
+    await writeFile(filename, `${prefix}旧值\n`);
+    await git(f.repo, ['add', '大型源码.cs']); await git(f.repo, ['commit', '-m', '添加大文件基线']);
+    const session = f.session('large-file');
+    await f.service.begin(session);
+    await writeFile(filename, `${prefix}新值\n`);
+    await f.service.finish(session);
+
+    const prepared = await f.service.prepare(session);
+    assert.equal(prepared.diffs.length, 1);
+    assert.equal(prepared.diffs[0].path, '大型源码.cs');
+    assert.match(prepared.diffs[0].diff, /新值/);
+    assert.equal(prepared.diffs[0].truncated, true);
+    assert.equal(prepared.files.has('大型源码.cs'), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('分会话采集新增、删除和修改；切换与重开后不混入其他会话或任务外修改', async () => {
   const f = await fixture();
   try {

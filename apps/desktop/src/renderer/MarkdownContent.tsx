@@ -20,13 +20,21 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
 
 function inline(value: string, keyPrefix: string, onFilePath?: (path: string) => void): ReactNode[] {
   const output: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|https?:\/\/[^\s<>]+|(?:[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+|(?:\.\.?\/)?(?:[\w.@+-]+\/)+[\w.@+-]+(?:\.[\w.@+-]+)?))/g;
+  const pattern = /(\[[^\]]+\]\((?:<[^>]+>|[^)\s]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|https?:\/\/[^\s<>]+|(?:[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+|(?:\.\.?\/)?(?:[\w.@+-]+\/)+[\w.@+-]+(?:\.[\w.@+-]+)?))/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
     if (index > cursor) output.push(value.slice(cursor, index));
     const token = match[0];
-    if (token.startsWith('**')) output.push(<strong key={`${keyPrefix}-${index}`}>{token.slice(2, -2)}</strong>);
+    const markdownLink = /^\[([^\]]+)\]\((?:<([^>]+)>|([^\s)]+))\)$/.exec(token);
+    if (markdownLink) {
+      let target = markdownLink[2] ?? markdownLink[3] ?? '';
+      try { target = decodeURI(target); } catch { /* 保留原始目标，避免无效编码破坏整条消息。 */ }
+      const localPath = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(target);
+      const href = localPath ? `file:///${encodeURI(target.replaceAll('\\', '/').replace(/^\/+/, ''))}` : target;
+      output.push(<a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer">{markdownLink[1]}</a>);
+    }
+    else if (token.startsWith('**')) output.push(<strong key={`${keyPrefix}-${index}`}>{token.slice(2, -2)}</strong>);
     else if (token.startsWith('`')) {
       const code = token.slice(1, -1);
       const isPath = /(?:^[A-Za-z]:\\|^\.\.?\/|[\\/])/.test(code) && !/\s/.test(code);

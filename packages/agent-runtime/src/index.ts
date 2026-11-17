@@ -16,7 +16,7 @@ import { buildRuntimeExecutionInstructions, RUNTIME_EXECUTION_RULES_VERSION } fr
 export type { AuthorizedDirectory, AuthorizedDirectoryPolicy } from './authorized-directory-broker';
 
 export const CODEX_RUNTIME_VERSION = '0.156.1';
-export const RUNTIME_CAPABILITIES_VERSION = 9;
+export const RUNTIME_CAPABILITIES_VERSION = 10;
 // Codex 内部的模型 SSE 可能在命令执行、数据库操作或网络抖动期间长时间没有增量。
 // 这里不设置短任务时限；24 小时只作为协议层的最长空闲保护，避免断线后无限挂起。
 export const CODEX_STREAM_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -88,8 +88,8 @@ export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolE
     sandbox_mode: EXECUTION_SANDBOX, approval_policy: EXECUTION_APPROVAL_POLICY,
     'analytics.enabled': false, 'feedback.enabled': false,
     check_for_update_on_startup: false, web_search: 'live',
-    'features.shell_tool': options.shellToolEnabled ?? true, 'features.code_mode': false,
-    'features.code_mode_host': false, 'features.multi_agent': false,
+    'features.shell_tool': options.shellToolEnabled ?? true, 'features.code_mode': true,
+    'features.code_mode_host': true, 'features.multi_agent': false,
     'features.multi_agent_v2': false, 'features.plugins': options.pluginsEnabled ?? false,
     'features.hooks': false, 'features.apps': false,
     'features.browser_use': false, 'features.computer_use': !!options.computer,

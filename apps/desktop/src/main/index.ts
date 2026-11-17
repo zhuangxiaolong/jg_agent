@@ -582,8 +582,8 @@ function cliConfigArgs(profile: { baseUrl: string; models: string[] }): string[]
     check_for_update_on_startup: false,
     web_search: 'live',
     'features.shell_tool': true,
-    'features.code_mode': false,
-    'features.code_mode_host': false,
+    'features.code_mode': true,
+    'features.code_mode_host': true,
     'features.multi_agent': false,
     'features.multi_agent_v2': false,
   };
