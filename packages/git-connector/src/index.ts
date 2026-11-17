@@ -269,8 +269,21 @@ export class GitConnector {
 
   private async temporaryIndex<T>(work: (indexFile: string, directory: string) => Promise<T>): Promise<T> {
     const directory = await mkdtemp(resolve(tmpdir(), 'jinggong-session-index-'));
+    let operationFailed = false;
     try { return await work(resolve(directory, 'index'), directory); }
-    finally { await rm(directory, { recursive: true, force: true }); }
+    catch (error) { operationFailed = true; throw error; }
+    finally {
+      try {
+        // Windows Defender、文件索引器或刚结束的 Git 子进程可能短暂占用 index.lock。
+        // fs.rm 的有限重试可跨过短暂占用，避免把正常快照操作误报为 EBUSY。
+        await rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
+      } catch (error) {
+        // 临时目录清理是收尾工作，不能把已完成的 Git 操作反报为失败；原操作失败时也保留原始错误。
+        const code = (error as NodeJS.ErrnoException).code;
+        const result = operationFailed ? '保留原始操作错误' : '不影响已完成的操作';
+        console.warn(`[git-connector] 会话临时索引目录清理失败${code ? `（${code}）` : ''}，${result}`);
+      }
+    }
   }
 
   /** 仅写独立索引和内部快照引用，保留项目真实索引、分支及工作目录。 */
