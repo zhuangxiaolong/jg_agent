@@ -14,6 +14,14 @@ test('Claude 项目初读收敛指引保留业务要求、原有查询指引及�
   for (const marker of ['【查询执行效率】', '【项目初读效率】', 'AGENTS.md', '同一轮批量或并行调用', '不额外启动 Explore/Agent', '以该要求为准', '不能用概览规则省略必要工作']) assert.ok(instructions.includes(marker), marker);
 });
 
+test('Claude Windows Bash 联网指引遵循实际 PATH、避免 Shell 混用和临时路径误判', () => {
+  const windows = buildClaudeExecutionInstructions('项目规范', 'win32');
+  for (const marker of ['【Windows Claude Bash 与轻量联网】', 'command -v curl', 'command -v node', '只发送 Bash 语法', '不要假设 python3 可用', '不要假设 /tmp 映射到 Windows 临时目录', 'curl 设置合理超时', '管道交给 Node 解析', 'Node 的 os.tmpdir()', '不要反复重试无效命令']) assert.ok(windows.includes(marker), marker);
+  assert.ok(windows.includes('【查询执行效率】'), '保留通用天气查询指引');
+  const otherPlatform = buildClaudeExecutionInstructions('项目规范', 'linux');
+  assert.ok(!otherPlatform.includes('【Windows Claude Bash 与轻量联网】'));
+});
+
 test('Claude 推理档位遵循官方 SDK 类型，默认不覆盖、显式档位不降档', () => {
   assert.deepEqual(claudeReasoningOptions(), {});
   assert.deepEqual(claudeReasoningOptions('none'), { thinking: { type: 'disabled' } });

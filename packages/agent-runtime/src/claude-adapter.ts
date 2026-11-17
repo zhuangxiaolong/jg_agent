@@ -15,6 +15,10 @@ import { buildClaudeExecutionInstructions, claudeReasoningOptions } from './clau
 /** 当前 PoC 锁定的官方 SDK 版本。正式打包时必须与 native binary 一起锁定。 */
 export const CLAUDE_AGENT_SDK_RUNTIME_VERSION = '0.3.319';
 export const CLAUDE_AGENT_SDK_RUNTIME_KIND = 'claude_agent_sdk' as RuntimeKind;
+/** 等待模型时连续没有 SDK 事件的保护窗口。 */
+export const CLAUDE_STREAM_IDLE_TIMEOUT_MS = 90_000;
+/** 长工具允许更宽的事件间隔，但 SDK 或工具失联时仍必须结束等待。 */
+export const CLAUDE_TOOL_IDLE_TIMEOUT_MS = 10 * 60_000;
 export interface ClaudePermissionRequest {
   toolName: string;
   input: Record<string, unknown>;
@@ -65,6 +69,10 @@ export interface ClaudeRuntimeOptions {
   apiKey?: string;
   /** 当前会话选择的通用中转站 URL，用于实际模型调用。 */
   relayBaseUrl?: string;
+  /** 等待模型时连续无事件的最大等待时间，默认 90 秒。 */
+  requestTimeoutMs?: number;
+  /** 已开始工具的连续无事件等待上限，默认 10 分钟；工具进度会刷新计时。 */
+  toolIdleTimeoutMs?: number;
   executablePath: string;
   /** 仅传递平台必须的安全/联网提示，避免把未筛选业务资料当成系统指令。 */
   additionalSystemPrompt?: string;
@@ -99,6 +107,8 @@ interface ClaudeSession {
   query?: ClaudeSdkQueryHandle;
 }
 
+class ClaudeStreamTimeoutError extends Error {}
+
 /**
  * 延迟加载官方 SDK，避免桌面应用未选择 Claude Runtime 时加载或启动其 native binary。
  * 不存在 CLI fallback；缺少 SDK 时调用方会收到明确的不可用状态。
@@ -130,6 +140,14 @@ function redact(text: string, apiKey?: string): string {
     .replace(/Bearer\s+[^\s,;"'<>]+/gi, 'Bearer [已脱敏]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, '[已脱敏]')
     .slice(0, 32000);
+}
+
+function safeNonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function safeClaudeToolName(value: unknown, apiKey?: string): string {
+  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/.test(value) && redact(value, apiKey) === value ? value : '未知工具';
 }
 
 function extractText(value: unknown): string {
@@ -173,8 +191,29 @@ export function normalizeClaudeSdkMessage(message: unknown, apiKey?: string): { 
   const value = message as Record<string, unknown>;
   // SDK 会同时推送原生子 Agent 的正文；主会话仅展示顶层回复，避免两份总结混流。
   if ((value.type === 'assistant' || value.type === 'stream_event') && typeof value.parent_tool_use_id === 'string' && value.parent_tool_use_id.length > 0) return undefined;
-  const sessionId = typeof value.session_id === 'string' ? value.session_id : undefined;
+  const sessionId = typeof value.parent_tool_use_id !== 'string' || !value.parent_tool_use_id.length
+    ? typeof value.session_id === 'string' ? value.session_id : undefined
+    : undefined;
   if (value.type === 'system' && value.subtype === 'init') return { type: 'status', text: 'Claude Runtime 会话已启动', nativeSessionId: sessionId };
+  if (value.type === 'system' && value.subtype === 'api_retry') {
+    const attempt = safeNonnegativeInteger(value.attempt);
+    const maxRetries = safeNonnegativeInteger(value.max_retries);
+    const retryDelayMs = safeNonnegativeInteger(value.retry_delay_ms);
+    const errorStatus = value.error_status;
+    const statusText = typeof errorStatus === 'number' && Number.isSafeInteger(errorStatus)
+      ? `；HTTP ${errorStatus}`
+      : errorStatus === null ? '；网络未收到 HTTP 响应' : '';
+    const noResponse = value.no_response && typeof value.no_response === 'object'
+      ? value.no_response as Record<string, unknown>
+      : undefined;
+    const waitedMs = safeNonnegativeInteger(noResponse?.waited_ms);
+    const retryWaitMs = safeNonnegativeInteger(noResponse?.retry_wait_ms);
+    const waitText = waitedMs === undefined ? '' : `；首次响应头等待 ${waitedMs} 毫秒后仍未收到响应${retryWaitMs === undefined ? '' : `，下一次首响应头等待上限 ${retryWaitMs} 毫秒`}`;
+    const retryText = attempt === undefined || maxRetries === undefined || retryDelayMs === undefined
+      ? 'Claude API 请求暂时失败，SDK 正在自动重试'
+      : `Claude API 请求重试中：第 ${attempt}/${maxRetries} 次${statusText}，等待 ${retryDelayMs} 毫秒${waitText}`;
+    return { type: 'status', text: retryText, nativeSessionId: sessionId };
+  }
   if (value.type === 'stream_event') {
     const event = value.event;
     if (event && typeof event === 'object') {
@@ -189,7 +228,7 @@ export function normalizeClaudeSdkMessage(message: unknown, apiKey?: string): { 
     return text ? { type: 'message', text: redact(text, apiKey), nativeSessionId: sessionId } : undefined;
   }
   if (value.type === 'tool_progress') {
-    const tool = typeof value.tool_name === 'string' ? value.tool_name : '未知工具';
+    const tool = safeClaudeToolName(value.tool_name, apiKey);
     return { type: 'tool', text: `Claude 工具执行中：${tool}`, nativeSessionId: sessionId };
   }
   if (value.type === 'system' && typeof value.subtype === 'string' && value.subtype.startsWith('task_')) {
@@ -222,6 +261,47 @@ export function normalizeClaudeSdkMessage(message: unknown, apiKey?: string): { 
     return { type: 'error', text: redact(messageText, apiKey), nativeSessionId: sessionId };
   }
   return undefined;
+}
+
+/** 每轮只关联工具公开生命周期；参数、结果正文和子 Agent 内容均不进入事件。 */
+export function createClaudeSdkMessageNormalizer(apiKey?: string, now: () => number = Date.now): (message: unknown) => (RuntimeEvent & { nativeSessionId?: string; terminal?: boolean })[] {
+  const calls = new Map<string, { name: string; stage: NonNullable<RuntimeEvent['performance']>['stage']; startedAt: number; completed: boolean }>();
+  return (message) => {
+    const events: (RuntimeEvent & { nativeSessionId?: string; terminal?: boolean })[] = [];
+    if (!message || typeof message !== 'object') return events;
+    const value = message as Record<string, unknown>;
+    const childMessage = typeof value.parent_tool_use_id === 'string' && value.parent_tool_use_id.length > 0;
+    const body = value.message && typeof value.message === 'object' ? value.message as Record<string, unknown> : undefined;
+    if (!childMessage && (value.type === 'assistant' || value.type === 'user') && Array.isArray(body?.content)) {
+      for (const item of body.content) {
+        if (!item || typeof item !== 'object') continue;
+        const block = item as Record<string, unknown>;
+        const callId = value.type === 'assistant' && block.type === 'tool_use' ? block.id
+          : value.type === 'user' && block.type === 'tool_result' ? block.tool_use_id : undefined;
+        if (typeof callId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(callId) || redact(callId, apiKey) !== callId) continue;
+        if (value.type === 'assistant') {
+          if (calls.has(callId)) continue;
+          const name = safeClaudeToolName(block.name, apiKey);
+          const stage = name === 'Bash' ? 'command' : ['WebSearch', 'WebFetch', 'Grep', 'Glob'].includes(name) ? 'search' : name === 'Read' ? 'read' : 'tool';
+          calls.set(callId, { name, stage, startedAt: now(), completed: false });
+          events.push({ type: 'tool', text: `Claude 工具开始：${name}`, performance: { callId, phase: 'started', operation: `claude.${name}`, stage } });
+        } else {
+          const call = calls.get(callId);
+          if (!call || call.completed) continue;
+          call.completed = true;
+          const elapsedMs = Math.max(0, Math.round(now() - call.startedAt));
+          events.push({ type: 'tool', text: `Claude 工具${block.is_error === true ? '失败' : '完成'}：${call.name}（耗时 ${elapsedMs} 毫秒）`, performance: { callId, phase: 'completed', operation: `claude.${call.name}`, stage: call.stage, exitCode: block.is_error === true ? 1 : 0 } });
+        }
+      }
+    }
+    const normalized = normalizeClaudeSdkMessage(message, apiKey);
+    if (normalized) {
+      const elapsed = value.type === 'tool_progress' && typeof value.elapsed_time_seconds === 'number' && Number.isFinite(value.elapsed_time_seconds) && value.elapsed_time_seconds >= 0
+        ? `（已执行 ${Math.round(value.elapsed_time_seconds * 10) / 10} 秒）` : '';
+      events.push({ ...normalized, text: `${normalized.text}${elapsed}` });
+    }
+    return events;
+  };
 }
 
 export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
@@ -293,7 +373,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
         canUseTool: async () => ({ behavior: 'deny', message: '连接测试期间已禁用工具调用' }),
       } });
       let completed = false;
-      for await (const message of query) {
+      for await (const message of this.queryMessages(query, controller)) {
         const normalizedMessage = normalizeClaudeSdkMessage(message, this.options.apiKey);
         if (!normalizedMessage?.terminal) continue;
         if (normalizedMessage.type === 'error') throw new Error(normalizedMessage.text || 'Claude 连接测试失败');
@@ -306,7 +386,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       return { ...local, available: false, compatible: false, detail: `Claude 连接测试失败：${redact((error as Error).message ?? String(error), this.options.apiKey)}` };
     } finally {
       controller.abort();
-      query?.close?.();
+      try { query?.close?.(); } catch { /* 清理失败不能覆盖连接测试结果。 */ }
     }
   }
 
@@ -411,35 +491,41 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       session.query = query;
       this.emit({ threadId, type: 'status', text: 'running' });
       if (this.options.reasoningEffort === 'minimal') this.emit({ threadId, type: 'status', text: 'Claude SDK 没有 minimal 原生档位，本轮使用其最低原生档 effort=low。' });
-      for await (const message of query) {
-        const normalized = normalizeClaudeSdkMessage(message, this.options.apiKey);
-        if (!normalized) continue;
-        if (normalized.nativeSessionId) {
-          session.nativeSessionId = normalized.nativeSessionId;
-          this.options.onNativeSessionId?.(threadId, normalized.nativeSessionId);
+      const normalizeMessage = createClaudeSdkMessageNormalizer(this.options.apiKey);
+      for await (const message of this.queryMessages(query, controller)) {
+        for (const normalized of normalizeMessage(message)) {
+          if (normalized.nativeSessionId) {
+            session.nativeSessionId = normalized.nativeSessionId;
+            this.options.onNativeSessionId?.(threadId, normalized.nativeSessionId);
+          }
+          if (normalized.terminal && normalized.type === 'error') {
+            // 让调用方执行统一的失败结算，避免把错误结果当成成功解析的本轮任务。
+            terminalResultFailure = true;
+            terminalStatus = normalized.text;
+            throw new Error(normalized.text || 'Claude Runtime 执行失败');
+          }
+          this.emit({ threadId, type: normalized.type, text: normalized.text, ...(normalized.performance ? { performance: normalized.performance } : {}) });
+          if (normalized.terminal) terminalStatus = normalized.text;
         }
-        if (normalized.terminal && normalized.type === 'error') {
-          // 让调用方执行统一的失败结算，避免把错误结果当成成功解析的本轮任务。
-          terminalResultFailure = true;
-          terminalStatus = normalized.text;
-          throw new Error(normalized.text || 'Claude Runtime 执行失败');
-        }
-        this.emit({ threadId, type: normalized.type, text: normalized.text });
-        if (normalized.terminal) terminalStatus = normalized.text;
-        if (normalized.terminal) break;
+        if (terminalStatus) break;
       }
+      if (controller.signal.aborted) throw new Error('Claude Runtime 任务已取消');
       if (!controller.signal.aborted && !terminalStatus) this.emit({ threadId, type: 'status', text: 'completed' });
     } catch (error) {
+      if (error instanceof ClaudeStreamTimeoutError) {
+        this.emit({ threadId, type: 'error', text: error.message });
+        throw error;
+      }
       if (!controller.signal.aborted) {
         if (!terminalResultFailure) this.emit({ threadId, type: 'error', text: redact((error as Error).message ?? String(error), this.options.apiKey) });
         throw error;
       }
       this.emit({ threadId, type: 'status', text: 'interrupted' });
     } finally {
+      try { query?.close?.(); } catch { /* 查询已经结束，清理错误不覆盖本轮结果。 */ }
       session.controller = undefined;
       session.query = undefined;
-      await controlled?.server.instance.close().catch(() => undefined);
-      await documents?.server.instance.close().catch(() => undefined);
+      await Promise.all([this.closeToolServer(controlled?.server), this.closeToolServer(documents?.server)]);
     }
   }
 
@@ -447,14 +533,14 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
     const session = this.sessions.get(threadId);
     if (!session?.controller) return;
     session.controller.abort();
-    session.query?.close?.();
+    try { session.query?.close?.(); } catch { /* 已发出取消，继续释放本地任务状态。 */ }
   }
 
   async close(): Promise<void> {
     this.closed = true;
     for (const session of this.sessions.values()) {
       session.controller?.abort();
-      session.query?.close?.();
+      try { session.query?.close?.(); } catch { /* 单个查询清理失败不阻塞其他会话关闭。 */ }
     }
     this.sessions.clear();
     this.started = false;
@@ -574,6 +660,65 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
   }
 
   private emit(event: RuntimeEvent): void { this.emitter.emit('event', event); }
+
+  private requestTimeoutMs(toolRunning = false): number {
+    const value = toolRunning ? this.options.toolIdleTimeoutMs : this.options.requestTimeoutMs;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? Math.min(Math.floor(value), 24 * 60 * 60 * 1000)
+      : toolRunning ? CLAUDE_TOOL_IDLE_TIMEOUT_MS : CLAUDE_STREAM_IDLE_TIMEOUT_MS;
+  }
+
+  /** 直接保护 next()，不依赖 SDK 在 abort/close 后一定及时结束异步迭代。 */
+  private async *queryMessages(query: ClaudeSdkQueryHandle, controller: AbortController): AsyncGenerator<unknown> {
+    const iterator = query[Symbol.asyncIterator]();
+    const activeTools = new Set<string>();
+    while (!controller.signal.aborted) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
+      const toolRunning = activeTools.size > 0;
+      const timeoutMs = this.requestTimeoutMs(toolRunning);
+      try {
+        const next = await Promise.race([
+          Promise.resolve().then(() => iterator.next()),
+          new Promise<IteratorResult<unknown>>((resolve, reject) => {
+            onAbort = () => resolve({ done: true, value: undefined });
+            controller.signal.addEventListener('abort', onAbort, { once: true });
+            timer = setTimeout(() => {
+              reject(new ClaudeStreamTimeoutError(`Claude Runtime ${toolRunning ? '工具执行期间' : ''}连续 ${Math.ceil(timeoutMs / 1000)} 秒未收到任何事件，已中止本轮。请检查中转站、模型响应或工具执行状态后重试。`));
+              controller.abort();
+              try { query.close?.(); } catch { /* 流已超时，关闭错误不能覆盖诊断。 */ }
+            }, timeoutMs);
+          }),
+        ]);
+        if (next.done) return;
+        if (next.value && typeof next.value === 'object') {
+          const message = next.value as Record<string, unknown>;
+          const content = (message.message as { content?: unknown } | undefined)?.content;
+          const topLevel = typeof message.parent_tool_use_id !== 'string' || !message.parent_tool_use_id.length;
+          if (topLevel && Array.isArray(content)) for (const block of content) {
+            if (!block || typeof block !== 'object') continue;
+            if (message.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string') activeTools.add(block.id);
+            if (message.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string') activeTools.delete(block.tool_use_id);
+          }
+        }
+        yield next.value;
+      } finally {
+        if (timer) clearTimeout(timer);
+        if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+      }
+    }
+  }
+
+  private async closeToolServer(server: McpSdkServerConfigWithInstance | undefined): Promise<void> {
+    if (!server) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => server.instance.close()).catch(() => undefined),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+  }
 }
 
 export function createClaudeAgentSdkRuntimeAdapter(options: ClaudeRuntimeOptions): ClaudeAgentSdkRuntimeAdapter {

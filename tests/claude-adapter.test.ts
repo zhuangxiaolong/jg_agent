@@ -145,6 +145,129 @@ test('Claude Runtime 自动继续普通工具请求', async () => {
   }
 });
 
+test('Claude Runtime 连续无事件达到保护时限后中止并报告可操作错误', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-adapter-idle-timeout-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  let closed = false;
+  const sdk: ClaudeSdkModule = {
+    query() {
+      return {
+        [Symbol.asyncIterator]() {
+          return { next: () => new Promise<IteratorResult<unknown>>(() => {}) };
+        },
+        close() { closed = true; },
+      };
+    },
+  };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 30, sdkLoader: async () => sdk });
+  const events: string[] = [];
+  adapter.onEvent(event => events.push(`${event.type}:${event.text}`));
+  try {
+    const thread = await adapter.startSession(cwd);
+    await assert.rejects(adapter.sendTurn(thread, '只回复 OK', cwd), /连续 1 秒未收到任何事件/);
+    assert.ok(events.some(event => event.startsWith('error:Claude Runtime 连续 1 秒未收到任何事件')));
+    assert.equal(closed, true, '超时后必须关闭 SDK 查询');
+  } finally {
+    await adapter.close();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('Claude 连接测试也能中止永不结束的 SDK 查询', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-connection-idle-timeout-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  const sdk: ClaudeSdkModule = { query: () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<unknown>>(() => {}) }), close() { throw new Error('合成清理失败'); } }) };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 30, sdkLoader: async () => sdk });
+  try {
+    const health = await adapter.testConnection(cwd);
+    assert.equal(health.available, false);
+    assert.match(health.detail, /连续 1 秒未收到任何事件/);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
+});
+
+test('Claude 工具失联且不再产生进度时仍有有限的保护窗口', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-tool-idle-timeout-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  let closed = false;
+  const sdk: ClaudeSdkModule = { query: () => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'stalled-tool', name: 'Bash' }] } };
+      await new Promise(() => {});
+    },
+    close() { closed = true; },
+  }) };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 30, toolIdleTimeoutMs: 60, sdkLoader: async () => sdk });
+  try {
+    const thread = await adapter.startSession(cwd);
+    await assert.rejects(adapter.sendTurn(thread, '执行工具', cwd), /工具执行期间连续 1 秒未收到任何事件/);
+    assert.equal(closed, true);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
+});
+
+test('Claude 已开始的长工具不受模型等待保护误中断，工具结束后恢复模型计时', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-running-tool-timeout-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  const sdk: ClaudeSdkModule = { query: () => ({ async *[Symbol.asyncIterator]() {
+    yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'long-tool', name: 'Bash' }] } };
+    await new Promise(resolve => setTimeout(resolve, 80));
+    yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'long-tool', content: '完成' }] } };
+    yield { type: 'result', subtype: 'success' };
+  }, close() {} }) };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 30, sdkLoader: async () => sdk });
+  const events: string[] = [];
+  adapter.onEvent(event => events.push(`${event.type}:${event.text}`));
+  try {
+    const thread = await adapter.startSession(cwd);
+    await adapter.sendTurn(thread, '执行长工具', cwd);
+    assert.equal(events.at(-1), 'status:completed');
+    assert.equal(events.some(event => event.startsWith('error:')), false);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
+});
+
+test('Claude 人工取消永久等待的查询保持 interrupted，不记为模型超时', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-cancel-idle-query-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  const sdk: ClaudeSdkModule = { query: () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<unknown>>(() => {}) }), close() { throw new Error('合成清理失败'); } }) };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 200, sdkLoader: async () => sdk });
+  const events: string[] = [];
+  let onRunning!: () => void;
+  const running = new Promise<void>(resolve => { onRunning = resolve; });
+  adapter.onEvent(event => {
+    events.push(`${event.type}:${event.text}`);
+    if (event.type === 'status' && event.text === 'running') onRunning();
+  });
+  try {
+    const thread = await adapter.startSession(cwd);
+    const pending = adapter.sendTurn(thread, '只回复 OK', cwd);
+    await Promise.race([running, pending]);
+    await adapter.cancelRun(thread);
+    await pending;
+    assert.equal(events.at(-1), 'status:interrupted');
+    assert.equal(events.some(event => event.startsWith('error:')), false);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
+});
+
+test('Claude 工具结果返回后重新启用模型无事件保护', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-after-tool-idle-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  const sdk: ClaudeSdkModule = { query: () => ({ async *[Symbol.asyncIterator]() {
+    yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'finished-tool', name: 'Bash' }] } };
+    yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'finished-tool', content: '完成' }] } };
+    await new Promise(() => {});
+  }, close() {} }) };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, requestTimeoutMs: 30, toolIdleTimeoutMs: 500, sdkLoader: async () => sdk });
+  try {
+    const thread = await adapter.startSession(cwd);
+    await assert.rejects(adapter.sendTurn(thread, '工具后继续', cwd), /Runtime 连续 1 秒未收到任何事件/);
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
+});
+
 test('Claude 新建、后续轮次与冷恢复均追加查询指南，保留业务文档提示、模型及原始任务', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'claude-execution-guidance-'));
   const executablePath = join(cwd, 'claude.exe');

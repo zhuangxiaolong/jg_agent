@@ -655,7 +655,12 @@ async function getRuntime(ticket: RunTicket, session: Session): Promise<RuntimeA
   // 真实发送逐轮完整验证；大文件读取与哈希均在独立 Worker 中执行。
   if (kind !== 'grok_build_acp') {
     if (!runtimePrewarm) throw new Error('Runtime 后台服务尚未就绪');
-    await runtimePrewarm.verify(kind);
+    const verifySpan = performanceService?.telemetry.startSpan(performanceService.traceId(session.id), { stage: 'runtime.initialize', operation: `${kind === 'claude_agent_sdk' ? 'claude' : kind}.integrity_verify` });
+    let verifyStatus: 'completed' | 'failed' = 'failed';
+    try {
+      await runtimePrewarm.verify(kind);
+      verifyStatus = 'completed';
+    } finally { performanceService?.telemetry.endSpan(verifySpan, verifyStatus); }
   }
   runs.assertCurrent(ticket);
   if (kind !== 'grok_build_acp' && (!provider || !provider.models.includes(session.model))) throw new Error('请先在模型设置中配置中转站和模型，并为会话选择有效配置');
@@ -1599,7 +1604,12 @@ if (primaryInstance) app.whenReady().then(async () => {
     let automaticTaskIds: string[] = [];
     try {
       if (queuedTurnId) followups.begin(session.id, queuedTurnId);
-      await sessionGit.begin(session);
+      const gitBeginSpan = performanceService?.telemetry.startSpan(performanceService.traceId(session.id), { stage: 'workspace.index_check', operation: 'session_git.begin' });
+      let gitBeginStatus: 'completed' | 'failed' = 'failed';
+      try {
+        await sessionGit.begin(session);
+        gitBeginStatus = 'completed';
+      } finally { performanceService?.telemetry.endSpan(gitBeginSpan, gitBeginStatus); }
       const previousTitleSource = session.titleSource;
       session = store.nameSessionFromContent(session.id, settings.redactContent(parsed.prompt));
       if (session.titleSource === 'content' && previousTitleSource !== session.titleSource && !window.isDestroyed()) {
