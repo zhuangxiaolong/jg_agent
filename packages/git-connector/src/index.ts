@@ -66,8 +66,8 @@ function inside(root: string, target: string): boolean {
 export class GitConnector {
   constructor(private readonly rootWorkspaces: string, private readonly gitExecutable = 'git') {}
 
-  private run(cwd: string | undefined, args: string[], options: { maxBytes?: number; allowTruncate?: boolean; allowMissing?: boolean; strictText?: boolean; indexFile?: string; literalPathspecs?: boolean } = {}): Promise<{ text: string; truncated: boolean; code: number }> {
-    const fixedArgs = ['--no-optional-locks', ...(options.literalPathspecs === false ? [] : ['--literal-pathspecs']), '-c', 'core.fsmonitor=false', '-c', 'core.quotepath=false', '-c', 'diff.external=', '-c', `core.hooksPath=${resolve(this.rootWorkspaces, '.disabled-hooks')}`, '-c', 'commit.gpgsign=false', '-c', 'status.renames=false', '-c', 'protocol.ext.allow=never', ...args];
+  private run(cwd: string | undefined, args: string[], options: { maxBytes?: number; allowTruncate?: boolean; allowMissing?: boolean; strictText?: boolean; indexFile?: string } = {}): Promise<{ text: string; truncated: boolean; code: number }> {
+    const fixedArgs = ['--no-optional-locks', '--literal-pathspecs', '-c', 'core.fsmonitor=false', '-c', 'core.quotepath=false', '-c', 'diff.external=', '-c', `core.hooksPath=${resolve(this.rootWorkspaces, '.disabled-hooks')}`, '-c', 'commit.gpgsign=false', '-c', 'status.renames=false', '-c', 'protocol.ext.allow=never', ...args];
     const environment = { ...process.env };
     for (const key of Object.keys(environment)) if (/^GIT_/i.test(key)) delete environment[key];
     if (options.indexFile) environment.GIT_INDEX_FILE = options.indexFile;
@@ -940,26 +940,6 @@ export class GitConnector {
     const workspace = await this.workspace(workspacePath, allowProjectRoot);
     const current = await this.state(workspace, allowProjectRoot);
     await this.pullRepository(workspace, remote, current, () => this.workspace(workspace, allowProjectRoot));
-  }
-
-  async pullPreservingChanges(workspacePath: string, remote: string, allowProjectRoot = false): Promise<void> {
-    const workspace = await this.workspace(workspacePath, allowProjectRoot);
-    const current = await this.state(workspace, allowProjectRoot);
-    if (!current.dirty) return this.pullRepository(workspace, remote, current, () => this.workspace(workspace, allowProjectRoot));
-    const before = (await this.run(workspace, ['rev-parse', '--verify', '-q', 'refs/stash'], { allowMissing: true })).text.trim();
-    await this.run(workspace, [...await this.mutationOverrides(workspace), 'stash', 'push', '--include-untracked', '-m', `jinggong-before-pull-${randomUUID()}`], { literalPathspecs: false });
-    const stash = (await this.run(workspace, ['rev-parse', '--verify', '-q', 'refs/stash'], { allowMissing: true })).text.trim();
-    if (!stash || stash === before) throw new Error('无法安全暂存当前工作区变更，未执行拉取或提交');
-    if ((await this.repositoryState(workspace)).dirty) throw new Error(`Git 未能完整暂存工作区变更；修改仍保存在 stash ${stash.slice(0, 12)}，未执行拉取或提交`);
-    const restore = async () => {
-      try { await this.run(workspace, [...await this.mutationOverrides(workspace), 'stash', 'apply', '--index', stash], { literalPathspecs: false }); }
-      catch { throw new Error(`远程拉取后无法自动恢复本地修改；修改仍保存在 Git stash ${stash.slice(0, 12)}，已停止提交，请先人工恢复并检查冲突`); }
-      const latest = (await this.run(workspace, ['rev-parse', '--verify', '-q', 'refs/stash'], { allowMissing: true })).text.trim();
-      if (latest === stash) await this.run(workspace, [...await this.mutationOverrides(workspace), 'stash', 'drop', 'stash@{0}'], { literalPathspecs: false });
-    };
-    try { await this.pullRepository(workspace, remote, await this.state(workspace, allowProjectRoot), () => this.workspace(workspace, allowProjectRoot)); }
-    catch (error) { await restore(); throw error; }
-    await restore();
   }
 
   private async pullRepository(workspace: string, remote: string, current: GitState, validateIdentity: () => Promise<unknown>): Promise<void> {

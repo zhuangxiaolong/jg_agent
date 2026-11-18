@@ -232,53 +232,6 @@ test('待推送范围含另一会话提交时拒绝推送，远程保持原样',
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
-test('提交前拉取会快进远程并恢复本地修改及未跟踪文件', async () => {
-  const f = await fixture();
-  try {
-    const remote = path.join(f.root, 'remote.git'), clone = path.join(f.root, 'clone');
-    await git(f.root, ['init', '--bare', remote]);
-    await git(f.repo, ['remote', 'add', 'origin', remote]);
-    await git(f.repo, ['push', '-u', 'origin', 'main']);
-    await exec('git', ['clone', remote, clone], { windowsHide: true, encoding: 'utf8' });
-    await git(clone, ['checkout', '-b', 'main', 'origin/main']);
-    await git(clone, ['config', 'user.name', '远程更新测试']);
-    await git(clone, ['config', 'user.email', 'test@example.invalid']);
-    await writeFile(path.join(clone, '远程文件.txt'), '远程已更新\n');
-    await git(clone, ['add', '远程文件.txt']); await git(clone, ['commit', '-m', '远程先更新']); await git(clone, ['push', 'origin', 'main']);
-    await writeFile(path.join(f.repo, '共同文件.txt'), '保留本地工作区修改\n');
-    await writeFile(path.join(f.repo, '本地未跟踪.txt'), '也要保留\n');
-
-    await f.connector.pullPreservingChanges(f.repo, 'origin', true);
-
-    assert.equal(await readFile(path.join(f.repo, '远程文件.txt'), 'utf8'), '远程已更新\n');
-    assert.equal(await readFile(path.join(f.repo, '共同文件.txt'), 'utf8'), '保留本地工作区修改\n');
-    assert.equal(await readFile(path.join(f.repo, '本地未跟踪.txt'), 'utf8'), '也要保留\n');
-    assert.equal(await git(f.repo, ['stash', 'list']), '');
-  } finally { await rm(f.root, { recursive: true, force: true }); }
-});
-
-test('提交前拉取遇到同文件冲突时保留 stash 并停止后续提交', async () => {
-  const f = await fixture();
-  try {
-    const remote = path.join(f.root, 'remote.git'), clone = path.join(f.root, 'clone');
-    await git(f.root, ['init', '--bare', remote]);
-    await git(f.repo, ['remote', 'add', 'origin', remote]);
-    await git(f.repo, ['push', '-u', 'origin', 'main']);
-    await exec('git', ['clone', remote, clone], { windowsHide: true, encoding: 'utf8' });
-    await git(clone, ['checkout', '-b', 'main', 'origin/main']);
-    await git(clone, ['config', 'user.name', '远程更新测试']);
-    await git(clone, ['config', 'user.email', 'test@example.invalid']);
-    await writeFile(path.join(clone, '共同文件.txt'), '远程冲突版本\n');
-    await git(clone, ['add', '共同文件.txt']); await git(clone, ['commit', '-m', '远程冲突更新']); await git(clone, ['push', 'origin', 'main']);
-    await writeFile(path.join(f.repo, '共同文件.txt'), '本地冲突版本\n');
-
-    await assert.rejects(f.connector.pullPreservingChanges(f.repo, 'origin', true), /仍保存在 Git stash/);
-
-    assert.match(await git(f.repo, ['stash', 'list']), /jinggong-before-pull/);
-    assert.match(await readFile(path.join(f.repo, '共同文件.txt'), 'utf8'), /本地冲突版本/);
-  } finally { await rm(f.root, { recursive: true, force: true }); }
-});
-
 test('依赖任务前未跟踪文件时可准备整文件提交，保留无关暂存及其他会话文件', async () => {
   const f = await fixture();
   try {

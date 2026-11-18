@@ -2173,11 +2173,6 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('requirements:check', async (value: unknown) => requirements(await projectDevelopmentSession(value)));
   handle('git:commit', (value: unknown, input: unknown) => gitOperation(async () => {
     const session = await projectDevelopmentSession(value); const options = commitSchema.parse(input);
-    if (!options.remote) throw new Error('提交前必须选择远程仓库以拉取最新代码');
-    const state = await git.state(session.workspacePath, true);
-    if (!state.remotes.includes(options.remote)) throw new Error('所选 Git 远程不存在');
-    await sessionGit.pullBeforeCommit(session, options.remote);
-    emit(session.id, 'tool', `提交前已从 ${options.remote}/${state.branch} 拉取并恢复本地修改`);
     const message = appendJiraCommitUrl(options.message, session.jiraIssue ?? (options.jiraUrl ? { url: options.jiraUrl } : undefined));
     settings.assertCleanText(message + '\n' + (options.authorName ?? '') + '\n' + (options.authorEmail ?? ''));
     const initial = await changedContents(session);

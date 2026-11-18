@@ -81,7 +81,7 @@ export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-
 export const requirementInputSchema = z.object({ id: idSchema.optional(), title: z.string().trim().min(1).max(160).refine(value => !/[\r\n\x00]/.test(value), '标题不能包含换行'), content: z.string().min(1).max(80000).refine(value => !!value.trim(), '请输入开发要求正文'), system: systemSchema }).strict();
 export const documentImportSchema = z.object({ kind: z.enum(['dictionary', 'requirement']), system: systemSchema }).strict();
 export const memorySchema = z.object({ title: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(12000) }).strict();
-export const commitSchema = z.object({ message: z.string().trim().min(1).max(4000), reviewedDocumentIds: z.array(idSchema).max(100).optional(), authorName: z.string().trim().min(1).max(100).optional(), authorEmail: z.email().max(320).optional(), jiraUrl: z.url().max(2000).optional(), remote: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/).optional() }).strict();
+export const commitSchema = z.object({ message: z.string().trim().min(1).max(4000), reviewedDocumentIds: z.array(idSchema).max(100).optional(), authorName: z.string().trim().min(1).max(100).optional(), authorEmail: z.email().max(320).optional(), jiraUrl: z.url().max(2000).optional() }).strict();
 export const gitFileSchema = z.string().min(1).max(1000).refine(value => !/[\x00-\x1f\x7f]/.test(value), '文件路径不能包含控制字符').refine(value => !value.includes('\\') && !value.startsWith('/') && !/^[A-Za-z]:/.test(value), '文件路径必须使用工作区内的相对路径');
 export function redact(text: string, secret?: string): string {
   let value = text;
