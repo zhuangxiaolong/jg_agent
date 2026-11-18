@@ -12,6 +12,14 @@ export const modelApiKeySchema = z.string().trim().min(1, '请填写 API Key').m
 export const promptSchema = z.string().trim().min(1).max(50000);
 export const sessionSendSchema = z.object({ prompt: promptSchema, attachmentIds: z.array(idSchema).max(20).default([]) }).strict();
 export const sessionAttachmentPathsSchema = z.object({ sessionId: idSchema, paths: z.array(z.string().min(1).max(4096).refine(value => !value.includes('\0'), '附件路径无效')).min(1).max(20) }).strict();
+const clipboardImageBytesSchema = z.custom<Uint8Array>(value => value instanceof Uint8Array && value.byteLength > 0 && value.byteLength <= 8 * 1024 * 1024, '剪贴板图片数据无效或超过 8 MiB');
+export const sessionAttachmentsSchema = z.object({
+  sessionId: idSchema,
+  items: z.array(z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('path'), path: z.string().min(1).max(4096).refine(value => !value.includes('\0'), '附件路径无效') }).strict(),
+    z.object({ kind: z.literal('clipboard-image'), mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']), bytes: clipboardImageBytesSchema }).strict()
+  ])).min(1).max(20)
+}).strict();
 export const requirementResolutionActionSchema = z.enum(['confirm', 'provide_info', 'reject_assumption', 'not_applicable', 'accept_risk']);
 export const requirementResolutionSchema = z.object({ itemId: idSchema, action: requirementResolutionActionSchema, valueText: z.string().max(8000).optional(), reason: z.string().max(4000).optional() }).strict();
 export const clipboardTextSchema = z.string().max(2 * 1024 * 1024, '代码内容过长，请分段复制');

@@ -1,5 +1,5 @@
 import './logging';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent, type Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, shell, type IpcMainInvokeEvent, type Tray } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ import { SettingsService } from './settings';
 import { GrokSettingsService } from './grok-settings';
 import { resolveGrokSessionBinding } from './grok-session-binding';
 import { DpapiCredentialVault } from './credentials';
-import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentPathsSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
+import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
 import { RunLifecycle, type RunTicket } from './lifecycle';
 import { SessionRuntimes } from './session-runtimes';
 import { SessionGitService } from './session-git';
@@ -361,12 +361,30 @@ function pendingAttachments(sessionId: string): Map<string, PendingConversationA
   if (!entries) { entries = new Map(); pendingConversationAttachments.set(sessionId, entries); }
   return entries;
 }
-async function addConversationAttachmentPaths(sessionId: string, sources: string[]): Promise<ConversationAttachment[]> {
+type ConversationAttachmentSource = { kind: 'path'; path: string } | { kind: 'clipboard-image'; mimeType: string; bytes: Uint8Array };
+async function addConversationAttachments(sessionId: string, sources: ConversationAttachmentSource[]): Promise<ConversationAttachment[]> {
   const entries = pendingAttachments(sessionId);
   if (entries.size + sources.length > MAX_CONVERSATION_ATTACHMENTS) throw new Error(`本轮最多选择 ${MAX_CONVERSATION_ATTACHMENTS} 个附件`);
-  const candidates: Array<{ source: string; canonical: string; size: number; filename: string; mimeType: string; kind: 'image' | 'file' }> = [];
+  const candidates: Array<{ source?: string; canonical?: string; bytes?: Uint8Array; size: number; filename: string; mimeType: string; kind: 'image' | 'file' }> = [];
   let total = [...entries.values()].reduce((sum, item) => sum + item.size, 0);
-  for (const source of sources) {
+  let clipboardImageCount = 0;
+  for (const item of sources) {
+    if (item.kind === 'clipboard-image') {
+      if (!(item.bytes instanceof Uint8Array) || item.bytes.byteLength === 0 || item.bytes.byteLength > MAX_CONVERSATION_IMAGE_BYTES) throw new Error('剪贴板图片无效或超过每张 8 MiB 限制');
+      const image = nativeImage.createFromBuffer(Buffer.from(item.bytes));
+      if (image.isEmpty()) throw new Error('无法解码剪贴板图片，请重新复制图片或点击“添加附件”选择文件');
+      const { width, height } = image.getSize();
+      if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || width * height > 100_000_000) throw new Error('剪贴板图片尺寸超出支持范围');
+      const bytes = image.toPNG();
+      const filename = `剪贴板图片${clipboardImageCount ? `-${clipboardImageCount + 1}` : ''}.png`;
+      clipboardImageCount++;
+      if (!bytes.byteLength || bytes.byteLength > MAX_CONVERSATION_IMAGE_BYTES) throw new Error('剪贴板图片转换后超过每张 8 MiB 限制');
+      total += bytes.byteLength;
+      if (total > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error('本轮附件总量超过 32 MiB 限制');
+      candidates.push({ bytes, size: bytes.byteLength, filename, mimeType: 'image/png', kind: 'image' });
+      continue;
+    }
+    const source = item.path;
     if (!path.isAbsolute(source)) throw new Error('附件路径必须为本机绝对路径');
     const stat = await lstat(source);
     const canonical = await realpath(source);
@@ -397,7 +415,8 @@ async function addConversationAttachmentPaths(sessionId: string, sources: string
       const extension = path.extname(candidate.filename).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
       const target = path.join(root, `${id}${extension}`);
       targets.push(target);
-      await copyFile(candidate.canonical, target);
+      if (candidate.bytes) await writeFile(target, candidate.bytes, { flag: 'wx' });
+      else await copyFile(candidate.canonical!, target);
       const copied = await lstat(target);
       if (!copied.isFile() || copied.size !== candidate.size || copied.nlink !== 1) throw new Error(`附件复制后校验失败：${candidate.filename}`);
       const documentExtension = path.extname(candidate.filename).toLowerCase();
@@ -414,6 +433,9 @@ async function addConversationAttachmentPaths(sessionId: string, sources: string
     entries.set(id, { id, name, mimeType, size, kind, ...pending });
     return { id, name, mimeType, size, kind };
   });
+}
+async function addConversationAttachmentPaths(sessionId: string, sources: string[]): Promise<ConversationAttachment[]> {
+  return addConversationAttachments(sessionId, sources.map(item => ({ kind: 'path', path: item })));
 }
 function attachmentPrompt(prompt: string, attachments: PendingConversationAttachment[]): string {
   if (!attachments.length) return prompt;
@@ -1570,9 +1592,9 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   handle('session:add-attachments', async (value: unknown) => {
     if (gitBusy || creating.size || jiraFlowBusy) throw new Error('请等待 Git、Jira 或会话创建操作结束后再添加附件');
-    const input = sessionAttachmentPathsSchema.parse(value);
+    const input = sessionAttachmentsSchema.parse(value);
     sessionById(input.sessionId);
-    return addConversationAttachmentPaths(input.sessionId, input.paths);
+    return addConversationAttachments(input.sessionId, input.items);
   });
   sendSessionTurn = async (value: unknown, input: unknown, queuedTurnId?: string) => {
     if (gitBusy || creating.size || jiraFlowBusy || activeVerifications.size || verificationStarting.size) throw new Error('请等待验证、Git、Jira 或会话创建操作结束后再启动 Agent');

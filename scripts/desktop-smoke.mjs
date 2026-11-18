@@ -191,6 +191,20 @@ try {
   });
   await expect(page.locator('.composer-attachment')).toHaveCount(3);
   await expect(page.locator('.composer textarea')).toHaveValue('随文件一起粘贴的备注');
+  const clipboardImageBytes = Array.from(await readFile(uploadImage));
+  const sessionAttachmentDirectory = path.join(data, 'attachments', 'conversation', session.id);
+  const pngCountBeforeClipboardImage = (await readdir(sessionAttachmentDirectory)).filter(filename => filename.endsWith('.png')).length;
+  await page.locator('.composer textarea').evaluate((textarea, bytes) => {
+    const file = new File([new Uint8Array(bytes)], 'clipboard-image.png', { type: 'image/png' });
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(file);
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, clipboardImageBytes);
+  await expect(page.locator('.composer-attachment')).toHaveCount(4);
+  await expect(page.locator('.composer-attachment').last()).toContainText('剪贴板图片.png');
+  const sessionAttachmentFiles = await readdir(sessionAttachmentDirectory);
+  assert.equal(sessionAttachmentFiles.filter(filename => filename.endsWith('.png')).length, pngCountBeforeClipboardImage + 1, '剪贴板图片必须由主进程解码后写入会话附件目录');
+  checks.push('会话输入框 Ctrl+V 可粘贴无本地路径的剪贴板图片，主进程解码并保存为本地 PNG 附件');
   checks.push('会话输入框 Ctrl+V 文件粘贴通过真实 preload/IPC 添加附件，剪贴板文字同步插入');
   await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
   const switched = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);

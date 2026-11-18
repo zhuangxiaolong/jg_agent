@@ -139,10 +139,21 @@ const api: DesktopApi = {
   refreshRequirementAdmission: id => invoke('session:requirement-refresh', id),
   resolveRequirementItem: (id, itemId, action, valueText, reason) => invoke('session:requirement-resolve', id, { itemId, action, valueText, reason }),
   pickAttachments: id => invoke('session:pick-attachments', id),
-  addConversationAttachments: (id, files) => {
-    const paths = files.map(file => webUtils.getPathForFile(file));
-    if (!paths.length || paths.some(filename => !filename)) return Promise.reject(new Error('无法读取剪贴板文件路径。请从文件资源管理器复制本地文件后粘贴，或点击“添加附件”。'));
-    return invoke('session:add-attachments', { sessionId: id, paths });
+  addConversationAttachments: async (id, files) => {
+    const items: Array<{ kind: 'path'; path: string } | { kind: 'clipboard-image'; mimeType: string; bytes: Uint8Array }> = [];
+    let totalBytes = 0;
+    for (const file of files) {
+      totalBytes += file.size;
+      if (totalBytes > 32 * 1024 * 1024) throw new Error('本轮附件总量超过 32 MiB 限制');
+      const filename = webUtils.getPathForFile(file);
+      if (filename) { items.push({ kind: 'path', path: filename }); continue; }
+      const mimeType = file.type.toLowerCase();
+      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mimeType)) throw new Error('无法读取剪贴板文件路径。请从文件资源管理器复制本地文件后粘贴，或点击“添加附件”。');
+      if (!file.size || file.size > 8 * 1024 * 1024) throw new Error('剪贴板图片无效或超过每张 8 MiB 限制');
+      items.push({ kind: 'clipboard-image', mimeType, bytes: new Uint8Array(await file.arrayBuffer()) });
+    }
+    if (!items.length) throw new Error('剪贴板中没有可添加的附件');
+    return invoke('session:add-attachments', { sessionId: id, items });
   },
   authorizeSessionDirectory: id => invoke('session:authorize-directory', id),
   revokeSessionDirectory: (id, grantId) => invoke('session:revoke-directory', id, grantId),
