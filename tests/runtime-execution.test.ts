@@ -20,6 +20,8 @@ test('共享查询指引按实际 Shell 提供兼容建议并保留原任务', (
   assert.match(windows, /先确认当前工具的实际 Shell，Bash 工具保持 Bash 语法/);
   assert.match(windows, /Invoke-WebRequest 和 ConvertFrom-Json 均没有 -Encoding 参数/);
   assert.match(windows, /localObsDateTime/);
+  assert.match(windows, /只有工具返回明确的权限拒绝\/安全拦截结果，才能报告/);
+  assert.match(windows, /用户明确授权的测试环境数据库写入/);
   assert.doesNotMatch(buildRuntimeExecutionInstructions('原始业务要求', 'linux'), /Windows Shell|wttr.in\/Nanjing/);
 });
 
