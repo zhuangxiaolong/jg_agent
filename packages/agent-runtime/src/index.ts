@@ -20,8 +20,10 @@ export const RUNTIME_CAPABILITIES_VERSION = 10;
 // Codex 内部的模型 SSE 可能在命令执行、数据库操作或网络抖动期间长时间没有增量。
 // 这里不设置短任务时限；24 小时只作为协议层的最长空闲保护，避免断线后无限挂起。
 export const CODEX_STREAM_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-export const CODEX_REQUEST_MAX_RETRIES = 3;
-export const CODEX_STREAM_MAX_RETRIES = 3;
+// 模型网关可能返回很长的 Retry-After；自动退避会让用户看不到进展地等待数十分钟。
+// 与独立 CLI 一致，由用户在明确的失败提示后决定何时继续。
+export const CODEX_REQUEST_MAX_RETRIES = 0;
+export const CODEX_STREAM_MAX_RETRIES = 0;
 export interface RuntimeEvent {
   threadId?: string;
   type: AgentEvent['type'];
@@ -123,7 +125,13 @@ export function redactRuntimeText(text: string, apiKey?: string, maxLength = 320
 }
 
 export function explainRuntimeError(text: string): string {
-  if (/stream disconnected before completion:\s*idle timeout waiting for SSE/i.test(text)) return '模型流式连接长时间无数据，已自动重试；请检查模型服务网络或稍后重试。';
+  if (/\b429\b|too many requests|rate.?limit/i.test(text)) {
+    const requestId = text.match(/\brequest id:\s*([a-z0-9-]+)/i)?.[1];
+    return `当前配置的中转站/模型服务返回 HTTP 429 限流（上游响应，非精工 Agent 本地错误）；已停止自动重试。请联系服务商核查配额或并发限制${requestId ? `（请求 ID：${requestId}）` : ''}。`;
+  }
+  const upstreamStatus = text.match(/(?:last status:\s*|HTTP\s*)([45]\d{2})(?:\s+([^,\n]+))?/i);
+  if (upstreamStatus) return `当前配置的中转站/模型服务返回 HTTP ${upstreamStatus[1]} 错误（上游响应，非精工 Agent 本地错误）：${text}`;
+  if (/stream disconnected before completion:\s*idle timeout waiting for SSE/i.test(text)) return '模型流式连接长时间无数据，已停止会话；请检查模型服务网络后重试。';
   return text;
 }
 
@@ -247,8 +255,16 @@ export class CodexRuntime {
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       if (this.child !== child || this.closing) return;
-      try { for (const line of decoder.push(chunk)) this.receive(JSON.parse(line)); }
-      catch { this.failChild(child, new Error('Runtime 协议输出无效，已停止会话')); }
+      let lines: string[];
+      try { lines = decoder.push(chunk); }
+      catch (error) { this.failChild(child, new Error(this.clean(error instanceof Error ? error.message : String(error)))); return; }
+      for (const line of lines) {
+        let message: RpcMessage;
+        try { message = JSON.parse(line) as RpcMessage; }
+        catch { this.failChild(child, new Error('Runtime 协议 JSON 无效，已停止会话')); return; }
+        try { this.receive(message); }
+        catch (error) { this.failChild(child, new Error(`Runtime 消息处理失败：${this.clean(error instanceof Error ? error.message : String(error))}`)); return; }
+      }
     });
     // stderr 只保留经过脱敏的有界诊断文本。
     let diagnostic = '';

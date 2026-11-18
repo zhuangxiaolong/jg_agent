@@ -1,5 +1,5 @@
 import { useTransientError } from './use-transient-error';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
 import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
@@ -28,6 +28,7 @@ import { BrowserPanel } from './BrowserPanel';
 import { ProjectFilesPanel } from './ProjectFilesPanel';
 import { pendingRuntimeApprovals, sessionProviderChoices } from './grok-ui-state';
 import { IterationWorkbench } from './IterationWorkbench';
+import { assistantMessageDurations, formatClockTime, formatDuration } from './message-timing';
 import './runtime-approval.css';
 
 
@@ -39,7 +40,7 @@ interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; st
 interface FileContextMenu { file: FileDiff; x: number; y: number }
 interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
-function time(value: string) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
+function time(value: string) { return formatClockTime(value); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
 function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? '当前引擎' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
 function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
@@ -76,7 +77,8 @@ function mergeEvents(a: AgentEvent[], b: AgentEvent[]) {
   return [...events.values()].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
 }
 function timeline(events: AgentEvent[]) {
-  const rows: { id: string; type: AgentEvent['type']; text: string; createdAt: string }[] = [];
+  const rows: { id: string; type: AgentEvent['type']; text: string; createdAt: string; durationMs?: number }[] = [];
+  const durations = assistantMessageDurations(events);
   for (const event of events) {
     if (event.type === 'approval') {
       if (event.approval && event.approval.state !== 'pending') rows.push({ ...event, type: 'status', text: `工具审批${event.approval.state === 'allowed' ? '已允许一次' : event.approval.state === 'expired' ? '已过期' : '已拒绝'}：${event.approval.title}` });
@@ -86,9 +88,15 @@ function timeline(events: AgentEvent[]) {
     const compactText = compactAgentEvent(event);
     if (compactText === null) continue;
     const last = rows[rows.length - 1];
-    const display = { ...event, text: compactText };
-    if (display.type === 'delta' && last?.type === 'delta') last.text += display.text;
-    else if (display.type === 'message' && last?.type === 'delta' && last.text.trim() === display.text.trim()) last.type = 'message';
+    const display = { ...event, text: compactText, ...(durations.has(event.id) ? { durationMs: durations.get(event.id) } : {}) };
+    if (display.type === 'delta' && last?.type === 'delta') {
+      last.text += display.text;
+      if (display.durationMs !== undefined) last.durationMs = display.durationMs;
+    }
+    else if (display.type === 'message' && last?.type === 'delta' && last.text.trim() === display.text.trim()) {
+      last.type = 'message';
+      if (display.durationMs !== undefined) last.durationMs = display.durationMs;
+    }
     else if (display.type === 'tool' && last?.type === 'tool' && last.text === display.text) { /* 合并连续分页读取 */ }
     else rows.push(display);
   }
@@ -542,6 +550,36 @@ export function App() {
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
+  async function pasteConversationAttachments(files: File[]) {
+    if (!session || !files.length) return;
+    if (running || busy) { setError('当前会话暂不能添加附件，请等待正在进行的操作完成。'); return; }
+    setBusy('attachments'); setError(''); setNotice('');
+    try {
+      const added = await api.addConversationAttachments(session.id, files);
+      if (added.length) {
+        setConversationAttachments(current => [...current, ...added]);
+        setNotice(`已粘贴 ${added.length} 个附件，可检查后发送。`);
+      }
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(''); }
+  }
+  function handleComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files);
+    if (!files.length) return;
+    const clipboardText = event.clipboardData.getData('text/plain');
+    const target = event.currentTarget;
+    event.preventDefault();
+    event.stopPropagation();
+    if (clipboardText) {
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const available = Math.max(0, 32000 - target.value.length + end - start);
+      const inserted = clipboardText.slice(0, available);
+      setPrompt(target.value.slice(0, start) + inserted + target.value.slice(end));
+      window.requestAnimationFrame(() => { target.focus(); target.setSelectionRange(start + inserted.length, start + inserted.length); });
+    }
+    void pasteConversationAttachments(files);
+  }
   async function refreshDiff(id = sessionId, background = false) {
     if (id !== selectedSessionRef.current) return;
     if (background && diffInFlight.current.has(id)) return;
@@ -942,7 +980,7 @@ export function App() {
             {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
                {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 直接使用所选项目目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
-               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong><time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div></div></article>)}
+               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div></div></article>)}
               {runtimeApprovals.map(event => {
                 const approval = event.approval!;
                 const marker = `${sessionId}:${approval.requestId}`;
@@ -971,11 +1009,11 @@ export function App() {
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send}>
-                <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} rows={3} maxLength={32000} />
+                <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
                 {conversationAttachments.length > 0 && <div className="composer-attachments" aria-label="待发送附件">{conversationAttachments.map(attachment => <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name={attachment.kind === 'image' ? 'box' : 'file'} /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}</div>}
                <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || configurationChanged || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : configurationChanged ? '请先应用会话设置' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
               </form>
-              <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型') + ' / ' + configuredBackend} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'} · {configuredBackend}</span><Icon name="chevron" /></button>
+              <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行 · Ctrl + V 粘贴文件</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型') + ' / ' + configuredBackend} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'} · {configuredBackend}</span><Icon name="chevron" /></button>
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
               <div className="session-settings-heading"><strong>会话设置</strong><button type="button" className="icon-button" aria-label="关闭会话设置" onClick={() => { setSessionSettingsOpen(false); sessionSettingsTriggerRef.current?.focus(); }}><Icon name="close" /></button></div>
               <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => { const profile = providerChoices.find(item => item.id === e.target.value); setDraftProvider(e.target.value); setDraftModel(profile?.models.find(model => model.enabled)?.id || ''); }}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{providerChoices.map(item => <option value={item.id} key={item.id} disabled={!item.enabled}>{item.name}{!item.enabled ? '（已停用）' : item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>

@@ -16,13 +16,22 @@ test('JSONL 协议处理跨行分帧和超长行', () => {
   assert.throws(() => decoder.push('x'.repeat(4 * 1024 * 1024 + 1)), /超过/);
 });
 
-test('Runtime 对 SSE 空闲采用长容忍并启用有限重试', () => {
+test('Runtime 保持长 SSE 空闲保护且关闭模型请求自动重试', () => {
   assert.equal(CODEX_RUNTIME_VERSION, '0.156.1');
   assert.equal(CODEX_STREAM_IDLE_TIMEOUT_MS, 24 * 60 * 60 * 1000);
-  assert.equal(CODEX_REQUEST_MAX_RETRIES, 3);
-  assert.equal(CODEX_STREAM_MAX_RETRIES, 3);
+  assert.equal(CODEX_REQUEST_MAX_RETRIES, 0);
+  assert.equal(CODEX_STREAM_MAX_RETRIES, 0);
   assert.ok(CODEX_STREAM_IDLE_TIMEOUT_MS > 30_000);
-  assert.equal(explainRuntimeError('stream disconnected before completion: idle timeout waiting for SSE'), '模型流式连接长时间无数据，已自动重试；请检查模型服务网络或稍后重试。');
+  assert.equal(explainRuntimeError('stream disconnected before completion: idle timeout waiting for SSE'), '模型流式连接长时间无数据，已停止会话；请检查模型服务网络后重试。');
+});
+
+test('Runtime 将 429 限流错误转为可操作提示并保留请求 ID', () => {
+  assert.equal(
+    explainRuntimeError('exceeded retry limit, last status: 429 Too Many Requests, request id: 9174ec80-1995-4e11-bea9-9f2ce1819958'),
+    '当前配置的中转站/模型服务返回 HTTP 429 限流（上游响应，非精工 Agent 本地错误）；已停止自动重试。请联系服务商核查配额或并发限制（请求 ID：9174ec80-1995-4e11-bea9-9f2ce1819958）。'
+  );
+  assert.match(explainRuntimeError('请求失败，HTTP 502 Bad Gateway'), /中转站\/模型服务返回 HTTP 502.*上游响应，非精工 Agent 本地错误/);
+  assert.equal(explainRuntimeError('request failed'), 'request failed');
 });
 
 test('Runtime 错误脱敏与凭据环境隔离', () => {

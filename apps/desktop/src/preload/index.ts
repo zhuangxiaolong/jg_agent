@@ -139,6 +139,11 @@ const api: DesktopApi = {
   refreshRequirementAdmission: id => invoke('session:requirement-refresh', id),
   resolveRequirementItem: (id, itemId, action, valueText, reason) => invoke('session:requirement-resolve', id, { itemId, action, valueText, reason }),
   pickAttachments: id => invoke('session:pick-attachments', id),
+  addConversationAttachments: (id, files) => {
+    const paths = files.map(file => webUtils.getPathForFile(file));
+    if (!paths.length || paths.some(filename => !filename)) return Promise.reject(new Error('无法读取剪贴板文件路径。请从文件资源管理器复制本地文件后粘贴，或点击“添加附件”。'));
+    return invoke('session:add-attachments', { sessionId: id, paths });
+  },
   authorizeSessionDirectory: id => invoke('session:authorize-directory', id),
   revokeSessionDirectory: (id, grantId) => invoke('session:revoke-directory', id, grantId),
   restoreSessionFullReadAccess: id => invoke('session:restore-full-read-access', id),
@@ -173,6 +178,7 @@ const api: DesktopApi = {
   },
   saveModelProvider: input => invoke('settings:provider-save', input),
   fetchProviderModels: input => invoke('settings:provider-models', input),
+  revealModelProviderApiKey: input => invoke('settings:provider-key', input),
   deleteModelProvider: id => invoke('settings:provider-delete', id),
   saveJira: input => invoke('settings:jira', input),
   revealJiraPassword: input => invoke('settings:jira-password', input),

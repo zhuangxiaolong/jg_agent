@@ -81,6 +81,24 @@ test('保留已保存 ID 调用与同地址凭据复用，更换地址必须提�
   } finally { await state.close(); }
 });
 
+test('查看已保存 API Key 仅允许精确的已保存中转站地址，普通设置快照不回传密钥', async t => {
+  const state = await fixture();
+  try {
+    const saved = { id: providerId, name: '已保存中转站', baseUrl, models: ['saved-model'], hasKey: true };
+    state.store.saveModelProvider(saved);
+    const reads: Array<{ id: string; scope?: string }> = [];
+    const secret = 'retained-provider-secret';
+    t.mock.method(state.settings, 'credential', (id: string) => ({ hasKey: id === providerId, read: (scope?: string) => { reads.push({ id, scope }); return id === providerId && scope === baseUrl ? secret : undefined; } }) as CredentialStore);
+    assert.equal(state.settings.revealModelProviderApiKey({ id: providerId, baseUrl: `${baseUrl}/` }), secret);
+    assert.deepEqual(reads, [{ id: providerId, scope: baseUrl }]);
+    assert.equal(JSON.stringify(state.settings.snapshot()).includes(secret), false);
+    assert.throws(() => state.settings.revealModelProviderApiKey({ id: providerId, baseUrl: 'https://other.example.invalid/v1' }), /地址已修改/);
+    assert.throws(() => state.settings.revealModelProviderApiKey({ id: '00000000-0000-4000-8000-000000000002', baseUrl }), /不存在/);
+    assert.throws(() => state.settings.revealModelProviderApiKey({ id: providerId, baseUrl, apiKey: secret }), /Unrecognized key|Invalid input/);
+    assert.deepEqual(reads, [{ id: providerId, scope: baseUrl }]);
+  } finally { await state.close(); }
+});
+
 test('无凭据、非法地址和未知中转站不会发出模型请求', async t => {
   const state = await fixture();
   try {

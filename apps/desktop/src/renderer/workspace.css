@@ -133,6 +133,9 @@ html, body { color: var(--text); background: var(--surface-1); }
 .session-plugin-snapshot-empty { margin: 7px 0; color: var(--muted); font-size: 8px; }
 .session-plugin-snapshot-note { display: flex; align-items: flex-start; gap: 5px; margin: 8px 0 0; line-height: 1.5; }
 .session-plugin-snapshot-note svg { width: 12px; flex: 0 0 auto; }
+.message-duration { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 9px; white-space: nowrap; }
+.message-duration .icon { width: 11px; height: 11px; }
+.dock-layout .message-duration { font-size: 12px; }
 .settings-shell { position: relative; display: flex; flex-direction: column; width: min(890px, calc(100vw - 60px)); height: min(740px, calc(100vh - 70px)); min-width: min(560px, calc(100vw - 50px)); min-height: min(360px, calc(100vh - 50px)); max-width: calc(100vw - 50px); max-height: calc(100vh - 50px); border: 1px solid var(--line); border-radius: 13px; background: var(--surface-1); box-shadow: 0 25px 80px var(--shadow); overflow: hidden; resize: both; }
 .settings-shell::after { content: ''; position: absolute; right: 3px; bottom: 3px; width: 15px; height: 15px; background: repeating-linear-gradient(135deg, transparent 0 3px, var(--muted) 3px 4px, transparent 4px 7px); clip-path: polygon(100% 0, 100% 100%, 0 100%); pointer-events: none; opacity: .8; }
 .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--line); flex-shrink: 0; }

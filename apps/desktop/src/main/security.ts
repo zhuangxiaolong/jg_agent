@@ -11,6 +11,7 @@ export const modelApiKeySchema = z.string().trim().min(1, '请填写 API Key').m
   .refine(value => !/^https?:\/\//i.test(value), 'API Key 不能填写网址，请填写中转站生成的密钥');
 export const promptSchema = z.string().trim().min(1).max(50000);
 export const sessionSendSchema = z.object({ prompt: promptSchema, attachmentIds: z.array(idSchema).max(20).default([]) }).strict();
+export const sessionAttachmentPathsSchema = z.object({ sessionId: idSchema, paths: z.array(z.string().min(1).max(4096).refine(value => !value.includes('\0'), '附件路径无效')).min(1).max(20) }).strict();
 export const requirementResolutionActionSchema = z.enum(['confirm', 'provide_info', 'reject_assumption', 'not_applicable', 'accept_risk']);
 export const requirementResolutionSchema = z.object({ itemId: idSchema, action: requirementResolutionActionSchema, valueText: z.string().max(8000).optional(), reason: z.string().max(4000).optional() }).strict();
 export const clipboardTextSchema = z.string().max(2 * 1024 * 1024, '代码内容过长，请分段复制');
@@ -20,6 +21,7 @@ export const providerSchema = z.object({
   apiKey: modelApiKeySchema.optional()
 }).strict();
 export const modelProfileSchema = z.object({ id: profileIdSchema.optional(), name: z.string().trim().min(1).max(80), baseUrl: httpsUrlSchema, models: z.array(modelSchema).min(1).max(50).refine(values => new Set(values).size === values.length, '模型不能重复'), modelCatalog: z.array(z.object({ id: modelSchema, name: z.string().trim().min(1).max(240) }).strict()).max(100).optional(), apiKey: modelApiKeySchema.optional() }).strict();
+export const providerCredentialRevealSchema = z.object({ id: profileIdSchema, baseUrl: httpsUrlSchema }).strict();
 export const providerModelsSchema = z.union([profileIdSchema, z.object({ id: profileIdSchema.optional(), baseUrl: httpsUrlSchema, apiKey: modelApiKeySchema.optional() }).strict()]);
 export const preferencesSchema = z.object({ theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']), style: z.enum(['jinggong', 'minimal']), completionSound: z.enum(['chime', 'bright', 'soft', 'off']).default('chime'), updateMode: z.enum(['automatic', 'manual']).default('automatic') }).strict();
 export const layoutSchema = z.object({

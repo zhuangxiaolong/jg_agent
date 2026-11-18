@@ -376,6 +376,7 @@ export interface DesktopApi {
   refreshRequirementAdmission(sessionId: string): Promise<Session>;
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
+  addConversationAttachments(sessionId: string, files: File[]): Promise<ConversationAttachment[]>;
   authorizeSessionDirectory(sessionId: string): Promise<Session>;
   revokeSessionDirectory(sessionId: string, grantId: string): Promise<Session>;
   restoreSessionFullReadAccess(sessionId: string): Promise<Session>;
@@ -412,6 +413,7 @@ export interface DesktopApi {
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
   saveModelProvider(input: { id?: string; name: string; baseUrl: string; models: string[]; modelCatalog?: ProviderModel[]; apiKey?: string }): Promise<ProviderProfile>;
   fetchProviderModels(input: ProviderModelsInput): Promise<ProviderModel[]>;
+  revealModelProviderApiKey(input: { id: string; baseUrl: string }): Promise<string>;
   deleteModelProvider(id: string): Promise<void>;
   saveJira(input: { baseUrl: string; account: string; password?: string; projectKey?: string; dateFieldId?: string }): Promise<JiraSettings>;
   revealJiraPassword(input: { baseUrl: string; account: string }): Promise<string>;

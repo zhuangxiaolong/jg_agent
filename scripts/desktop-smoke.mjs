@@ -173,6 +173,25 @@ try {
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
   await expect(page.locator('.composer-attachment')).toHaveCount(2);
   checks.push('会话输入区可选择图片和普通文件，附件元数据通过主进程校验并显示在待发送列表');
+  const clipboardFile = path.join(root, '会话粘贴附件.md');
+  await writeFile(clipboardFile, '# 粘贴附件\n\n通过本机文件剪贴板测试。\n');
+  await page.locator('body').evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.id = 'clipboard-file-test'; input.hidden = true;
+    document.body.append(input);
+  });
+  await page.locator('#clipboard-file-test').setInputFiles(clipboardFile);
+  await page.locator('.composer textarea').evaluate(textarea => {
+    const file = document.querySelector('#clipboard-file-test').files[0];
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(file);
+    clipboardData.setData('text/plain', '随文件一起粘贴的备注');
+    textarea.setSelectionRange(0, 0);
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('.composer-attachment')).toHaveCount(3);
+  await expect(page.locator('.composer textarea')).toHaveValue('随文件一起粘贴的备注');
+  checks.push('会话输入框 Ctrl+V 文件粘贴通过真实 preload/IPC 添加附件，剪贴板文字同步插入');
   await expect(page.getByLabel('当前会话基准分支', { exact: true })).toHaveCount(0);
   const switched = (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id);
   assert.equal(switched?.workspacePath, boot.projects[0].path, '项目会话直接使用已选项目目录');
@@ -369,6 +388,9 @@ try {
   assert.equal(await page.locator('.markdown-code').count(), 1);
   await app.evaluate(async ({ clipboard, ClipboardItem }) => {
     globalThis.__clipboardBeforeCodeCopy = await Promise.all((await clipboard.read()).filter(item => item.types.length > 0).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)]))))));
+    globalThis.__clipboardCodeWrites = [];
+    globalThis.__nativeClipboardWriteText = clipboard.writeText;
+    clipboard.writeText = function (text, ...args) { globalThis.__clipboardCodeWrites.push(text); return globalThis.__nativeClipboardWriteText.call(clipboard, text, ...args); };
   });
   try {
     const samples = ['// 中文与表情😀\n\tconst value = "<tag>&内容";\n\n  return value;', 'SELECT "字段" FROM "表"; -- ' + '长代码'.repeat(150)];
@@ -379,7 +401,7 @@ try {
     for (let index = 0; index < samples.length; index++) {
       await copyButtons.nth(index).click();
       await expect(copyButtons.nth(index)).toHaveText('已复制');
-      assert.equal((await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n'), samples[index]);
+      assert.equal(await app.evaluate(() => globalThis.__clipboardCodeWrites.at(-1)), samples[index]);
     }
     const overflow = await copiedMessage.locator('.markdown-code-content').nth(1).evaluate(element => element.scrollWidth > element.clientWidth);
     assert.equal(overflow, true);
@@ -390,21 +412,21 @@ try {
     } finally { await app.evaluate(({ clipboard }) => { clipboard.writeText = globalThis.__codeTestWriteText; delete globalThis.__codeTestWriteText; }); }
     await copyButtons.first().click();
     await expect(copyButtons.first()).toHaveText('已复制');
-    assert.equal((await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n'), samples[0]);
+    assert.equal(await app.evaluate(() => globalThis.__clipboardCodeWrites.at(-1)), samples[0]);
     await app.evaluate(({ BrowserWindow }, sessionId) => BrowserWindow.getAllWindows()[0].webContents.send('agent:event', { id: 'smoke-code-stream-1', sessionId, type: 'delta', text: '## 流式代码复制验收\n\n```js\nconst one = 1;', createdAt: new Date().toISOString() }), session.id);
     const streamed = page.locator('article.message').filter({ has: page.getByRole('heading', { name: '流式代码复制验收', exact: true }) });
     const streamCopy = streamed.getByRole('button', { name: '复制代码', exact: true });
     await streamCopy.click(); await expect(streamCopy).toHaveText('已复制');
-    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), 'const one = 1;');
+    assert.equal(await app.evaluate(() => globalThis.__clipboardCodeWrites.at(-1)), 'const one = 1;');
     await app.evaluate(({ BrowserWindow }, sessionId) => BrowserWindow.getAllWindows()[0].webContents.send('agent:event', { id: 'smoke-code-stream-2', sessionId, type: 'delta', text: '\nconst two = 2;\n```', createdAt: new Date().toISOString() }), session.id);
     await expect(streamCopy).toHaveText('复制');
     await streamCopy.click(); await expect(streamCopy).toHaveText('已复制');
-    assert.equal((await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n'), 'const one = 1;\nconst two = 2;');
+    assert.equal(await app.evaluate(() => globalThis.__clipboardCodeWrites.at(-1)), 'const one = 1;\nconst two = 2;');
     await copiedMessage.scrollIntoViewIfNeeded();
     await page.screenshot({ path: 'test-results/desktop-code-copy.png' });
     checks.push('真实Windows剪贴板一键复制：多代码块分别复制，中文、表情、缩进、空行及特殊字符完整；无语言标签、围栏或按钮文字；长行横向滚动、失败可重试、流式追加后复制最新代码；消息为渲染测试注入，未调用模型');
   } finally {
-    await app.evaluate(async ({ clipboard }) => { if (globalThis.__clipboardBeforeCodeCopy.length) await clipboard.write(globalThis.__clipboardBeforeCodeCopy); else clipboard.clear(); delete globalThis.__clipboardBeforeCodeCopy; });
+    await app.evaluate(async ({ clipboard }) => { clipboard.writeText = globalThis.__nativeClipboardWriteText; if (globalThis.__clipboardBeforeCodeCopy.length) await clipboard.write(globalThis.__clipboardBeforeCodeCopy); else clipboard.clear(); delete globalThis.__nativeClipboardWriteText; delete globalThis.__clipboardCodeWrites; delete globalThis.__clipboardBeforeCodeCopy; });
   }
   const warning = page.getByRole('alert', { name: '开发条件警告', exact: true });
   await expect(warning).toBeVisible();
@@ -498,6 +520,23 @@ try {
   assert.ok(cryptoResult);
   const current = await page.evaluate(() => window.jinggong.bootstrap());
   assert.equal(current.provider.hasKey, true); assert.equal(current.provider.apiKey, undefined);
+  await page.getByRole('button', { name: '全局设置', exact: true }).click();
+  await page.getByRole('button', { name: '模型中转站', exact: true }).click();
+  await expect(page.locator('#provider-key')).toHaveAttribute('placeholder', /\*{6,}/);
+  assert.equal(await page.locator('#provider-key').inputValue(), '');
+  await page.getByRole('button', { name: '显示 API Key', exact: true }).click();
+  await expect(page.locator('#provider-key')).toHaveValue(sentinel);
+  await expect(page.locator('#provider-key')).toHaveAttribute('type', 'text');
+  await page.locator('#provider-url').fill('https://another.example.invalid/v1');
+  await expect(page.locator('#provider-key')).toHaveValue('');
+  await expect(page.locator('#provider-key')).toHaveAttribute('type', 'password');
+  await page.locator('#provider-url').fill(current.provider.baseUrl);
+  await page.getByRole('button', { name: '显示 API Key', exact: true }).click();
+  await expect(page.locator('#provider-key')).toHaveValue(sentinel);
+  await page.getByRole('button', { name: '隐藏 API Key', exact: true }).click();
+  await expect(page.locator('#provider-key')).toHaveValue('');
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click();
+  checks.push('中转站 API Key 默认星号遮挡，点击查看后可显式读取；切换地址立即隐藏已保存密钥，留空可保留原密钥');
   await assert.rejects(page.evaluate(profile => window.jinggong.saveModelProvider({ ...profile, hasKey: undefined, baseUrl: 'https://another.example.invalid/v1' }), profile));
   await assert.rejects(page.evaluate(profile => window.jinggong.saveModelProvider({ id: profile.id, name: profile.name, models: profile.models, baseUrl: 'https://another.example.invalid/v1' }), profile), /重新输入/);
   assert.equal((await page.evaluate(() => window.jinggong.bootstrap())).provider.baseUrl, current.provider.baseUrl);

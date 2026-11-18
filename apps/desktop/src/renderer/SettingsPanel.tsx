@@ -221,11 +221,35 @@ function Providers({ profiles, pending, act, api, onSaved }: Operations & { prof
   const [catalog, setCatalog] = useState<ProviderModel[]>(initial?.modelCatalog || initial?.models.map(id => ({ id, name: id })) || []);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [key, setKey] = useState('');
+  const [savedKey, setSavedKey] = useState('');
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [revealingKey, setRevealingKey] = useState(false);
+  const [keyRevealError, setKeyRevealError] = useState('');
+  const keyRevealVersion = useRef(0);
   const [deleting, setDeleting] = useState(false);
+  useEffect(() => () => { keyRevealVersion.current++; }, []);
   const selectedModelIds = new Set(models.split(/[\r\n,]+/).map(value => value.trim()).filter(Boolean));
   let canFetchModels = false;
   try { const url = validateUrl(baseUrl); canFetchModels = !!key.trim() || (!!initial?.hasKey && url === initial.baseUrl.replace(/\/$/, '')); } catch { /* 地址填写完整后再启用获取。 */ }
-  function choose(profile?: ProviderProfile) { setSelected(profile?.id || ''); setName(profile?.name || ''); setBaseUrl(profile?.baseUrl || ''); setModels(profile?.models.join('\n') || ''); setCatalog(profile?.modelCatalog || profile?.models.map(id => ({ id, name: id })) || []); setKey(''); setDeleting(false); }
+  function resetKeyState() { keyRevealVersion.current++; setKey(''); setSavedKey(''); setKeyVisible(false); setRevealingKey(false); setKeyRevealError(''); }
+  function choose(profile?: ProviderProfile) { setSelected(profile?.id || ''); setName(profile?.name || ''); setBaseUrl(profile?.baseUrl || ''); setModels(profile?.models.join('\n') || ''); setCatalog(profile?.modelCatalog || profile?.models.map(id => ({ id, name: id })) || []); resetKeyState(); setDeleting(false); }
+  async function toggleKeyVisibility() {
+    if (keyVisible) { keyRevealVersion.current++; setKeyVisible(false); setSavedKey(''); setKeyRevealError(''); return; }
+    setKeyRevealError('');
+    if (key) { setKeyVisible(true); return; }
+    if (!initial?.hasKey) return;
+    let url: string;
+    try { url = validateUrl(baseUrl); } catch { setKeyRevealError('请先填写有效的中转站地址。'); return; }
+    if (url !== initial.baseUrl.replace(/\/$/, '')) { setKeyRevealError('请恢复已保存的中转站地址后再查看该 API Key。'); return; }
+    const version = ++keyRevealVersion.current;
+    setRevealingKey(true);
+    try {
+      const value = await api.revealModelProviderApiKey({ id: initial.id, baseUrl: url });
+      if (version === keyRevealVersion.current) { setSavedKey(value); setKeyVisible(true); }
+    } catch (reason) {
+      if (version === keyRevealVersion.current) setKeyRevealError(failure(reason));
+    } finally { if (version === keyRevealVersion.current) setRevealingKey(false); }
+  }
   async function fetchModels() {
     setFetchingModels(true);
     try { const rows = await api.fetchProviderModels({ ...(selected ? { id: selected } : {}), baseUrl: validateUrl(baseUrl), ...(key.trim() ? { apiKey: key.trim() } : {}) }); setCatalog(rows); setModels(rows.map(item => item.id).join('\n')); }
@@ -241,17 +265,17 @@ function Providers({ profiles, pending, act, api, onSaved }: Operations & { prof
       if ((!initial?.hasKey || url !== initial.baseUrl.replace(/\/$/, '')) && !key.trim()) throw new Error('新增或更换中转站地址时，请填写独立 API Key。');
       await api.saveModelProvider({ ...(selected ? { id: selected } : {}), name: name.trim(), baseUrl: url, models: ids, modelCatalog: catalog.filter(item => ids.includes(item.id)), ...(key.trim() ? { apiKey: key.trim() } : {}) });
     }, '模型配置已保存。');
-    if (ok) { setKey(''); onSaved(); }
+    if (ok) { resetKeyState(); onSaved(); }
   }
   return <section aria-label="模型中转站管理"><div className="section-heading"><div><h3>连接您的模型</h3><p>为不同中转站分别配置模型与加密凭据。</p></div><button className="secondary-button" onClick={() => choose()} disabled={pending}><Icon name="plus" />新增中转站</button></div>
     {profiles.length > 0 && <div className="provider-pills" aria-label="已配置中转站">{profiles.map(profile => <button key={profile.id} className={selected === profile.id ? 'selected' : ''} onClick={() => choose(profile)} disabled={pending}>{profile.name}<span>{profile.models.length} 个模型</span></button>)}</div>}
     <form className="settings-form" onSubmit={save}><label htmlFor="provider-name">中转站名称</label><input id="provider-name" value={name} onChange={e => setName(e.target.value)} required maxLength={80} disabled={pending} autoComplete="off" placeholder="例如：研发主中转" />
-      <label htmlFor="provider-url">API Base URL<span>HTTPS</span></label><input id="provider-url" type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://gateway.example/v1" autoComplete="off" required disabled={pending} /><p className="field-hint">需支持 OpenAI Responses API 和流式输出。</p>
-      <label htmlFor="provider-key">API Key{initial?.hasKey && <span className="saved-secret"><Icon name="check" />已加密保存</span>}</label><input id="provider-key" type="password" value={key} onChange={e => setKey(e.target.value)} autoComplete="new-password" spellCheck={false} required={!initial?.hasKey} disabled={pending} placeholder={initial?.hasKey ? '留空保留密钥；更换地址时必须重新填写' : '请输入独立 API Key'} />
+      <label htmlFor="provider-url">API Base URL<span>HTTPS</span></label><input id="provider-url" type="url" value={baseUrl} onChange={e => { keyRevealVersion.current++; setBaseUrl(e.target.value); setSavedKey(''); setKeyVisible(false); setRevealingKey(false); setKeyRevealError(''); }} placeholder="https://gateway.example/v1" autoComplete="off" required disabled={pending} /><p className="field-hint">需支持 OpenAI Responses API 和流式输出。</p>
+      <label htmlFor="provider-key">API Key{initial?.hasKey && <span className="saved-secret"><Icon name="check" />已加密保存</span>}</label><div className="provider-api-key-field"><input id="provider-key" type={keyVisible ? 'text' : 'password'} value={key || savedKey} onChange={e => { setKey(e.target.value); setSavedKey(''); setKeyRevealError(''); }} autoComplete="new-password" spellCheck={false} required={!initial?.hasKey} disabled={pending || revealingKey} placeholder={initial?.hasKey ? '************（留空保留；更换地址时需填写新密钥）' : '请输入独立 API Key'} /><button type="button" className="provider-api-key-toggle" aria-label={keyVisible ? '隐藏 API Key' : '显示 API Key'} title={revealingKey ? '正在读取已保存 API Key…' : keyVisible ? '隐藏 API Key' : '显示 API Key'} aria-pressed={keyVisible} disabled={pending || revealingKey || (!initial?.hasKey && !key)} onClick={() => void toggleKeyVisibility()}><Icon name={keyVisible ? 'eye-off' : 'eye'} /></button></div>{keyRevealError && <p className="field-hint provider-key-error" role="alert">{keyRevealError}</p>}
       <div className="settings-actions model-fetch-actions"><button type="button" className="secondary-button" onClick={() => void act(fetchModels, '已从中转站获取模型列表，默认已全选。')} disabled={pending || fetchingModels || !canFetchModels}>{fetchingModels ? '正在获取模型…' : '从中转站获取模型列表'}<Icon name="refresh" /></button></div>
       <label htmlFor="provider-model">模型 ID<span>每行一个，可配置多个</span></label><textarea id="provider-model" value={models} onChange={e => { setModels(e.target.value); setCatalog(e.target.value.split(/[\r\n,]+/).map(id => id.trim()).filter(Boolean).map(id => ({ id, name: catalog.find(item => item.id === id)?.name || id }))); }} rows={3} required disabled={pending} placeholder="填写实际模型 ID，每行一个" />
       {catalog.length > 0 && <><div className="provider-model-selection" aria-label="模型批量选择"><button type="button" className="secondary-button" disabled={pending || fetchingModels} onClick={() => setModels([...new Set([...catalog.map(item => item.id), ...selectedModelIds])].join('\n'))}>全选</button><button type="button" className="secondary-button" disabled={pending || fetchingModels} onClick={() => setModels([...selectedModelIds].filter(id => !catalog.some(item => item.id === id)).concat(catalog.filter(item => !selectedModelIds.has(item.id)).map(item => item.id)).join('\n'))}>反选</button><small>已启用 {catalog.filter(item => selectedModelIds.has(item.id)).length} / {catalog.length}</small></div><div className="provider-model-table"><table aria-label="模型列表"><thead><tr><th scope="col">启用</th><th scope="col">模型 ID</th><th scope="col">模型名称</th></tr></thead><tbody>{catalog.map(item => <tr key={item.id}><td><input type="checkbox" aria-label={`启用模型 ${item.id}`} checked={selectedModelIds.has(item.id)} onChange={event => { const ids = new Set(selectedModelIds); event.target.checked ? ids.add(item.id) : ids.delete(item.id); setModels([...ids].join('\n')); }} disabled={pending || fetchingModels} /></td><td><code>{item.id}</code></td><td>{item.name}</td></tr>)}</tbody></table></div></>}
-      <div className="credential-note"><Icon name="shield" /><p>密码和密钥只写入安全存储，保存后不回显。模型是否支持完整 Agent 能力，需通过真实会话验证。</p></div>
+      <div className="credential-note"><Icon name="shield" /><p>API Key 加密保存在本机，默认以星号遮挡；点击眼睛可查看，留空保存会保留已保存密钥。模型是否支持完整 Agent 能力，需通过真实会话验证。</p></div>
       <div className="settings-actions">{selected && <button type="button" className="danger-button" onClick={() => setDeleting(true)} disabled={pending}>删除中转站</button>}<button className="primary-button" type="submit" disabled={pending}>{pending ? '正在保存…' : '保存配置'}<Icon name="check" /></button></div>
       {deleting && <div className="delete-confirm"><span>确认删除“{initial?.name}”？历史会话仍保留来源记录。</span><button type="button" onClick={() => setDeleting(false)} disabled={pending}>保留</button><button type="button" className="danger-button" disabled={pending} onClick={async () => { if (await act(() => api.deleteModelProvider(selected), '中转站已删除。')) choose(); }}>确认删除</button></div>}
     </form>

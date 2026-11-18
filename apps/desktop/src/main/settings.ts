@@ -2,7 +2,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
 import type { GrokSettingsService } from './grok-settings';
-import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerCredentialRevealSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
@@ -39,6 +39,15 @@ export class SettingsService {
     const password = this.jiraCredential().read(`${current.baseUrl}\n${current.account}`);
     if (!password) throw new Error('尚未保存 Jira 密码');
     return password;
+  }
+  revealModelProviderApiKey(value: unknown): string {
+    const input = providerCredentialRevealSchema.parse(value);
+    const profile = this.profiles().find(item => item.id === input.id);
+    if (!profile) throw new Error('模型中转站不存在');
+    if (input.baseUrl.replace(/\/$/, '') !== profile.baseUrl.replace(/\/$/, '')) throw new Error('中转站地址已修改，请恢复保存的地址后再查看已保存 API Key');
+    const apiKey = this.credential(profile.id).read(profile.baseUrl);
+    if (!apiKey) throw new Error('尚未保存该中转站 API Key');
+    return modelApiKeySchema.parse(apiKey);
   }
   claudeCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/claude-console.dpapi')); }
   private wecomCredential(id: string): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets', `wecom-${id}.dpapi`)); }

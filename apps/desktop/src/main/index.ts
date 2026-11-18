@@ -24,7 +24,7 @@ import { SettingsService } from './settings';
 import { GrokSettingsService } from './grok-settings';
 import { resolveGrokSessionBinding } from './grok-session-binding';
 import { DpapiCredentialVault } from './credentials';
-import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
+import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentPathsSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
 import { RunLifecycle, type RunTicket } from './lifecycle';
 import { SessionRuntimes } from './session-runtimes';
 import { SessionGitService } from './session-git';
@@ -360,6 +360,60 @@ function pendingAttachments(sessionId: string): Map<string, PendingConversationA
   let entries = pendingConversationAttachments.get(sessionId);
   if (!entries) { entries = new Map(); pendingConversationAttachments.set(sessionId, entries); }
   return entries;
+}
+async function addConversationAttachmentPaths(sessionId: string, sources: string[]): Promise<ConversationAttachment[]> {
+  const entries = pendingAttachments(sessionId);
+  if (entries.size + sources.length > MAX_CONVERSATION_ATTACHMENTS) throw new Error(`本轮最多选择 ${MAX_CONVERSATION_ATTACHMENTS} 个附件`);
+  const candidates: Array<{ source: string; canonical: string; size: number; filename: string; mimeType: string; kind: 'image' | 'file' }> = [];
+  let total = [...entries.values()].reduce((sum, item) => sum + item.size, 0);
+  for (const source of sources) {
+    if (!path.isAbsolute(source)) throw new Error('附件路径必须为本机绝对路径');
+    const stat = await lstat(source);
+    const canonical = await realpath(source);
+    const resolved = path.resolve(source);
+    const resolvedCanonical = await realpath(resolved);
+    const same = process.platform === 'win32' ? canonical.toLowerCase() === resolvedCanonical.toLowerCase() : canonical === resolvedCanonical;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || !same) throw new Error(`附件文件身份异常：${path.basename(source)}（普通文件=${stat.isFile()}，符号链接=${stat.isSymbolicLink()}，链接数=${stat.nlink}，路径一致=${same}）`);
+    const filename = conversationFilename(source);
+    const type = conversationMimeType(filename);
+    const extension = path.extname(filename).toLowerCase();
+    if (type.kind !== 'image' && !SUPPORTED_DOCUMENT_TEXT_EXTENSIONS.includes(extension)) {
+      const conversion = ['.doc', '.xls', '.ppt'].includes(extension) ? '；旧版格式请另存为 DOCX、XLSX 或 PPTX' : '';
+      throw new Error(`不支持解析附件格式：${filename}${conversion}`);
+    }
+    if (type.kind === 'image' && stat.size > MAX_CONVERSATION_IMAGE_BYTES) throw new Error(`图片 ${filename} 超过每张 8 MiB 限制`);
+    if (stat.size > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error(`附件 ${filename} 超过 32 MiB 限制`);
+    total += stat.size;
+    if (total > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error('本轮附件总量超过 32 MiB 限制');
+    candidates.push({ source, canonical, size: stat.size, filename, ...type });
+  }
+  const root = path.join(dataRoot, 'attachments', 'conversation', sessionId);
+  await mkdir(root, { recursive: true });
+  const prepared: PendingConversationAttachment[] = [];
+  const targets: string[] = [];
+  try {
+    for (const candidate of candidates) {
+      const id = randomUUID();
+      const extension = path.extname(candidate.filename).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
+      const target = path.join(root, `${id}${extension}`);
+      targets.push(target);
+      await copyFile(candidate.canonical, target);
+      const copied = await lstat(target);
+      if (!copied.isFile() || copied.size !== candidate.size || copied.nlink !== 1) throw new Error(`附件复制后校验失败：${candidate.filename}`);
+      const documentExtension = path.extname(candidate.filename).toLowerCase();
+      const extractedText = candidate.kind === 'file' && SUPPORTED_DOCUMENT_TEXT_EXTENSIONS.includes(documentExtension)
+        ? (await readDocumentTextFile(target, { maxCharacters: MAX_CONVERSATION_TEXT_CHARS, maxFileBytes: MAX_CONVERSATION_ATTACHMENT_BYTES })).content
+        : undefined;
+      prepared.push({ id, name: candidate.filename, mimeType: candidate.mimeType, size: candidate.size, kind: candidate.kind, path: target, ...(extractedText !== undefined ? { extractedText } : {}) });
+    }
+  } catch (error) {
+    await Promise.all(targets.map(target => rm(target, { force: true }).catch(() => undefined)));
+    throw error;
+  }
+  return prepared.map(({ id, name, mimeType, size, kind, ...pending }) => {
+    entries.set(id, { id, name, mimeType, size, kind, ...pending });
+    return { id, name, mimeType, size, kind };
+  });
 }
 function attachmentPrompt(prompt: string, attachments: PendingConversationAttachment[]): string {
   if (!attachments.length) return prompt;
@@ -1512,48 +1566,13 @@ if (primaryInstance) app.whenReady().then(async () => {
       filters: [{ name: '可解析文档和图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', ...SUPPORTED_DOCUMENT_TEXT_EXTENSIONS.map(extension => extension.slice(1))] }, { name: '所有文件', extensions: ['*'] }]
     });
     if (selected.canceled || !selected.filePaths.length) return [];
-    const entries = pendingAttachments(session.id);
-    if (entries.size + selected.filePaths.length > MAX_CONVERSATION_ATTACHMENTS) throw new Error(`本轮最多选择 ${MAX_CONVERSATION_ATTACHMENTS} 个附件`);
-    const candidates: Array<{ source: string; canonical: string; size: number; filename: string; mimeType: string; kind: 'image' | 'file' }> = [];
-    let total = [...entries.values()].reduce((sum, item) => sum + item.size, 0);
-    for (const source of selected.filePaths) {
-      const stat = await lstat(source);
-      const canonical = await realpath(source);
-      const resolved = path.resolve(source);
-      const resolvedCanonical = await realpath(resolved);
-      const same = process.platform === 'win32' ? canonical.toLowerCase() === resolvedCanonical.toLowerCase() : canonical === resolvedCanonical;
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || !same) throw new Error(`附件文件身份异常：${path.basename(source)}（普通文件=${stat.isFile()}，符号链接=${stat.isSymbolicLink()}，链接数=${stat.nlink}，路径一致=${same}）`);
-      const filename = conversationFilename(source);
-      const type = conversationMimeType(filename);
-      const extension = path.extname(filename).toLowerCase();
-      if (type.kind !== 'image' && !SUPPORTED_DOCUMENT_TEXT_EXTENSIONS.includes(extension)) {
-        const conversion = ['.doc', '.xls', '.ppt'].includes(extension) ? '；旧版格式请另存为 DOCX、XLSX 或 PPTX' : '';
-        throw new Error(`不支持解析附件格式：${filename}${conversion}`);
-      }
-      if (type.kind === 'image' && stat.size > MAX_CONVERSATION_IMAGE_BYTES) throw new Error(`图片 ${filename} 超过每张 8 MiB 限制`);
-      if (stat.size > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error(`附件 ${filename} 超过 32 MiB 限制`);
-      total += stat.size;
-      if (total > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error('本轮附件总量超过 32 MiB 限制');
-      candidates.push({ source, canonical, size: stat.size, filename, ...type });
-    }
-    const root = path.join(dataRoot, 'attachments', 'conversation', session.id);
-    await mkdir(root, { recursive: true });
-    const added: ConversationAttachment[] = [];
-    for (const candidate of candidates) {
-      const id = randomUUID();
-      const extension = path.extname(candidate.filename).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
-      const target = path.join(root, `${id}${extension}`);
-      await copyFile(candidate.canonical, target);
-      const copied = await lstat(target);
-      if (!copied.isFile() || copied.size !== candidate.size || copied.nlink !== 1) throw new Error(`附件复制后校验失败：${candidate.filename}`);
-      const documentExtension = path.extname(candidate.filename).toLowerCase();
-      const extractedText = candidate.kind === 'file' && SUPPORTED_DOCUMENT_TEXT_EXTENSIONS.includes(documentExtension)
-        ? (await readDocumentTextFile(target, { maxCharacters: MAX_CONVERSATION_TEXT_CHARS, maxFileBytes: MAX_CONVERSATION_ATTACHMENT_BYTES })).content
-        : undefined;
-      const attachment: PendingConversationAttachment = { id, name: candidate.filename, mimeType: candidate.mimeType, size: candidate.size, kind: candidate.kind, path: target, ...(extractedText !== undefined ? { extractedText } : {}) };
-      entries.set(id, attachment); added.push({ id, name: candidate.filename, mimeType: candidate.mimeType, size: candidate.size, kind: candidate.kind });
-    }
-    return added;
+    return addConversationAttachmentPaths(session.id, selected.filePaths);
+  });
+  handle('session:add-attachments', async (value: unknown) => {
+    if (gitBusy || creating.size || jiraFlowBusy) throw new Error('请等待 Git、Jira 或会话创建操作结束后再添加附件');
+    const input = sessionAttachmentPathsSchema.parse(value);
+    sessionById(input.sessionId);
+    return addConversationAttachmentPaths(input.sessionId, input.paths);
   });
   sendSessionTurn = async (value: unknown, input: unknown, queuedTurnId?: string) => {
     if (gitBusy || creating.size || jiraFlowBusy || activeVerifications.size || verificationStarting.size) throw new Error('请等待验证、Git、Jira 或会话创建操作结束后再启动 Agent');
@@ -1826,6 +1845,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     return profile;
   });
   handle('settings:provider-models', (value: unknown) => settings.fetchProviderModels(value));
+  handle('settings:provider-key', (value: unknown) => settings.revealModelProviderApiKey(value));
   handle('settings:provider-delete', (value: unknown) => settings.deleteProfile(value));
   handle('settings:jira', (value: unknown) => settings.saveJira(value));
   handle('settings:jira-password', (value: unknown) => settings.revealJiraPassword(value));

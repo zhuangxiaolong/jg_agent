@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema } from '../apps/desktop/src/main/security';
 
 test('提交不再要求复核资料列表，保留旧请求兼容与提交参数校验', () => {
   assert.deepEqual(commitSchema.parse({ message: '提交本地修改' }), { message: '提交本地修改' });
@@ -20,6 +20,14 @@ test('IPC 拒绝非法 ID、空输入与超长输入', () => {
   assert.equal(clipboardTextSchema.parse('\t中文代码\n\n  '), '\t中文代码\n\n  ');
   assert.equal(clipboardTextSchema.safeParse({ text: '错误参数' }).success, false);
   assert.equal(clipboardTextSchema.safeParse('a'.repeat(2 * 1024 * 1024 + 1)).success, false);
+});
+test('会话附件 IPC 只接受有界的本机文件路径列表', () => {
+  const sessionId = '00000000-0000-4000-8000-000000000001';
+  assert.deepEqual(sessionAttachmentPathsSchema.parse({ sessionId, paths: ['C:\\Users\\Tester\\Desktop\\spec.txt'] }), { sessionId, paths: ['C:\\Users\\Tester\\Desktop\\spec.txt'] });
+  assert.equal(sessionAttachmentPathsSchema.safeParse({ sessionId, paths: [] }).success, false);
+  assert.equal(sessionAttachmentPathsSchema.safeParse({ sessionId, paths: Array.from({ length: 21 }, (_, index) => `C:\\file-${index}.txt`) }).success, false);
+  assert.equal(sessionAttachmentPathsSchema.safeParse({ sessionId, paths: ['C:\\bad\0path.txt'] }).success, false);
+  assert.equal(sessionAttachmentPathsSchema.safeParse({ sessionId, paths: ['C:\\file.txt'], extra: true }).success, false);
 });
 test('错误与事件隐藏当前密钥和常见认证头', () => {
   const text = redact('failed sample-test-key Bearer abc123 sk-testkey123456', 'sample-test-key');

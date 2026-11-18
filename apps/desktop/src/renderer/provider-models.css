@@ -9,3 +9,9 @@
 .provider-model-table input[type="checkbox"] { display: inline-block; width: 15px; height: 15px; margin: 0; vertical-align: middle; accent-color: var(--accent); }
 .provider-model-selection { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .provider-model-selection small { margin-left: auto; color: var(--muted); }
+.provider-api-key-field { position: relative; }
+.settings-form .provider-api-key-field input { padding-right: 46px; }
+.provider-api-key-toggle { position: absolute; top: 50%; right: 5px; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 5px; color: var(--muted); }
+.provider-api-key-toggle:hover, .provider-api-key-toggle[aria-pressed="true"] { color: var(--text); background: var(--surface-2); }
+.provider-api-key-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.provider-key-error { color: var(--danger, #d19585); }
