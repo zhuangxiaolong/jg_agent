@@ -44,7 +44,7 @@ export function GitPanel({ sessionId, project, running, onChanged, jiraUrl }: { 
     await act(push ? 'commit-push' : 'commit', async () => {
       let hash = '';
       try {
-        hash = await api.commitChanges(sessionId, { message: message.trim(), ...(authorName.trim() ? { authorName: authorName.trim() } : {}), ...(authorEmail.trim() ? { authorEmail: authorEmail.trim() } : {}), ...(jiraUrl ? { jiraUrl } : {}) });
+        hash = await api.commitChanges(sessionId, { message: message.trim(), remote, ...(authorName.trim() ? { authorName: authorName.trim() } : {}), ...(authorEmail.trim() ? { authorEmail: authorEmail.trim() } : {}), ...(jiraUrl ? { jiraUrl } : {}) });
         if (current.current !== sessionId) return;
         setNotice(`已提交：${hash.slice(0, 12)}`); setMessage('');
         await load(); await onChanged();
@@ -70,7 +70,7 @@ export function GitPanel({ sessionId, project, running, onChanged, jiraUrl }: { 
       {jiraUrl && <p className="git-hint">提交时自动附加 Jira 地址：{jiraUrl}</p>}
       <details className="author-settings"><summary>提交作者（可选）</summary><label htmlFor="commit-author-name">作者姓名</label><input id="commit-author-name" value={authorName} onChange={e => setAuthorName(e.target.value)} disabled={disabled} placeholder="留空使用 Git 配置" /><label htmlFor="commit-author-email">作者邮箱</label><input id="commit-author-email" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={disabled} placeholder="留空使用 Git 配置" /></details>
       <div className="git-commit-actions">
-        <button className="primary-button git-submit git-commit-only" disabled={disabled || !state?.dirty || !message.trim()} onClick={() => void submit(false)}><Icon name="check" />{pending === 'commit' ? '正在提交…' : '提交代码'}</button>
+        <button className="primary-button git-submit git-commit-only" disabled={disabled || !state?.dirty || !message.trim() || !remote} title={remote ? '提交前先拉取所选远程分支' : '请先配置并选择远程仓库'} onClick={() => void submit(false)}><Icon name="check" />{pending === 'commit' ? '正在提交…' : '提交代码'}</button>
         <button className="primary-button git-submit git-commit-push" disabled={disabled || !state?.dirty || !message.trim() || !remote} title={remote ? `提交后推送到 ${remote}/${state?.branch || '当前分支'}` : '请先配置并选择推送远程仓库'} onClick={() => void submit(true)}><Icon name="arrow" />{pending === 'commit-push' ? '提交并推送中…' : '提交并推送'}</button>
       </div>
       <p className="git-hint">点击即执行提交或提交并推送；拉取会自动执行快进检查。</p>

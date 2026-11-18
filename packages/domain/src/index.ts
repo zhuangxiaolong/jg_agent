@@ -456,7 +456,7 @@ export interface DesktopApi {
   onVerification(listener: (event: VerificationRunEvent) => void): () => void;
   generateCommitMessage(sessionId: string): Promise<string>;
   checkRequirements(sessionId: string): Promise<RequirementResult[]>;
-  commitChanges(sessionId: string, input: { message: string; reviewedDocumentIds?: string[]; authorName?: string; authorEmail?: string; jiraUrl?: string }): Promise<string>
+  commitChanges(sessionId: string, input: { message: string; reviewedDocumentIds?: string[]; authorName?: string; authorEmail?: string; jiraUrl?: string; remote?: string }): Promise<string>
   pushChanges(sessionId: string, remote: string): Promise<void>;
   pullChanges(sessionId: string, remote: string): Promise<void>;
   stageFile(sessionId: string, file: string): Promise<void>;

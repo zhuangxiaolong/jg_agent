@@ -24,6 +24,6 @@ test('最终提交说明与输入统一限制4000字，附加地址超长在提�
   const message = '修'.repeat(4000 - suffix.length);
   assert.equal(appendJiraCommitUrl(message, issue).length, 4000);
   assert.throws(() => appendJiraCommitUrl(`${message}复`, issue), /附加 Jira 地址后.*4000/);
-  assert.equal(commitSchema.safeParse({ message: appendJiraCommitUrl(message, issue), reviewedDocumentIds: [] }).success, true);
+  assert.equal(commitSchema.safeParse({ message: appendJiraCommitUrl(message, issue), reviewedDocumentIds: [], remote: 'origin' }).success, true);
   assert.equal(commitSchema.safeParse({ message: '修'.repeat(4001), reviewedDocumentIds: [] }).success, false);
 });

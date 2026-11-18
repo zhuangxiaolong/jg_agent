@@ -119,6 +119,11 @@ export class SessionGitService {
     if (record.active || (await this.prepare(session)).diffs.length) throw new Error('请先提交本会话修改，再推送本会话提交');
     await this.git.pushSessionCommits(session.workspacePath, remote, record.commits, true);
   }
+  async pullBeforeCommit(session: Session, remote: string): Promise<void> {
+    const record = await this.load(session);
+    if (record.active) throw new Error('请等待本会话任务完成后再拉取并提交');
+    await this.git.pullPreservingChanges(session.workspacePath, remote, true);
+  }
   async assertFile(session: Session, file: string): Promise<void> {
     await this.git.assertSessionFile(session.workspacePath, await this.prepare(session), file, true);
   }
