@@ -18,7 +18,7 @@ export const PROJECT_WRITE_TOOLS = [
   { type: 'function', name: 'write_project_file', description: '在已授权隔离工作区写入 UTF-8 代码文件。修改已有文件必须传入 read_project_file 返回的 hash；新文件可以省略 expectedHash。写入前执行项目强制规则。', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, required: ['path', 'content'], additionalProperties: false } },
   { type: 'function', name: 'delete_project_file', description: '删除已授权隔离工作区中的普通代码文件，必须传入读取到的最新 SHA256 hash；删除前执行项目规则。', inputSchema: { type: 'object', properties: { path: { type: 'string' }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, required: ['path', 'expectedHash'], additionalProperties: false } },
 ] as const;
-export interface ProjectBrokerOptions { beforeWrite?: (relativePath: string, content: string | null) => Promise<void>; protectedValues?: readonly string[] }
+export interface ProjectBrokerOptions { beforeWrite?: (relativePath: string, content: string | null) => Promise<void> }
 
 function forbiddenName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -85,7 +85,6 @@ export class ProjectReadBroker {
   }
 
   private async checkedPath(relative: string, allowMissing = false): Promise<string> {
-    if (this.options.protectedValues?.some((value) => value && relative.includes(value))) throw new Error('路径包含已配置凭据，已拒绝');
     if (!relative || relative.length > 500 || path.isAbsolute(relative) || /[:<>|"*?\x00-\x1f]/.test(relative)) throw new Error('只允许项目内相对路径');
     const segments = relative.split(/[\\/]/).filter((segment) => segment !== '.');
     if (segments.some((segment) => !segment || segment === '..' || segment.endsWith('.') || segment.endsWith(' ') || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment) || forbiddenName(segment))) throw new Error('路径包含被禁止的目录、凭据文件或越界片段');
@@ -165,7 +164,6 @@ export class ProjectReadBroker {
       if (bytesRead !== opened.size || [after, current].some(stats => !stats.isFile() || stats.nlink > 1 || stats.dev !== opened.dev || stats.ino !== opened.ino || stats.size !== opened.size || stats.mtimeMs !== opened.mtimeMs || stats.ctimeMs !== opened.ctimeMs)) throw new Error('文件在读取期间发生变化，请重新从首段读取');
       if (buffer.subarray(0, bytesRead).includes(0)) throw new Error('不是受支持的文本文件');
       const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, bytesRead));
-      if (this.options.protectedValues?.some((value) => value && content.includes(value))) throw new Error('文件包含当前配置的连接凭据，请移除后重试');
       const hash = createHash('sha256').update(buffer.subarray(0, bytesRead)).digest('hex');
       if (args.expectedHash !== undefined && args.expectedHash !== hash) throw new Error('文件 SHA256 已变化，不能继续拼接旧片段，请重新从首段读取');
       if (offset > content.length || (offset > 0 && /[\uD800-\uDBFF]/.test(content[offset - 1]) && /[\uDC00-\uDFFF]/.test(content[offset] ?? ''))) throw new Error('代码分页偏移超出文件或位于字符中间，请使用返回的 nextOffset');
@@ -209,7 +207,6 @@ export class ProjectReadBroker {
     if (!existing && args.expectedHash !== undefined) throw new Error('文件不存在，不能使用已有文件 hash');
     const content = deleting ? null : args.content;
     if (content !== null && (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content, 'utf8') > MAX_WRITE_FILE_BYTES)) throw new Error('写入内容不是受支持的 UTF-8 文本或超过 128 KiB');
-    if (typeof content === 'string' && this.options.protectedValues?.some((value) => value && content.includes(value))) throw new Error('写入内容包含当前配置的连接凭据，请移除后重试');
     await this.options.beforeWrite!(normalized, content as string | null);
     await this.checkedPath(relative, true);
     if (existing && (await this.readFile(relative)).hash !== previousHash) throw new Error('规则检查期间文件已变化，请重新读取');

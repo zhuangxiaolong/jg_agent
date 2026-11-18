@@ -294,7 +294,7 @@ export class CodexRuntime {
     await this.start();
     const broker = await this.createBroker(cwd);
     const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : [])];
-    const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.contentText(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
+    const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
     this.assertExecutionEnvironment(result, cwd);
     const id = result?.thread?.id;
     if (typeof id !== 'string') throw new Error('Runtime 未返回有效会话 ID');
@@ -325,7 +325,7 @@ export class CodexRuntime {
     let result;
     try {
       const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : [])];
-      result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.contentText(buildDeveloperInstructions(this.options)), dynamicTools });
+      result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), dynamicTools });
     } catch (error) {
       // Codex 在首个 turn 前不生成 rollout；SQLite 中的空会话仍然有效。
       if (/no rollout found for thread id/.test((error as Error).message)) return this.startSession(cwd);
@@ -366,7 +366,6 @@ export class CodexRuntime {
 
   async sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> {
     if (!this.options.apiKey) throw new Error('尚未配置模型 API Key；真实模型会话未执行');
-    if (prompt.includes(this.options.apiKey)) throw new Error('任务内容包含已配置模型凭据，请先移除；尚未发送至 Runtime 或模型');
     if (!prompt.trim() || prompt.length > 100000) throw new Error('任务内容为空或超过 100000 字符');
     if (this.active.has(threadId)) throw new Error('当前会话已有正在执行的任务');
     if (!this.sessions.has(threadId)) throw new Error('Runtime 会话尚未创建或恢复');
@@ -381,7 +380,7 @@ export class CodexRuntime {
     // 新轮允许复用上轮已完成的服务端请求 ID；同时有其它活动轮次时保留其去重记录。
     if (!this.active.size) this.handledRuntimeRequests.clear();
     const sandboxPolicy = { type: 'dangerFullAccess' };
-    const result = await this.request('turn/start', { threadId, cwd: path.resolve(cwd), model: this.options.model, ...(effort !== undefined ? { effort } : {}), approvalPolicy: EXECUTION_APPROVAL_POLICY, sandboxPolicy, input: [{ type: 'text', text: this.contentText(prompt), text_elements: [] }, ...images] });
+    const result = await this.request('turn/start', { threadId, cwd: path.resolve(cwd), model: this.options.model, ...(effort !== undefined ? { effort } : {}), approvalPolicy: EXECUTION_APPROVAL_POLICY, sandboxPolicy, input: [{ type: 'text', text: this.modelContent(prompt), text_elements: [] }, ...images] });
     if (lifecycle !== this.lifecycle) throw new Error('Runtime 任务已取消或关闭');
     // TurnStartResponse 只回传 turn，策略由显式请求与 thread/start、resume 的实际回显共同约束。
     if (typeof result?.turn?.id !== 'string' || !result.turn.id || !['inProgress', 'completed', 'interrupted', 'failed'].includes(result.turn.status) || (this.active.has(threadId) && this.active.get(threadId) !== result.turn.id)) { await this.close(); throw new Error('Runtime 返回的任务状态或 ID 不一致，已停止连接'); }
@@ -391,7 +390,6 @@ export class CodexRuntime {
 
   async steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> {
     if (!this.options.apiKey) throw new Error('尚未配置模型 API Key；真实模型会话未执行');
-    if (prompt.includes(this.options.apiKey)) throw new Error('任务内容包含已配置模型凭据，请先移除；尚未发送至 Runtime 或模型');
     if (!prompt.trim() || prompt.length > 100000) throw new Error('任务内容为空或超过 100000 字符');
     if (this.closing) return false;
     if (!this.sessions.has(threadId)) throw new Error('Runtime 会话尚未创建或恢复');
@@ -403,7 +401,7 @@ export class CodexRuntime {
     let result: any;
     try {
       // 本地 app-server 的 TurnSteerParams 要求活动轮次前置条件，避免补充误投给下一轮。
-      result = await this.request('turn/steer', { threadId, expectedTurnId: turnId, input: [{ type: 'text', text: this.contentText(prompt), text_elements: [] }] });
+      result = await this.request('turn/steer', { threadId, expectedTurnId: turnId, input: [{ type: 'text', text: this.modelContent(prompt), text_elements: [] }] });
     } catch (error) {
       // 仅协议明确未支持该方法时可以安全排队；超时等结果不明的失败不得自动重投。
       if (error instanceof RuntimeRpcError && error.code === -32601) return false;
@@ -418,7 +416,7 @@ export class CodexRuntime {
     const types: Record<string, JiraImageMimeType> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
     const inputs: { type: 'localImage'; path: string }[] = []; let total = 0;
     for (const filename of filenames) {
-      if (typeof filename !== 'string' || !path.isAbsolute(filename) || /[\x00-\x1f]/.test(filename) || (this.options.apiKey && filename.includes(this.options.apiKey))) throw new Error('Runtime 图片路径无效');
+      if (typeof filename !== 'string' || !path.isAbsolute(filename) || /[\x00-\x1f]/.test(filename)) throw new Error('Runtime 图片路径无效');
       const mimeType = types[path.extname(filename).toLowerCase()];
       if (!mimeType) throw new Error('Runtime 图片类型不受支持');
       const stat = await lstat(filename);
@@ -620,7 +618,7 @@ export class CodexRuntime {
       if (!threadId || !this.sessions.has(threadId) || !this.active.has(threadId) || this.active.get(threadId) !== params.turnId || ![null, undefined, 'functions'].includes(params.namespace) || !this.options.browser) throw new Error('浏览器工具未绑定当前会话和任务');
       const result = await this.options.browser(params.arguments);
       if (child !== this.child || this.closing || this.active.get(threadId) !== params.turnId) return;
-      this.write({ id, result: { success: true, contentItems: [{ type: 'inputText', text: this.contentText(result.text) }, ...(result.imageUrl ? [{ type: 'inputImage', imageUrl: result.imageUrl }] : [])] } });
+      this.write({ id, result: { success: true, contentItems: [{ type: 'inputText', text: this.modelContent(result.text) }, ...(result.imageUrl ? [{ type: 'inputImage', imageUrl: result.imageUrl }] : [])] } });
       this.emit({ threadId, type: 'tool', text: `已操作内置浏览器：${params.arguments?.action ?? ''}` });
     } catch (error) {
       if (child !== this.child || this.closing) return;
@@ -636,7 +634,7 @@ export class CodexRuntime {
       if (!controller || controller.signal.aborted) throw new Error('桌面工具所属任务已取消');
       const result = await this.options.computer(input, controller.signal);
       if (child !== this.child || this.closing || this.active.get(threadId) !== params.turnId) return;
-      this.write({ id, result: { success: true, contentItems: [{ type: 'inputText', text: this.contentText(result.text) }, ...(result.imageUrl ? [{ type: 'inputImage', imageUrl: result.imageUrl }] : [])] } });
+      this.write({ id, result: { success: true, contentItems: [{ type: 'inputText', text: this.modelContent(result.text) }, ...(result.imageUrl ? [{ type: 'inputImage', imageUrl: result.imageUrl }] : [])] } });
       this.emit({ threadId, type: 'tool', text: `已执行桌面操作：${input.action}` });
     } catch (error) {
       if (child !== this.child || this.closing || (threadId && this.active.get(threadId) !== params.turnId)) return;
@@ -659,8 +657,6 @@ export class CodexRuntime {
       const executeTool = async (): Promise<Record<string, unknown>> => {
       if (params.tool === 'publish_change_plan') {
         const plan = parseChangePlan(params.arguments);
-        const values = [plan.goal, plan.impact, ...plan.assumptions, ...plan.pendingQuestions, ...plan.validation, ...plan.changes.flatMap(item => [item.path, item.change])];
-        if (this.options.apiKey && values.some(value => value.includes(this.options.apiKey!))) throw new Error('代码修改方案包含当前配置的模型凭据，请移除后重新发布');
         // 方案仅写入会话记录，不参与后续文件操作的授权判断。
         this.emit({ threadId, type: 'message', text: renderChangePlan(plan), requestId: id });
         result = { published: true, stage: plan.stage, files: plan.changes.map(item => item.path) };
@@ -679,7 +675,7 @@ export class CodexRuntime {
       this.emit({ threadId, type: 'tool', text: `已拒绝文件或目录访问：${result.error}` });
     }
     if (child !== this.child || this.closing || (success && this.active.get(threadId!) !== params.turnId)) return;
-    try { this.write({ id, result: { contentItems: [{ type: 'inputText', text: this.contentText(JSON.stringify(result)) }], success } }); }
+    try { this.write({ id, result: { contentItems: [{ type: 'inputText', text: this.modelContent(JSON.stringify(result)) }], success } }); }
     catch { /* 取消或关闭后不再向已断开的通道发送工具结果。 */ }
   }
   private clearActive(threadId: string): void {
@@ -690,7 +686,7 @@ export class CodexRuntime {
     }
     this.active.delete(threadId);
   }
-  private createBroker(cwd: string): Promise<ProjectReadBroker> { return ProjectReadBroker.create(cwd, { beforeWrite: this.options.beforeWrite, protectedValues: this.options.apiKey ? [this.options.apiKey] : [] }); }
+  private createBroker(cwd: string): Promise<ProjectReadBroker> { return ProjectReadBroker.create(cwd, { beforeWrite: this.options.beforeWrite }); }
   private fail(error: Error): void {
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(this.clean(error.message))); }
     this.pending.clear();
@@ -711,6 +707,8 @@ export class CodexRuntime {
     void this.close();
   }
   private clean(text: string, maxLength = 32000): string { return redactRuntimeText(explainRuntimeError(text), this.options.apiKey, maxLength); }
-  private contentText(text: string): string { return this.options.apiKey ? text.split(this.options.apiKey).join('[已脱敏]') : text; }
-  private emit(event: RuntimeEvent): void { this.emitter.emit('event', { ...event, text: ['user', 'message', 'delta'].includes(event.type) ? this.contentText(event.text) : this.clean(event.text) }); }
+  /** 发给模型的会话、开发要求和工具结果保留用户原文；事件与错误路径单独脱敏。 */
+  private modelContent(text: string): string { return text; }
+  private redactEventText(text: string): string { return redactRuntimeText(text, this.options.apiKey); }
+  private emit(event: RuntimeEvent): void { this.emitter.emit('event', { ...event, text: ['user', 'message', 'delta'].includes(event.type) ? this.redactEventText(event.text) : this.clean(event.text) }); }
 }

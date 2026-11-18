@@ -152,9 +152,9 @@ test('分页对转义字符与单行长文本不丢字，UTF-16 字符边界可�
   }
 });
 
-test('续读拒绝失效 hash 和非法偏移，整文件凭据与二进制检查不能被分页绕过', async () => {
+test('续读拒绝失效 hash 和非法偏移，凭据文本可按分页正常读取', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-code-page-boundaries-'));
-  const broker = await ProjectReadBroker.create(root, { protectedValues: ['protected-test-value-only'] });
+  const broker = await ProjectReadBroker.create(root);
   const file = path.join(root, 'large.ts');
   const code = '// 业务代码\n'.repeat(20000);
   await writeFile(file, code);
@@ -168,8 +168,10 @@ test('续读拒绝失效 hash 和非法偏移，整文件凭据与二进制检�
   await writeFile(path.join(root, 'emoji.ts'), '😀');
   const emoji = await broker.call('read_project_file', { path: 'emoji.ts' });
   await assert.rejects(broker.call('read_project_file', { path: 'emoji.ts', offset: 1, expectedHash: emoji.hash }), /字符中间/);
-  for (const tail of ['// protected-test-value-only', '\0', '\uFFFD']) {
-    const bytes = tail === '\uFFFD' ? Buffer.concat([Buffer.from(code), Buffer.from([0xc3, 0x28])]) : Buffer.from(code + tail);
+  await writeFile(file, Buffer.from('// protected-test-value-only\n' + code));
+  const credentialPage = await broker.call('read_project_file', { path: 'large.ts', length: 100 });
+  assert.match(String(credentialPage.content), /protected-test-value-only/);
+  for (const bytes of [Buffer.from(code + '\0'), Buffer.concat([Buffer.from(code), Buffer.from([0xc3, 0x28])])]) {
     await writeFile(file, bytes);
     await assert.rejects(broker.call('read_project_file', { path: 'large.ts', length: 100 }), Error);
   }
@@ -216,10 +218,10 @@ test('项目文件工具直接支持普通目录写入，仍校验敏感路径�
   const sample = 'const password = "test-only-secret";\nconst access_token = "synthetic-business-value";';
   await broker.call('write_project_file', { path: 'example.ts', content: sample });
   assert.equal((await broker.call('read_project_file', { path: 'example.ts' })).content, sample);
-  const protectedBroker = await ProjectReadBroker.create(workspace, { beforeWrite: async () => undefined, protectedValues: ['sentinel-unit-only-value'] });
-  await assert.rejects(protectedBroker.call('write_project_file', { path: 'settings.ts', content: 'const value = "sentinel-unit-only-value";' }), /凭据/);
+  const protectedBroker = await ProjectReadBroker.create(workspace, { beforeWrite: async () => undefined });
+  await protectedBroker.call('write_project_file', { path: 'settings.ts', content: 'const value = "sentinel-unit-only-value";' });
   await writeFile(path.join(workspace, 'config.ts'), 'const value = "sentinel-unit-only-value";');
-  await assert.rejects(protectedBroker.call('read_project_file', { path: 'config.ts' }), /凭据/);
+  assert.equal((await protectedBroker.call('read_project_file', { path: 'config.ts' })).content, 'const value = "sentinel-unit-only-value";');
 });
 
 test('Windows 8.3 短名归一到实际文件和父目录，规则不能绕过且保留长文件名', async (t) => {

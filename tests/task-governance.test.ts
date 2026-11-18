@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createAgentTask, createTaskContract, DEFAULT_TASK_BUDGET, taskContentHash } from '../packages/agent-orchestrator/src';
+import { assertTaskSafeMetadata, createAgentTask, createTaskContract, DEFAULT_TASK_BUDGET, taskContentHash } from '../packages/agent-orchestrator/src';
 import { assertRuntimeGovernance, canonicalTaskArgumentsHash, classifyRetryFailure, GovernanceError, GovernedToolGateway, normalizeTaskRelativePath, resolveTaskBudgetPolicy, retryPolicyDecision, runtimeCapabilityMatrix, TaskBudgetGuard, TaskCircuitBreaker, type TaskGovernanceAuditEvent } from '../packages/agent-orchestrator/src/governance';
 
 function contract() {
@@ -11,6 +11,11 @@ function contract() {
   return createTaskContract(task, { acceptanceCriteria: ['通过治理样本测试'], allowedTools: ['read_project', 'write_workspace'], permissions: ['read_project', 'write_workspace'], allowedPaths: ['src/**'], deniedPaths: ['src/private/**', '**/.env', '**/.env.*'] });
 }
 const scope = { workspacePath: path.resolve('task-governance-fixture'), toolName: 'write_project_file' };
+
+test('任务正文可包含用户提供的凭据样例，凭据字段结构仍由受控引用保护', () => {
+  assert.doesNotThrow(() => assertTaskSafeMetadata({ goal: '请检查 ApiKey: sk-syntheticKeyExample123456 并解释配置方式' }));
+  assert.throws(() => assertTaskSafeMetadata({ apiKey: 'synthetic-secret-value' }), /不能包含秘密/);
+});
 
 test('三类 Runtime 能力矩阵如实声明原生权限部分可控及 usage 未接入', () => {
   for (const kind of ['codex', 'jinggong', 'claude_agent_sdk'] as const) {

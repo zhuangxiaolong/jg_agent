@@ -51,7 +51,7 @@ function savedEntries(memory: Memory): MemoryEntry[] {
   });
 }
 
-export function rememberCompletedSession(store: LocalStore, session: Session, assertClean: (text: string) => void): Memory | undefined {
+export function rememberCompletedSession(store: LocalStore, session: Session): Memory | undefined {
   if (session.status !== 'completed') return;
   const events = store.events(session.id);
   let end = -1, previousEnd = -1;
@@ -88,7 +88,6 @@ export function rememberCompletedSession(store: LocalStore, session: Session, as
   ]).filter(entry => entry.text.trim()).slice(-MAX_ENTRIES);
   if (!entries.length || (!existing && memories.length >= 100)) return;
   const content = MEMORY_HEADER + '\n\n' + entries.map(entry => `- ${entry.kind}：${entry.text}`).join('\n');
-  assertClean(content);
   const memory: Memory = {
     id: existing?.id ?? randomUUID(), title: `偏好与经验：${session.alias || session.title}`.slice(0, 120), content,
     createdAt: events[end].createdAt, source: 'session', sessionId: session.id, projectId: session.projectId, sourceEventId: events[end].id

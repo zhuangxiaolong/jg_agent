@@ -50,7 +50,7 @@ export async function updateRequirements(store: LocalStore, assertIdle: () => vo
     if (url.origin !== new URL(downloadSource).origin) throw new Error('在线规范文件必须来自同一更新源');
     const content = await readText(url.toString(), transport), digest = createHash('sha256').update(content).digest('hex');
     if (digest !== entry.sha256) throw new Error(`在线规范 ${entry.name} 校验失败，本次更新未保存`);
-    assertClean(entry.name + '\n' + content);
+    assertClean(entry.name);
     const current = existing.find(item => item.remote?.source === source && item.remote.key === entry.key);
     if (current && current.digest !== current.remote!.digest && current.digest !== digest) throw new Error(`规范“${current.name}”有本地修改，未覆盖。请另存本地修改后重新更新`);
     if (!current || current.digest !== digest) changed++;

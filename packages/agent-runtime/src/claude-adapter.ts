@@ -428,7 +428,6 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
     if (!this.started) await this.start();
     if (!this.options.apiKey) throw new Error('模型中转站尚未配置 API Key；真实模型会话未执行');
     if (!prompt.trim() || prompt.length > 100000) throw new Error('任务内容为空或超过 100000 字符');
-    if (prompt.includes(this.options.apiKey)) throw new Error('任务内容包含已配置 Claude 凭据，请先移除');
     const reasoning = claudeReasoningOptions(this.options.reasoningEffort);
     const session = this.sessions.get(threadId);
     if (!session) throw new Error('Claude Runtime 会话尚未创建或恢复');
@@ -556,7 +555,6 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       if (this.closed || this.sessions.get(session.id) !== session || session.controller !== controller || controller.signal.aborted) throw new Error('Claude 文件工具已不属于当前活动任务');
     };
     const project = await ProjectReadBroker.create(session.cwd, {
-      protectedValues: this.options.apiKey ? [this.options.apiKey] : [],
       ...(this.options.beforeWrite ? { beforeWrite: async (filename: string, content: string | null) => { assertActive(); await this.options.beforeWrite!(filename, content); assertActive(); } } : {}),
     });
     const documents = new AuthorizedDirectoryBroker(this.options.authorizedDirectories, this.options.requestDirectoryAccess);
@@ -569,7 +567,6 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
           assertActive();
           const result = definition.name.includes('_authorized_') ? await documents.call(definition.name, input) : await project.call(definition.name, input);
           assertActive();
-          if (this.options.apiKey && JSON.stringify(result).includes(this.options.apiKey)) throw new Error('文件包含当前配置的模型凭据，已拒绝返回');
           return result;
         };
         const result = this.options.toolGateway
@@ -611,7 +608,6 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
           assertActive();
           const result = await broker.call(definition.name, input);
           assertActive();
-          if (this.options.apiKey && JSON.stringify(result).includes(this.options.apiKey)) throw new Error('授权文档包含当前配置的模型凭据，已拒绝返回');
           return result;
         };
         const result = this.options.toolGateway

@@ -17,7 +17,8 @@ test('真实SQLite分享往返保留消息和记忆，重新生成ID，不导出
     source.saveProject({ id: 'source-project', path: 'D:\\source-secret-path', name: '原项目', branch: 'main' });
     const session: Session = { id: randomUUID(), projectId: 'source-project', title: '采集异常修复经验', workspacePath: 'D:\\source-private-workspace', branch: 'agent/source', model: 'private-model', providerId: 'private-provider', runtimeThreadId: 'private-thread', createdAt: new Date().toISOString(), status: 'completed', system: 'MES5' };
     source.saveSession(session);
-    source.appendEvent({ id: randomUUID(), sessionId: session.id, type: 'message', text: '修复方案\n```csharp\nreturn true;\n```\n测试2项通过，模型Key fixture-value', createdAt: new Date().toISOString() });
+    const configuredKey = 'synthetic-current-model-key';
+    source.appendEvent({ id: randomUUID(), sessionId: session.id, type: 'message', text: `修复方案\n\`\`\`csharp\nreturn true;\n\`\`\`\n测试2项通过，模型Key ${configuredKey}`, createdAt: new Date().toISOString() });
     source.saveMemory({ id: randomUUID(), title: '异常回滚', content: '复用现有事务边界', createdAt: new Date().toISOString(), source: 'session', sessionId: session.id, projectId: 'source-project' });
     const content = exportShare(source, { kind: 'session', sessionId: session.id }, text => text.replaceAll('fixture-value', '[已脱敏]'));
     for (const secret of ['source-private-workspace', 'private-model', 'private-provider', 'private-thread', 'fixture-value']) assert.ok(!content.includes(secret));
@@ -27,6 +28,7 @@ test('真实SQLite分享往返保留消息和记忆，重新生成ID，不导出
     const prepared = prepareShareImport(destination, bundle, target); destination.importSharedData(prepared.session, prepared.events, prepared.memories);
     assert.notEqual(destination.events(target.id)[0].id, source.events(session.id)[0].id);
     assert.ok(sharedSessionContext(destination, target).includes('return true'));
+    assert.ok(sharedSessionContext(destination, target).includes(configuredKey), '导入后的会话上下文保留用户原文');
     assert.equal(prepareShareImport(destination, bundle, target).memories.length, 0);
     assert.equal(destination.listMemories()[0].source, undefined, '分享记忆不绑定发送方项目ID');
     assert.throws(() => parseShare(JSON.stringify({ ...bundle, version: 999 })), /version/);
@@ -71,6 +73,9 @@ test('在线规范按清单校验摘要、原子保存、保留禁用状态，�
     store.setDocumentEnabled(document.id, false); text = '# 开发规范\n构建并验证。'; version = '2';
     await updateRequirements(store, () => {}, () => {}, transport); document = store.listDocuments()[0];
     assert.equal(document.id, originalId); assert.equal(document.enabled, false); assert.equal(document.content, text); assert.equal(document.remote!.version, '2');
+    const activeKey = 'synthetic-current-model-key'; text = `开发规范可包含会话密钥示例 ${activeKey}`; version = '3';
+    await updateRequirements(store, () => {}, value => { if (value.includes(activeKey)) throw new Error('元数据中不能保存模型密钥'); }, transport);
+    document = store.listDocuments()[0]; assert.equal(document.content, text); assert.equal(document.remote!.version, '3');
     const before = await readFile(path.join(root, 'data.db'));
     await assert.rejects(updateRequirements(store, () => {}, () => {}, async input => new Response(String(input).endsWith('manifest.json') ? JSON.stringify(manifest()) : '破损内容')), /校验失败/);
     assert.deepEqual(await readFile(path.join(root, 'data.db')), before);

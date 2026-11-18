@@ -211,3 +211,17 @@ test('局部重合例外不放宽其他连接密码，自由文本和无效编�
     assert.deepEqual(state.store.listProviders(), []);
   } finally { await state.close(); }
 });
+
+test('会话开发要求与手动记忆正文可保存当前中转站密钥原文供模型上下文使用', async t => {
+  const state = await fixture();
+  try {
+    const key = 'synthetic-current-model-key';
+    state.store.saveModelProvider({ id: providerId, name: '测试中转站', baseUrl, models: ['test-model'], hasKey: true });
+    t.mock.method(state.settings, 'credential', () => ({ hasKey: true, read: () => key }) as CredentialStore);
+    const content = `开发要求示例中保留 ${key}，供会话模型上下文验证。`;
+    const document = state.settings.saveRequirement({ title: '开发要求.md', content, system: 'MES5' });
+    assert.equal(document.content, content);
+    const memory = state.settings.saveMemory({ title: '会话密钥样例', content });
+    assert.equal(memory.content, content);
+  } finally { await state.close(); }
+});

@@ -263,7 +263,7 @@ export class SettingsService {
   }
   saveRequirement(value: unknown): ManagedDocument {
     this.assertIdle(); const input = requirementInputSchema.parse(value);
-    this.assertCleanText(input.title + '\n' + input.content);
+    this.assertCleanText(input.title);
     const current = input.id ? this.store.listDocuments().find(document => document.id === input.id && document.kind === 'requirement') : undefined;
     if (input.id && !current) throw new Error('开发要求不存在，不能覆盖其他资料');
     if (!current && this.store.listDocuments().length >= 100) throw new Error('资料最多 100 份，请先整理和删除');
@@ -272,7 +272,7 @@ export class SettingsService {
     parsePolicy(document); this.store.saveDocument(document); return document;
   }
   saveMemory(value: unknown) {
-    this.assertIdle(); const input = memorySchema.parse(value); this.assertCleanText(input.title + '\n' + input.content);
+    this.assertIdle(); const input = memorySchema.parse(value); this.assertCleanText(input.title);
     if (this.store.listMemories().length >= 100) throw new Error('记忆最多 100 条，请先整理和删除');
     const memory = { id: randomUUID(), ...input, createdAt: new Date().toISOString() };
     this.store.saveMemory(memory); return memory;

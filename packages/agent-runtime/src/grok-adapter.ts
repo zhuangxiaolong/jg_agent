@@ -218,7 +218,6 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
   async sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> {
     if (!this.options.apiKey) throw new Error('Grok 中转站尚未配置 API Key');
     if (!prompt.trim() || prompt.length > 100000) throw new Error('Grok 任务内容为空或超过 100000 字符');
-    if (prompt.includes(this.options.apiKey)) throw new Error('任务内容包含已配置 Grok 凭据，已拒绝发送');
     if (imagePaths.length) throw new Error('Grok Runtime 当前尚不支持图片输入');
     if (!this.initialized || !this.binding || this.binding.sessionId !== threadId || !samePath(await this.cwd(cwd), this.binding.cwd)) throw new Error('Grok 会话或工作区尚未正确绑定');
     if (this.turn) throw new Error('当前 Grok 会话已有运行中的任务');

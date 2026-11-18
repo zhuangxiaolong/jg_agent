@@ -282,15 +282,23 @@ test('运行中的任务不因固定时限被取消，只有协议终态或人�
   await runtime.close();
 });
 
-test('Runtime 在发送 RPC 与落地 rollout 前拒绝任务中的已配置模型凭据', async () => {
+test('Runtime 将包含已配置模型凭据的会话原文发送给模型，事件仍脱敏', async () => {
   const value = 'unit-only-sentinel-not-a-real-key';
-  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://api.openai.com/v1', model: 'test', apiKey: value });
-  const state = runtime as unknown as { sessions: Set<string>; request(): Promise<unknown> };
+  const developerInstructions = `业务开发要求 ${value}`;
+  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://api.openai.com/v1', model: 'test', apiKey: value, developerInstructions });
+  const state = runtime as unknown as { sessions: Set<string>; sessionRoots: Map<string, string>; request(method: string, params: Record<string, any>): Promise<unknown>; emit(event: any): void };
   state.sessions.add('thread-local-only');
-  let called = false;
-  state.request = async () => { called = true; throw new Error('不应发送'); };
-  await assert.rejects(runtime.sendTurn('thread-local-only', `用户粘贴了 ${value}`, 'D:\\local'), /包含已配置模型凭据/);
-  assert.equal(called, false);
+  state.sessionRoots.set('thread-local-only', path.resolve('D:\\local'));
+  let sentPrompt = '';
+  state.request = async (_method, params) => { sentPrompt = params.input[0].text; return { turn: { id: 'turn-local', status: 'completed' } }; };
+  await runtime.sendTurn('thread-local-only', `用户粘贴了 ${value}`, path.resolve('D:\\local'));
+  assert.equal(sentPrompt, `用户粘贴了 ${value}`);
+  let eventText = '';
+  runtime.onEvent(event => { if (event.type === 'message') eventText = event.text; });
+  state.emit({ threadId: 'thread-local-only', type: 'message', text: `模型回显 ${value}` });
+  assert.equal(eventText, '模型回显 [已脱敏]');
+  assert.equal(buildDeveloperInstructions({ developerInstructions }).includes(value), true);
+  await runtime.close();
 });
 
 test('字典工具仅向已绑定项目的当前活动 turn 返回结果', async () => {
@@ -354,7 +362,8 @@ test('业务任务和模型消息中的密码Token示例保持原文，诊断脱
   runtime.onEvent(event => messages.push(event.text));
   await runtime.sendTurn('business-thread', text, path.resolve('D:\\local'));
   state.receive({ method: 'item/agentMessage/delta', params: { threadId: 'business-thread', itemId: 'message', delta: text } });
-  assert.deepEqual(messages, [text]);
+  assert.deepEqual(messages, [redactRuntimeText(text)]);
+  assert.ok(!messages[0].includes(text), '事件内容不得保留未经脱敏的业务文本');
   assert.notEqual(redactRuntimeText(text), text);
   await runtime.close();
 });

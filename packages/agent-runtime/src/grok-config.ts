@@ -53,7 +53,7 @@ export function validateGrokOptions(options: GrokRuntimeOptions): void {
   if (options.apiKey && /[\x00-\x1f]/.test(options.apiKey)) throw new Error('Grok API Key 含非法控制字符');
   if (options.proxyUrl) proxy(options.proxyUrl);
   if (options.developerInstructions && Buffer.byteLength(options.developerInstructions, 'utf8') > 2 * 1024 * 1024) throw new Error('Grok 开发要求超过 2 MiB，不会静默截断');
-  if (options.apiKey && [options.executable, options.home, options.baseUrl, options.model, options.proxyUrl, options.developerInstructions].some(value => value?.includes(options.apiKey!))) throw new Error('Grok 配置或开发要求包含模型凭据，已拒绝写入');
+  if (options.apiKey && [options.executable, options.home, options.baseUrl, options.model, options.proxyUrl].some(value => value?.includes(options.apiKey!))) throw new Error('Grok 配置包含模型凭据，已拒绝写入');
   for (const originalHome of [process.env.USERPROFILE, process.env.HOME]) {
     if (originalHome && samePath(options.home, path.join(originalHome, '.grok'))) throw new Error('Grok 必须使用精工受管目录，不得覆盖用户 .grok');
   }

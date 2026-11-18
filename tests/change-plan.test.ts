@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { CodexRuntime, buildDeveloperInstructions, type RuntimeEvent } from '../packages/agent-runtime/src';
+import { CodexRuntime, buildDeveloperInstructions, redactRuntimeText, type RuntimeEvent } from '../packages/agent-runtime/src';
 import { ProjectReadBroker } from '../packages/agent-runtime/src/project-read-broker';
 import { CHANGE_PLAN_TOOL, parseChangePlan, renderChangePlan } from '../packages/agent-runtime/src/change-plan';
 
@@ -32,10 +32,14 @@ test('代码修改方案是可选记录，未发布、初步方案和范围变�
     assert.equal(events.some(event => event.type === 'message'), false, '无需发布方案即可修改');
     const plan = { goal: '补充新文件，跟随现有 TypeScript 写法', changes: [{ path: 'new.ts', change: '新增 next 常量。' }], impact: '仅增加新文件；不修改数据库和事务。', validation: ['构建项目并检查新常量。'] };
     assert.equal((await call('publish_change_plan', { ...plan, impact: '' })).success, false);
-    assert.equal((await call('publish_change_plan', { ...plan, goal: apiKey })).success, false);
+    assert.equal((await call('publish_change_plan', { ...plan, goal: apiKey })).success, true);
+    assert.ok(events.some(event => event.type === 'message' && event.text.includes('[已脱敏]')));
+    assert.ok(events.every(event => !event.text.includes(apiKey)), '会话事件仍需脱敏');
     const example = '记录失败响应，示例 password="unit-only-password"，Authorization: Bearer synthetic-business-token';
     assert.equal((await call('publish_change_plan', { ...plan, impact: example })).success, true);
-    assert.ok(events.find(event => event.type === 'message')!.text.includes(example));
+    const exampleMessage = events.filter(event => event.type === 'message').at(-1)!;
+    assert.equal(exampleMessage.text, redactRuntimeText(renderChangePlan(parseChangePlan({ ...plan, impact: example })), apiKey));
+    assert.ok(!exampleMessage.text.includes(example), '方案原文只进入模型上下文，事件内容应脱敏');
 
     const initialPlan = { ...plan, stage: 'draft', changes: [], assumptions: ['暂按现有入口设计，待代码证据确认。'], pendingQuestions: ['确认日志是否跟随业务事务回滚。'] };
     assert.equal((await call('publish_change_plan', initialPlan)).success, true);

@@ -36,7 +36,6 @@ export function assertTaskSafeMetadata(value: unknown): void {
   inspect(value);
   const encoded = stableTaskJson(value);
   if (encoded.length > 256000) throw new Error('任务元数据超过容量限制');
-  if (/(?:\bBearer\s+[A-Za-z0-9._~+/-]{8,}|\bsk-[A-Za-z0-9_-]{16,}|(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|authorization)\s*["']?\s*[:=]\s*["']?[^\s"',;}]{6,}|qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=)/i.test(encoded)) throw new Error('任务元数据可能包含秘密，请使用受控配置引用');
 }
 function strings(value: unknown, name: string, required = false): asserts value is string[] {
   if (!Array.isArray(value) || value.length > 200 || required && value.length === 0 || value.some(item => typeof item !== 'string' || !item.trim() || item.length > 4000)) throw new Error(`${name}格式无效`);

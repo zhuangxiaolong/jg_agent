@@ -14,10 +14,10 @@ function proof(): TaskEvidenceRecord {
   return { id: 'proof', taskId: 'task', sessionId: 'session', projectId: 'project', contractVersion: 1, evidenceType: 'test', source: 'test_runner', status: 'passed', command: 'node --test', workingDirectory: 'D:/project', startedAt: timestamp, finishedAt: timestamp, durationMs: 0, exitCode: 0, logRef: 'stdout.log', manifestRef: 'manifest.json', reportRef: 'junit.xml', testCount: 2, codeFingerprint: 'a'.repeat(64), contentHash: 'b'.repeat(64), createdAt: timestamp, integrityVerified: true };
 }
 
-test('任务契约保留显式验收标准，拒绝秘密、越界路径、预算错误和非隔离写入', () => {
+test('任务契约允许正文包含凭据样例，但拒绝越界路径、预算错误和非隔离写入', () => {
   const contract = createTaskContract(task());
   assert.equal(validateTaskContract(contract).contractVersion, 2);
-  assert.throws(() => validateTaskContract({ ...contract, goal: 'api_key=synthetic-secret-value' }), /秘密/);
+  assert.equal(validateTaskContract({ ...contract, goal: 'api_key=synthetic-secret-value' }).goal, 'api_key=synthetic-secret-value');
   assert.throws(() => validateTaskContract({ ...contract, allowedPaths: ['../outside'] }), /越界/);
   assert.throws(() => validateTaskContract({ ...contract, budgetPolicy: { ...contract.budgetPolicy, maxToolCalls: 0 } }), /预算/);
   assert.throws(() => validateTaskContract({ ...contract, permissions: ['write_workspace'] }), /隔离工作区/);

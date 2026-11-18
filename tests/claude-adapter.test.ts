@@ -34,8 +34,10 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
   const executablePath = join(cwd, 'claude.exe');
   await writeFile(executablePath, 'fixture');
   const optionsSeen: ClaudeSdkQueryOptions[] = [];
+  const prompts: string[] = [];
   const sdk: ClaudeSdkModule = {
-    query({ options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
+    query({ prompt, options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
+      prompts.push(prompt);
       optionsSeen.push(options);
       return { async *[Symbol.asyncIterator]() { yield { type: 'result', subtype: 'success' }; } };
     },
@@ -46,7 +48,8 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
   });
   try {
     const thread = await adapter.startSession(cwd);
-    await adapter.sendTurn(thread, '执行实际调用', cwd);
+    await adapter.sendTurn(thread, '执行实际调用 sk-test-secret', cwd);
+    assert.equal(prompts[0], '执行实际调用 sk-test-secret');
     assert.equal(optionsSeen[0].env?.ANTHROPIC_BASE_URL, 'https://relay.example.invalid/anthropic');
     assert.equal(optionsSeen[0].env?.ANTHROPIC_API_KEY, 'sk-test-secret');
     await adapter.testConnection(cwd);

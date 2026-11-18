@@ -115,6 +115,15 @@ test('Grok 新建与冷恢复均携带查询效率要求，保留业务上下文
   } finally { await f.close(); }
 });
 
+test('Grok 会话提示允许包含已配置 API Key 并正常完成', async () => {
+  const f = await fixture();
+  try {
+    const id = await f.runtime.startSession(f.workspace);
+    await f.runtime.sendTurn(id, `业务记录 ${syntheticKey}`, f.workspace);
+    assert.equal(f.events.at(-1)?.text, 'completed');
+  } finally { await f.close(); }
+});
+
 test('Grok 平台提示仅在 Windows 给出 PowerShell 5.1 约束，简单查询仍要求实时来源', () => {
   const windows = grokExecutionInstructions(undefined, 'win32');
   assert.match(windows, /一次成功取数后复用结构化结果/);
@@ -247,7 +256,7 @@ test('Grok 静态配置与环境隔离，不含凭据、不允许 xAI 和隐式�
   assert.equal(buildGrokEnvironment({ ...options, proxyUrl: 'http://127.0.0.1:7890' }).HTTPS_PROXY, 'http://127.0.0.1:7890');
   assert.throws(() => grokConfigToml({ ...options, baseUrl: 'http://relay.invalid' }), /HTTPS/);
   assert.throws(() => grokConfigToml({ ...options, baseUrl: 'https://u:p@relay.invalid' }), /凭据/);
-  assert.throws(() => grokConfigToml({ ...options, developerInstructions: syntheticKey }), /模型凭据/);
+  assert.doesNotThrow(() => grokConfigToml({ ...options, developerInstructions: syntheticKey }));
 });
 
 test('合成 Grok 子进程完成 ACP 流式/工具生命周期和冷恢复，配置不落密钥', async () => {

@@ -75,8 +75,6 @@ async function checkedFile(root: string, relative: string): Promise<IndexedFile 
     if (bytesRead > MAX_FILE_BYTES || bytesRead !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ctimeMs !== info.ctimeMs) return;
     const buffer = bytes.subarray(0, bytesRead); if (buffer.includes(0)) return;
     let text: string; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { return; }
-    // 与凭据文件名过滤一起防止普通源码误提交的密钥进入检索缓存。
-    if (/\bsk-[A-Za-z0-9_-]{12,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|access[_-]?token)\s*[:=]\s*["'][^"']{8,}["']/i.test(text)) return;
     const symbols = [...text.matchAll(/\b(?:class|interface|function|enum|type|def|struct|namespace|const|let|var|public|private|protected)\s+([A-Za-z_$][\w$]{1,100})/g)].slice(0, 200).map(match => match[1]);
     return { path: relative, size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, hash: createHash('sha256').update(buffer).digest('hex'), text, symbols, searchBloom: searchBloom(text) };
   } finally { await handle.close(); }

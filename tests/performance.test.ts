@@ -58,13 +58,14 @@ test('索引只解析变更文件，跨重启复用元数据并保留符号检�
     await writeFile(path.join(root, 'src', 'skip.generated.ts'), 'DO_NOT_INDEX');
     const identity = { workspaceId: 'w', repositoryId: 'r', worktreeId: 't', root };
     const service = new WorkspaceIndexService({ cacheRoot: cache }); const first = await service.ensureFresh(identity);
-    assert.equal(first.state, 'ready'); assert.equal(first.fileCount, 2); assert.equal(first.parsedFiles, 2);
-    const second = await service.ensureFresh(identity); assert.equal(second.parsedFiles, 0); assert.equal(second.reusedFiles, 2); assert.equal(second.version, first.version);
+    assert.equal(first.state, 'ready'); assert.equal(first.fileCount, 3); assert.equal(first.parsedFiles, 3);
+    const second = await service.ensureFresh(identity); assert.equal(second.parsedFiles, 0); assert.equal(second.reusedFiles, 3); assert.equal(second.version, first.version);
     await writeFile(path.join(root, 'src', 'a.ts'), 'export class UpdatedWidget { value = 123; }');
-    const third = await service.ensureFresh(identity); assert.equal(third.parsedFiles, 1); assert.equal(third.reusedFiles, 1);
+    const third = await service.ensureFresh(identity); assert.equal(third.parsedFiles, 1); assert.equal(third.reusedFiles, 2);
     service.close(); const restarted = new WorkspaceIndexService({ cacheRoot: cache }); const warm = await restarted.ensureFresh(identity);
-    assert.equal(warm.parsedFiles, 0); assert.equal(warm.reusedFiles, 2);
+    assert.equal(warm.parsedFiles, 0); assert.equal(warm.reusedFiles, 3);
     const matches = await restarted.search(identity, 'UpdatedWidget'); assert.equal(matches.length, 1); assert.equal(matches[0].path, 'src/a.ts');
+    const secretContext = await restarted.search(identity, 'sk-abcdefghijklmnop'); assert.equal(secretContext.length, 1); assert.ok(secretContext[0].text.includes('sk-abcdefghijklmnop'));
     await unlink(path.join(root, 'src', 'b.ts')); const removed = await restarted.ensureFresh(identity); assert.equal(removed.deletedFiles, 1);
     const separate = { ...identity, workspaceId: 'other' }; assert.equal(restarted.status(separate).state, 'unavailable'); assert.deepEqual(await restarted.search(separate, 'UpdatedWidget'), []);
     restarted.close();
@@ -73,7 +74,7 @@ test('索引只解析变更文件，跨重启复用元数据并保留符号检�
     assert.ok(cacheText.every(text => !text.includes('value = 123') && !text.includes('NEVER_INDEX') && !text.includes('sk-abcdefghijklmnop')));
   } finally { await rm(root, { recursive: true, force: true }); await rm(cache, { recursive: true, force: true }); }
 });
-test('检索命中也会复核文件 hash，密钥和链接不进入索引', async () => {
+test('检索命中复核文件 hash，凭据正文可进入模型上下文且链接不越界', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'jg-performance-read-')); const outside = await mkdtemp(path.join(os.tmpdir(), 'jg-performance-outside-'));
   try {
     execFileSync('git', ['init', '--quiet', root], { windowsHide: true }); await writeFile(path.join(root, 'file.ts'), 'export class QueryWidget {}'); await writeFile(path.join(outside, 'outside.ts'), 'export class OutsideSecret {}');
@@ -82,7 +83,8 @@ test('检索命中也会复核文件 hash，密钥和链接不进入索引', asy
     await writeFile(path.join(root, 'file.ts'), 'export class QueryWidget { current = true; }');
     const found = await service.search(identity, 'QueryWidget'); assert.ok(found[0].text.includes('current = true'));
     if (linked) assert.equal((await service.search(identity, 'OutsideSecret')).length, 0);
-    await writeFile(path.join(root, 'file.ts'), 'const password = "confidential-password";'); assert.equal((await service.search(identity, 'QueryWidget')).length, 0);
+    await writeFile(path.join(root, 'file.ts'), 'const password = "confidential-password";');
+    const secret = await service.search(identity, 'confidential-password'); assert.equal(secret.length, 1); assert.ok(secret[0].text.includes('confidential-password'));
     service.close();
     for (const name of ['.env', 'src/appsettings.Development.json', 'keys/private.pem', 'src/token.json', 'node_modules/a.ts', '../escape.ts', 'C:/escape.ts']) assert.equal(indexablePath(name), false, name);
   } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
