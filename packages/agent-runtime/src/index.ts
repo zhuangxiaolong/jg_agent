@@ -108,9 +108,7 @@ export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolE
 export class JsonLinesDecoder {
   private buffer = '';
   push(chunk: string): string[] {
-    this.buffer += chunk;
-    if (this.buffer.length > 4 * 1024 * 1024) throw new Error('Runtime 协议单行超过 4 MiB 限制');
-    const lines = this.buffer.split('\n');
+    const lines = (this.buffer + chunk).split('\n');
     this.buffer = lines.pop() ?? '';
     return lines.filter((line) => line.trim().length > 0);
   }

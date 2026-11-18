@@ -98,7 +98,7 @@ html[data-style="jinggong"][data-theme="dark"] body { background: #0b1220; }
 .dock-layout .message-meta { height: 28px; gap: 8px; }
 .dock-layout .message-meta strong { font-size: 13px; }
 .dock-layout .message-meta time { font-size: 12px; }
-.dock-layout .message-text { margin-top: 5px; color: var(--text); font-size: 10.5pt; line-height: 1.68; }
+.dock-layout .message-text { margin-top: 5px; color: var(--text); font-size: 10pt; line-height: 1.55; }
 .dock-layout .message-text .markdown-content code,
 .dock-layout .message-text .markdown-code,
 .dock-layout .message-text .markdown-content table { font-size: inherit; }

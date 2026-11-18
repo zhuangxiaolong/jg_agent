@@ -1060,7 +1060,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   browsers = new BrowserManager(window, dataRoot);
   computer = new ComputerManager();
   for (const session of store.listSessions()) followups.stop(session.id, '应用已重启');
-  window.on('focus', () => { if (process.platform === 'win32' && !window.isDestroyed()) window.flashFrame(false); });
+  window.on('focus', () => { if (process.platform === 'win32' && !window.isDestroyed()) { window.flashFrame(false); window.setOverlayIcon(null, ''); } });
   tray = createDesktopTray(window, path.join(__dirname, 'renderer/assets/app-icon.png'), requestExit);
   handle('app:bootstrap', async () => {
     const selected = store.getRuntimeKind();
@@ -1874,6 +1874,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     if (typeof value !== 'string' || !value.trim() || value.length > 120) throw new Error('会话提醒标题无效');
     if (process.platform === 'win32' && !window.isDestroyed() && (window.isMinimized() || !window.isVisible() || !window.isFocused())) {
       if (!window.isVisible() && !window.isMinimized()) window.showInactive();
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#38bdf8"/><path d="m4 8 2.4 2.4L12 5" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      window.setOverlayIcon(nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`), '会话已完成');
       window.flashFrame(true);
     }
     if (Notification.isSupported()) new Notification({ title: '精工Agent', body: `会话「${clean(value.trim())}」已完成。`, silent: true }).show();
@@ -2254,7 +2256,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       autoUpdater.on('update-not-available', info => publishUpdate({ state: 'not-available', version: info.version, message: `当前已是最新版本 ${info.version}` }));
       autoUpdater.on('download-progress', info => publishUpdate({ state: 'downloading', progress: Math.round(info.percent), message: `正在下载更新 ${Math.round(info.percent)}%` }));
       autoUpdater.on('error', error => { publishUpdate({ state: 'error', message: redact(error.message) }); console.warn('[online-update]', redact(error.message)); });
-      if (updateMode() === 'automatic') void checkForUpdate();
+      void checkForUpdate();
     } else { publishUpdate({ state: 'disabled', message: '当前安装包未包含在线更新配置' }); console.warn('[online-update] 未找到有效 app-update.yml，已关闭自动更新检查与安装'); }
   }
 }).catch(error => { dialog.showErrorBox('精工Agent启动失败', redact(String(error))); app.quit(); });

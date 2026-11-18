@@ -196,7 +196,7 @@ function Updates({ snapshot, api, act, pending }: Operations & { snapshot: Setti
   const updating = ['checking', 'downloading', 'downloaded'].includes(status.state);
   const changed = url.trim() !== snapshot.updateUrl;
   return <section aria-label="更新设置">
-    <div className="section-heading"><div><h3>应用更新</h3><p>自动模式启动后静默检查并下载；手动模式由你发起检查。</p></div><strong className="app-version" aria-label="当前应用版本">当前版本 v{snapshot.appVersion}</strong></div>
+    <div className="section-heading"><div><h3>应用更新</h3><p>每次启动都会检查；自动模式后台下载，手动模式需点击下载。</p></div><strong className="app-version" aria-label="当前应用版本">当前版本 v{snapshot.appVersion}</strong></div>
     <form className="settings-form update-source-form" onSubmit={event => { event.preventDefault(); void act(() => api.saveUpdateUrl(url.trim()), '更新地址已保存。'); }}>
       <label htmlFor="update-url">更新地址</label><input id="update-url" type="url" aria-label="更新地址" value={url} onChange={event => setUrl(event.target.value)} disabled={pending || updating} required maxLength={2000} />
       <p className="field-hint">支持 GitHub 仓库地址（包括 .git）或提供 latest.yml 的 HTTPS 更新目录。保存后生效。</p>

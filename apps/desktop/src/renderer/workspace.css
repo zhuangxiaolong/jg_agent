@@ -416,7 +416,7 @@ html[data-style="minimal"] .brand-mark { opacity: .8; }
 .markdown-content { white-space: normal; overflow-wrap: anywhere; }
 .markdown-content>*:first-child { margin-top: 0; }
 .markdown-content>*:last-child { margin-bottom: 0; }
-.markdown-content p { margin: 9px 0; }
+.markdown-content p { margin: 6px 0; }
 .markdown-content .markdown-heading { color: var(--text, #e4ebe6); line-height: 1.5; font-weight: 600; margin: 19px 0 8px; }
 .markdown-content h1 { font-size: 19px; border-bottom: 1px solid var(--line); padding-bottom: 7px; }
 .markdown-content h2 { font-size: 16px; }

@@ -56,7 +56,7 @@ broker 绑定准确的 threadId、活动 turnId 和本次 cwd；对原始项目�
 
 ## 生命周期和故障处理
 
-JSONL 解码器处理跨行分帧，UTF-8 由流解码保证字符边界；单行限制 4 MiB。RPC 默认超时 20 秒，turn 默认运行时限 30 分钟（测试可通过 `runTimeoutMs` 覆盖）。原先 180 秒硬超时会取消超过三分钟的正常长任务；超时处理现在先发出错误和 `interrupted` 终态，再关闭本次 Runtime，避免界面持续显示运行中。进程退出拒绝全部挂起 RPC。已完成 turn ID 防止同一 stdout 批次先收到终态、后处理 RPC Promise 微任务时错误重建活动任务。关闭时先结束 stdin，等待正常退出；超时在 Windows 对本次子进程 PID 执行 `taskkill /T /F`，不对用户其他 Codex 进程操作。
+JSONL 解码器处理跨行分帧，UTF-8 由流解码保证字符边界；单行长度不设置应用层硬上限。RPC 默认超时 20 秒，turn 默认运行时限 30 分钟（测试可通过 `runTimeoutMs` 覆盖）。原先 180 秒硬超时会取消超过三分钟的正常长任务；超时处理现在先发出错误和 `interrupted` 终态，再关闭本次 Runtime，避免界面持续显示运行中。进程退出拒绝全部挂起 RPC。已完成 turn ID 防止同一 stdout 批次先收到终态、后处理 RPC Promise 微任务时错误重建活动任务。关闭时先结束 stdin，等待正常退出；超时在 Windows 对本次子进程 PID 执行 `taskkill /T /F`，不对用户其他 Codex 进程操作。
 
 该策略覆盖正常退出和应用主动取消。主进程被操作系统强制终止、突然断电等场景仍需 Windows Job Object 或守护清理等专项验证，不能以正常 EOF 退出测试替代崩溃验收。
 

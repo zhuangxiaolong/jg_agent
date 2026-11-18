@@ -31,7 +31,6 @@ const systemProcesses: GrokProcessFactory = {
   version: (executable, env) => new Promise((resolve, reject) => execFile(executable, ['--version'], { env, windowsHide: true, timeout: 10000, maxBuffer: 8192 }, (error, stdout) => error ? reject(error) : resolve(stdout))),
   launch: (executable, args, options) => spawn(executable, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] }),
 };
-const MAX_LINE = 4 * 1024 * 1024;
 function record(value: unknown): value is JsonObject { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function validId(value: unknown): value is RpcId { return (typeof value === 'string' && value.length > 0 && value.length <= 256) || (typeof value === 'number' && Number.isSafeInteger(value)); }
 function validSession(value: unknown): value is string { return typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\x00-\x1f]/.test(value); }
@@ -252,12 +251,10 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
 
   private receive(chunk: string): void {
     this.buffer += chunk;
-    if (Buffer.byteLength(this.buffer, 'utf8') > MAX_LINE && !this.buffer.includes('\n')) { void this.fail(new Error('Grok ACP 单行超过 4 MiB')); return; }
     let split: number;
     while ((split = this.buffer.indexOf('\n')) >= 0) {
       const line = this.buffer.slice(0, split); this.buffer = this.buffer.slice(split + 1);
       if (!line.trim()) continue;
-      if (Buffer.byteLength(line, 'utf8') > MAX_LINE) { void this.fail(new Error('Grok ACP 单行超过 4 MiB')); return; }
       let message: JsonObject; try { message = JSON.parse(line); if (!record(message) || message.jsonrpc !== '2.0') throw new Error(); } catch { void this.fail(new Error('Grok ACP 返回损坏的 JSON-RPC 数据')); return; }
       if (validId(message.id) && !message.method) {
         const pending = this.pending.get(message.id); if (!pending) continue;
@@ -270,7 +267,6 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
         else if (message.method === 'session/update') { this.touchPrompt(message.params?.sessionId); this.update(message.params); }
       }
     }
-    if (Buffer.byteLength(this.buffer, 'utf8') > MAX_LINE) void this.fail(new Error('Grok ACP 单行超过 4 MiB'));
   }
 
   private update(params: unknown): void {
@@ -335,9 +331,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
   private notify(method: string, params: JsonObject): void { this.write({ jsonrpc: '2.0', method, params }, true); }
   private write(message: JsonObject, bestEffort = false): void {
     const line = JSON.stringify(message) + '\n';
-    if (Buffer.byteLength(line, 'utf8') > MAX_LINE) throw new Error('Grok ACP 请求超过 4 MiB');
     if (!this.child || this.child.stdin.destroyed || !this.child.stdin.writable) { if (bestEffort) return; throw new Error('Grok ACP 输入管道不可用'); }
-    if (this.child.stdin.writableLength > MAX_LINE) { void this.fail(new Error('Grok ACP 写入队列超过限制')); return; }
     this.child.stdin.write(line);
   }
 

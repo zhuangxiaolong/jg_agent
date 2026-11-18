@@ -13,7 +13,10 @@ test('JSONL 协议处理跨行分帧和超长行', () => {
   const decoder = new JsonLinesDecoder();
   assert.deepEqual(decoder.push('{"id":1,"res'), []);
   assert.deepEqual(decoder.push('ult":"中文"}\n{"id":2}\n'), ['{"id":1,"result":"中文"}', '{"id":2}']);
-  assert.throws(() => decoder.push('x'.repeat(4 * 1024 * 1024 + 1)), /超过/);
+  const largeLine = `\"payload\":\"${'x'.repeat(4 * 1024 * 1024)}\"`;
+  assert.deepEqual(decoder.push(`${largeLine}\n`), [largeLine]);
+  const unboundedLine = 'x'.repeat(64 * 1024 * 1024 + 1);
+  assert.deepEqual(decoder.push(`${unboundedLine}\n`), [unboundedLine]);
 });
 
 test('Runtime 保持长 SSE 空闲保护且关闭模型请求自动重试', () => {
