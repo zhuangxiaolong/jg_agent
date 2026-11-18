@@ -171,8 +171,10 @@ try {
   assert.equal(pickedAttachments[1].kind, 'file');
   assert.ok(pickedAttachments.every(item => item.name && item.size > 0));
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
-  await expect(page.locator('.composer-attachment')).toHaveCount(2);
-  checks.push('会话输入区可选择图片和普通文件，附件元数据通过主进程校验并显示在待发送列表');
+  await expect(page.locator('.composer-attachment')).toHaveCount(1);
+  await expect(page.locator('.composer-image-card')).toHaveCount(1);
+  await expect(page.locator('.composer-image-card img')).toHaveCount(1);
+  checks.push('会话输入区可选择图片和普通文件，图片显示预览、普通文件显示附件条目');
   const clipboardFile = path.join(root, '会话粘贴附件.md');
   await writeFile(clipboardFile, '# 粘贴附件\n\n通过本机文件剪贴板测试。\n');
   await page.locator('body').evaluate(() => {
@@ -189,7 +191,7 @@ try {
     textarea.setSelectionRange(0, 0);
     textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
   });
-  await expect(page.locator('.composer-attachment')).toHaveCount(3);
+  await expect(page.locator('.composer-attachment')).toHaveCount(2);
   await expect(page.locator('.composer textarea')).toHaveValue('随文件一起粘贴的备注');
   const clipboardImageBytes = Array.from(await readFile(uploadImage));
   const sessionAttachmentDirectory = path.join(data, 'attachments', 'conversation', session.id);
@@ -200,8 +202,12 @@ try {
     clipboardData.items.add(file);
     textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
   }, clipboardImageBytes);
-  await expect(page.locator('.composer-attachment')).toHaveCount(4);
-  await expect(page.locator('.composer-attachment').last()).toContainText('剪贴板图片.png');
+  await expect(page.locator('.composer-image-card')).toHaveCount(2);
+  await expect(page.locator('.composer-image-card').last()).toContainText('剪贴板图片.png');
+  await expect(page.locator('.composer-image-card img')).toHaveCount(2);
+  await page.locator('.composer-image-card').last().locator('.conversation-image-trigger').dblclick();
+  await expect(page.getByRole('dialog', { name: '图片查看 剪贴板图片.png', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭图片查看', exact: true }).click();
   const sessionAttachmentFiles = await readdir(sessionAttachmentDirectory);
   assert.equal(sessionAttachmentFiles.filter(filename => filename.endsWith('.png')).length, pngCountBeforeClipboardImage + 1, '剪贴板图片必须由主进程解码后写入会话附件目录');
   checks.push('会话输入框 Ctrl+V 可粘贴无本地路径的剪贴板图片，主进程解码并保存为本地 PNG 附件');
@@ -310,6 +316,13 @@ try {
     const contents = BrowserWindow.getAllWindows()[0].webContents;
     items.forEach((item, index) => contents.send('agent:event', { ...item, sessionId, createdAt: new Date(Date.now() + index).toISOString() }));
   }, { sessionId: session.id, items });
+  await sendProgress([{ id: 'smoke-image-user', type: 'user', text: '图片消息预览验收', attachments: [pickedAttachments[0]] }]);
+  const messageImage = page.locator('.message-image-card').last();
+  await expect(messageImage.locator('img')).toBeVisible();
+  await messageImage.locator('.conversation-image-trigger').dblclick();
+  await expect(page.getByRole('dialog', { name: '图片查看 会话图片.png', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭图片查看', exact: true }).click();
+  checks.push('已发送消息图片预览可用，双击打开原图；消息事件通过离线 Runtime 事件注入验收，未调用模型');
   await sendProgress([{ id: 'smoke-progress-user', type: 'user', text: '离线进度交互验收' }, { id: 'smoke-progress-running', type: 'status', text: 'running' }, { id: 'smoke-progress-read', type: 'tool', text: '执行命令：rg -n name src' }]);
   const progress = page.locator('.working-summary');
   await expect(progress).toHaveAttribute('aria-expanded', 'false');

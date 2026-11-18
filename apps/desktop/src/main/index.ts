@@ -24,7 +24,7 @@ import { SettingsService } from './settings';
 import { GrokSettingsService } from './grok-settings';
 import { resolveGrokSessionBinding } from './grok-session-binding';
 import { DpapiCredentialVault } from './credentials';
-import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
+import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionConversationImageSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
 import { RunLifecycle, type RunTicket } from './lifecycle';
 import { SessionRuntimes } from './session-runtimes';
 import { SessionGitService } from './session-git';
@@ -356,6 +356,46 @@ function conversationFilename(filename: string): string {
   const base = path.basename(filename).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
   return (base || '附件').slice(0, 180);
 }
+async function conversationImageDataUrl(sessionId: string, attachmentId: string, fullSize: boolean): Promise<string> {
+  const session = sessionById(sessionId);
+  const pending = pendingConversationAttachments.get(session.id)?.get(attachmentId);
+  const saved = store.events(session.id).flatMap(event => event.type === 'user' ? event.attachments ?? [] : []).find(item => item.id === attachmentId);
+  const attachment = pending ?? saved;
+  if (!attachment || attachment.kind !== 'image') throw new Error('图片不属于当前会话');
+  const type = conversationMimeType(conversationFilename(attachment.name));
+  if (type.kind !== 'image' || type.mimeType !== attachment.mimeType || !Number.isInteger(attachment.size) || attachment.size <= 0 || attachment.size > MAX_CONVERSATION_IMAGE_BYTES) throw new Error('会话图片附件信息无效');
+
+  const attachmentsRoot = path.resolve(dataRoot, 'attachments');
+  const conversationRoot = path.join(attachmentsRoot, 'conversation');
+  const directory = path.resolve(conversationRoot, session.id);
+  if (path.dirname(directory) !== conversationRoot || path.basename(directory) !== session.id) throw new Error('会话图片目录无效');
+  for (const parent of [attachmentsRoot, conversationRoot, directory]) {
+    const parentStat = await lstat(parent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) throw new Error('会话图片目录身份异常');
+  }
+  const canonicalDirectory = await realpath(directory);
+  const prefix = attachmentId.toLowerCase() + '.';
+  const filenames = (await readdir(directory)).filter(name => name.toLowerCase().startsWith(prefix) && /^[0-9a-f-]{36}\.[a-z0-9]{1,11}$/i.test(name));
+  if (filenames.length !== 1) throw new Error('会话图片文件不存在或不唯一');
+  const imagePath = path.join(directory, filenames[0]);
+  const fileStat = await lstat(imagePath);
+  if (!fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.nlink !== 1 || fileStat.size !== attachment.size || fileStat.size > MAX_CONVERSATION_IMAGE_BYTES) throw new Error('会话图片文件校验失败');
+  const canonicalImage = await realpath(imagePath);
+  const sameDirectory = process.platform === 'win32'
+    ? path.dirname(canonicalImage).toLowerCase() === canonicalDirectory.toLowerCase()
+    : path.dirname(canonicalImage) === canonicalDirectory;
+  if (!sameDirectory) throw new Error('会话图片文件路径校验失败');
+  const bytes = await readFile(imagePath);
+  if (bytes.byteLength !== fileStat.size) throw new Error('会话图片文件读取不完整');
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) throw new Error('会话附件不是有效图片');
+  const { width, height } = image.getSize();
+  if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || width * height > 100_000_000) throw new Error('会话图片尺寸超出支持范围');
+  if (fullSize) return 'data:' + type.mimeType + ';base64,' + bytes.toString('base64');
+  const scale = Math.min(1, 640 / width, 480 / height);
+  const preview = image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' }).toPNG();
+  return 'data:image/png;base64,' + preview.toString('base64');
+}
 function pendingAttachments(sessionId: string): Map<string, PendingConversationAttachment> {
   let entries = pendingConversationAttachments.get(sessionId);
   if (!entries) { entries = new Map(); pendingConversationAttachments.set(sessionId, entries); }
@@ -566,8 +606,8 @@ function saveSessionJiraIssue(session: Session, issue: JiraIssue): Session {
   store.saveSession(updated);
   return updated;
 }
-function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity']): void {
-  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? settings.redactContent(text) : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), createdAt: new Date().toISOString() };
+function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity'], attachments?: ConversationAttachment[]): void {
+  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? settings.redactContent(text) : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), ...(attachments ? { attachments } : {}), createdAt: new Date().toISOString() };
   store.appendEvent(event);
   if (type === 'status' && ['completed', 'failed', 'interrupted'].includes(text)) performanceService?.finish(sessionId, text as 'completed' | 'failed' | 'interrupted');
   if (type === 'status' && text === 'completed') {
@@ -1373,6 +1413,10 @@ if (primaryInstance) app.whenReady().then(async () => {
     return updated;
   });
   handle('session:events', (value: unknown) => store.events(sessionById(value).id));
+  handle('session:conversation-image', async (value: unknown) => {
+    const input = sessionConversationImageSchema.parse(value);
+    return conversationImageDataUrl(input.sessionId, input.attachmentId, input.fullSize);
+  });
   handle('performance:report', (value: unknown) => performanceService!.telemetry.report(sessionById(value).id));
   handle('performance:export', (value: unknown) => performanceService!.telemetry.export(sessionById(value).id));
   handle('performance:clear', (value: unknown) => { const session = sessionById(value); assertSessionIdle(session.id); performanceService!.telemetry.clear(session.id); });
@@ -1697,7 +1741,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       session.runtimeCapabilitiesVersion = RUNTIME_CAPABILITIES_VERSION;
       runs.assertCurrent(ticket);
       session.status = 'running'; session.unreadCompletionId = undefined; store.saveSession(session);
-      if (!queuedTurnId) emit(session.id, 'user', prompt);
+      if (!queuedTurnId) emit(session.id, 'user', prompt, undefined, undefined, undefined, undefined, attachments);
       emit(session.id, 'status', 'running');
       // 主会话配置与 Runtime 就绪后再产生子任务，避免失败会话仍请求模型。
       automaticTaskIds = createAutomaticAgentTasks(session, parsed.prompt);

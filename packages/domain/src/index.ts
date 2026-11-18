@@ -138,7 +138,7 @@ export interface RequirementAdmission { id: string; status: RequirementAdmission
 export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
-export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval; activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string } }
+export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval; activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string }; attachments?: ConversationAttachment[] }
 export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'WAITING' | 'BLOCKED';
 export type AgentTaskRole = 'requirement' | 'architecture' | 'developer' | 'review' | 'testing' | 'documentation' | 'custom';
 export type AgentTaskWorkspaceMode = 'read' | 'worktree';
@@ -377,6 +377,7 @@ export interface DesktopApi {
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
   addConversationAttachments(sessionId: string, files: File[]): Promise<ConversationAttachment[]>;
+  getConversationImage(sessionId: string, attachmentId: string, fullSize?: boolean): Promise<string>;
   authorizeSessionDirectory(sessionId: string): Promise<Session>;
   revokeSessionDirectory(sessionId: string, grantId: string): Promise<Session>;
   restoreSessionFullReadAccess(sessionId: string): Promise<Session>;

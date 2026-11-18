@@ -120,6 +120,7 @@ const api: DesktopApi = {
   deleteSession: id => invoke('session:delete', id),
   markSessionRead: (id, completionId) => invoke('session:read', id, completionId),
   getEvents: id => invoke('session:events', id),
+  getConversationImage: (sessionId, attachmentId, fullSize = false) => invoke('session:conversation-image', { sessionId, attachmentId, fullSize }),
   listAgentTasks: id => invoke('agent-task:list', id),
   taskEngineering: {
     detail: (sessionId, taskId) => invoke('agent-task:engineering-detail', sessionId, taskId),

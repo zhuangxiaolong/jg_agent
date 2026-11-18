@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema, sessionConversationImageSchema } from '../apps/desktop/src/main/security';
 
 test('提交不再要求复核资料列表，保留旧请求兼容与提交参数校验', () => {
   assert.deepEqual(commitSchema.parse({ message: '提交本地修改' }), { message: '提交本地修改' });
@@ -37,6 +37,14 @@ test('会话附件 IPC 接受受限的剪贴板图片字节并拒绝伪造/超�
   assert.equal(sessionAttachmentsSchema.safeParse({ sessionId, items: [{ ...image, bytes: new Uint8Array(0) }] }).success, false);
   assert.equal(sessionAttachmentsSchema.safeParse({ sessionId, items: [{ ...image, bytes: new Uint8Array(8 * 1024 * 1024 + 1) }] }).success, false);
   assert.equal(sessionAttachmentsSchema.safeParse({ sessionId, items: [image], extra: true }).success, false);
+});
+test('会话图片读取 IPC 只接受 UUID 与布尔缩放选项', () => {
+  const input = { sessionId: '00000000-0000-4000-8000-000000000001', attachmentId: '00000000-0000-4000-8000-000000000002' };
+  assert.deepEqual(sessionConversationImageSchema.parse(input), { ...input, fullSize: false });
+  assert.deepEqual(sessionConversationImageSchema.parse({ ...input, fullSize: true }), { ...input, fullSize: true });
+  assert.equal(sessionConversationImageSchema.safeParse({ ...input, attachmentId: '../../secret' }).success, false);
+  assert.equal(sessionConversationImageSchema.safeParse({ ...input, fullSize: 'true' }).success, false);
+  assert.equal(sessionConversationImageSchema.safeParse({ ...input, path: 'C:\\private.png' }).success, false);
 });
 test('错误与事件隐藏当前密钥和常见认证头', () => {
   const text = redact('failed sample-test-key Bearer abc123 sk-testkey123456', 'sample-test-key');

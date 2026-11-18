@@ -40,7 +40,7 @@ test('SQLite 项目、会话、事件与模型元数据落盘，重启恢复中�
   const backup = join(root, '备份.db');
   const project: Project = { id: 'project-1', path: 'D:\\中文 项目', name: 'MES 测试', branch: 'main' };
   const session: Session = { id: 'session-1', projectId: project.id, title: '分析事务', workspacePath: 'D:\\workspace', branch: 'agent/session-1', status: 'running', createdAt: '2026-11-04T01:00:00.000Z', model: 'test-model', runtimeThreadId: 'thread-1' };
-  const event: AgentEvent = { id: 'event-1', sessionId: session.id, type: 'delta', text: '真实 SQLite 持久化验证', createdAt: '2026-11-04T01:00:01.000Z' };
+  const event: AgentEvent = { id: 'event-1', sessionId: session.id, type: 'user', text: '真实 SQLite 持久化验证', createdAt: '2026-11-04T01:00:01.000Z', attachments: [{ id: '00000000-0000-4000-8000-000000000099', name: '截图.png', mimeType: 'image/png', size: 42, kind: 'image' }] };
   let store: LocalStore | undefined;
   try {
     store = await LocalStore.open(path);
