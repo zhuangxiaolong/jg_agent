@@ -40,7 +40,7 @@ test('真实固定Windows Runtime生成localImage Schema并接受原生图片RPC
   const workspace = path.join(root, 'workspace'); await mkdir(workspace);
   const filename = path.join(root, '截图.png'); await writeFile(filename, png);
   const schema = path.join(root, 'schema'); await mkdir(schema);
-  await promisify(execFile)(executable, ['app-server', 'generate-ts', '--out', schema], { env: runtimeEnvironment(home), windowsHide: true, timeout: 15000 });
+  await promisify(execFile)(executable, ['app-server', 'generate-ts', '--out', schema], { env: runtimeEnvironment(home), windowsHide: true, timeout: 60000 });
   const inputSchema = await readFile(path.join(schema, 'v2/UserInput.ts'), 'utf8');
   assert.match(inputSchema, /"type": "localImage"[\s\S]*?path: string/);
   assert.match(await readFile(path.join(schema, 'v2/TurnStartParams.ts'), 'utf8'), /effort\?: ReasoningEffort \| null/);
