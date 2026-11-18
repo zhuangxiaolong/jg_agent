@@ -1,4 +1,4 @@
-export const RUNTIME_EXECUTION_RULES_VERSION = 3;
+export const RUNTIME_EXECUTION_RULES_VERSION = 4;
 
 /** 原生 Runtime 共用执行指引；保留用户任务、模型、推理强度和工具权限。 */
 export function buildRuntimeExecutionInstructions(instructions?: string, platform = process.platform): string {

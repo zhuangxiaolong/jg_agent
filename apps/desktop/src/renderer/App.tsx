@@ -77,10 +77,10 @@ function mergeEvents(a: AgentEvent[], b: AgentEvent[]) {
   return [...events.values()].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
 }
 function timeline(events: AgentEvent[]) {
-  const rows: { id: string; type: AgentEvent['type']; text: string; createdAt: string; durationMs?: number; attachments?: ConversationAttachment[] }[] = [];
+  const rows: { id: string; type: AgentEvent['type'] | 'tool-group'; text: string; createdAt: string; durationMs?: number; attachments?: ConversationAttachment[]; toolEvents?: AgentEvent[] }[] = [];
   const durations = assistantMessageDurations(events);
+  let currentToolGroup: (typeof rows)[number] | undefined;
   for (const event of events) {
-    if (event.type === 'tool') continue;
     if (event.type === 'approval') {
       if (event.approval && event.approval.state !== 'pending') rows.push({ ...event, type: 'status', text: `工具审批${event.approval.state === 'allowed' ? '已允许一次' : event.approval.state === 'expired' ? '已过期' : '已拒绝'}：${event.approval.title}` });
       continue;
@@ -90,6 +90,17 @@ function timeline(events: AgentEvent[]) {
     if (compactText === null) continue;
     const last = rows[rows.length - 1];
     const display = { ...event, text: compactText, ...(durations.has(event.id) ? { durationMs: durations.get(event.id) } : {}) };
+    if (display.type === 'tool') {
+      if (!currentToolGroup) {
+        currentToolGroup = { ...display, type: 'tool-group', toolEvents: [{ ...event, text: display.text }] };
+        rows.push(currentToolGroup);
+      } else {
+        if (currentToolGroup.toolEvents?.at(-1)?.text !== display.text) currentToolGroup.toolEvents?.push({ ...event, text: display.text });
+        currentToolGroup.createdAt = display.createdAt;
+      }
+      continue;
+    }
+    if (display.type === 'user' || (display.type === 'status' && ['completed', 'failed', 'interrupted'].includes(display.text))) currentToolGroup = undefined;
     if (display.type === 'delta' && last?.type === 'delta') {
       last.text += display.text;
       if (display.durationMs !== undefined) last.durationMs = display.durationMs;
@@ -98,7 +109,6 @@ function timeline(events: AgentEvent[]) {
       last.type = 'message';
       if (display.durationMs !== undefined) last.durationMs = display.durationMs;
     }
-    else if (display.type === 'tool' && last?.type === 'tool' && last.text === display.text) { /* 合并连续分页读取 */ }
     else rows.push(display);
   }
   return rows;
@@ -985,7 +995,7 @@ export function App() {
             {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
                {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 直接使用所选项目目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
-               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool' ? <div className="tool-event" key={row.id}><Icon name="terminal" /><div><span>工具事件</span><pre>{toolPlatformText(row.text)}</pre></div><time>{time(row.createdAt)}</time></div> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div>{row.type === 'user' && row.attachments?.some(item => item.kind === 'image') && <div className="message-images" aria-label="消息图片">{row.attachments.filter(item => item.kind === 'image').map(attachment => <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} />)}</div>}</div></article>)}
+               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool-group' ? <details className="tool-event tool-event-group" key={row.id}><summary><Icon name="terminal" /><span>工具事件（{row.toolEvents?.length ?? 1} 项）</span><time>{time(row.createdAt)}</time><span className="tool-event-expand">点击展开</span></summary><div className="tool-event-list">{row.toolEvents?.map((tool, index) => <pre key={`${tool.id}-${index}`}>{toolPlatformText(tool.text)}</pre>)}</div></details> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div>{row.type === 'user' && row.attachments?.some(item => item.kind === 'image') && <div className="message-images" aria-label="消息图片">{row.attachments.filter(item => item.kind === 'image').map(attachment => <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} />)}</div>}</div></article>)}
               {runtimeApprovals.map(event => {
                 const approval = event.approval!;
                 const marker = `${sessionId}:${approval.requestId}`;

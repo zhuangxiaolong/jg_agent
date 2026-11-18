@@ -299,7 +299,7 @@ test('Runtime 将包含已配置模型凭据的会话原文发送给模型，事
   let eventText = '';
   runtime.onEvent(event => { if (event.type === 'message') eventText = event.text; });
   state.emit({ threadId: 'thread-local-only', type: 'message', text: `模型回显 ${value}` });
-  assert.equal(eventText, '模型回显 [已脱敏]');
+  assert.equal(eventText, `模型回显 ${value}`);
   assert.equal(buildDeveloperInstructions({ developerInstructions }).includes(value), true);
   await runtime.close();
 });
@@ -351,7 +351,7 @@ test('Runtime 受控代码工具保留分页元数据，连续读完大控制器
   } finally { state.child = undefined; await runtime.close(); }
 });
 
-test('业务任务和模型消息中的密码Token示例保持原文，诊断脱敏与当前模型密钥保护继续独立生效', async () => {
+test('业务任务和模型消息中的密码Token示例在会话事件中保持原文，诊断脱敏仍独立生效', async () => {
   const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'test', apiKey: 'unit-configured-model-value' });
   const state = runtime as any;
   const text = 'password="synthetic-business-password"\nAuthorization: Bearer synthetic-business-token\nApiKey: sk-syntheticBusinessExample123456';
@@ -365,8 +365,8 @@ test('业务任务和模型消息中的密码Token示例保持原文，诊断脱
   runtime.onEvent(event => messages.push(event.text));
   await runtime.sendTurn('business-thread', text, path.resolve('D:\\local'));
   state.receive({ method: 'item/agentMessage/delta', params: { threadId: 'business-thread', itemId: 'message', delta: text } });
-  assert.deepEqual(messages, [redactRuntimeText(text)]);
-  assert.ok(!messages[0].includes(text), '事件内容不得保留未经脱敏的业务文本');
+  assert.deepEqual(messages, [text]);
+  assert.ok(messages[0].includes(text), '会话事件保留完整原文');
   assert.notEqual(redactRuntimeText(text), text);
   await runtime.close();
 });

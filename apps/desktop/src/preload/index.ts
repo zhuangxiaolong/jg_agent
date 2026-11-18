@@ -211,9 +211,18 @@ const api: DesktopApi = {
   searchJiraAssignees: (key, query, projectKey) => invoke('jira:assignees', key, query, projectKey),
   selectJiraTestImages: () => invoke('jira:test-images'),
   addJiraAttachments: files => {
-    const paths = files.map(file => webUtils.getPathForFile(file));
-    if (paths.some(filename => !filename)) return Promise.reject(new Error('无法读取文件路径，请从资源管理器拖入文件，或点击“上传附件”。'));
-    return invoke('jira:add-attachments', paths);
+    const items: Array<{ kind: 'path'; path: string } | { kind: 'clipboard'; name: string; mimeType: string; bytes: Uint8Array }> = [];
+    let totalBytes = 0;
+    return (async () => {
+      for (const file of files) {
+        totalBytes += file.size;
+        if (file.size > 8 * 1024 * 1024 || totalBytes > 32 * 1024 * 1024) throw new Error('附件须为不超过 8 MiB、总量不超过 32 MiB 的文件');
+        const filename = webUtils.getPathForFile(file);
+        if (filename) items.push({ kind: 'path', path: filename });
+        else items.push({ kind: 'clipboard', name: file.name || '粘贴附件.bin', mimeType: file.type || 'application/octet-stream', bytes: new Uint8Array(await file.arrayBuffer()) });
+      }
+      return invoke('jira:add-attachments', items);
+    })();
   },
   transitionJira: input => invoke('jira:transition', input),
   getJiraImage: (key, attachmentId, sessionId) => invoke('jira:image', key, attachmentId, sessionId),

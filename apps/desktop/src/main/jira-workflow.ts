@@ -42,22 +42,36 @@ export function sessionTestResult(store: LocalStore, key: string): { testResult:
   return { sessionId: session.id, testResult: briefTestResult(replies.at(-1) ?? '', prefix) };
 }
 export const jiraFlowSchema = z.object({ key: z.string().regex(/^[A-Z][A-Z0-9_]*-[1-9]\d*$/), projectKey: z.string().max(100).optional(), transitionId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/), assignee: z.object({ id: z.string().min(1).max(200), displayName: z.string().max(200), field: z.enum(['name', 'accountId']) }).strict().optional(), comment: z.string().trim().min(1).max(30000), imageIds: z.array(z.string().uuid()).max(20), sessionId: z.string().uuid().optional() }).strict();
+export type JiraAttachmentSource = { kind: 'path'; path: string } | { kind: 'clipboard'; name: string; mimeType: string; bytes: Uint8Array };
+const jiraAttachmentSourceSchema = z.union([
+  z.object({ kind: z.literal('path'), path: z.string().min(1).max(32767).refine(value => !value.includes('\0') && path.isAbsolute(value), '附件路径无效') }).strict(),
+  z.object({ kind: z.literal('clipboard'), name: z.string().min(1).max(255), mimeType: z.string().max(200), bytes: z.custom<Uint8Array>(value => value instanceof Uint8Array, '剪贴板附件字节无效').refine(value => value.byteLength > 0 && value.byteLength <= 8 * 1024 * 1024, '单个附件不能超过 8 MiB') }).strict(),
+]);
 export const jiraAttachmentPathsSchema = z.array(z.string().min(1).max(32767).refine(value => !value.includes('\0') && path.isAbsolute(value), '附件路径无效')).min(1).max(20, '每次最多选择 20 个附件');
+export const jiraAttachmentSourcesSchema = z.array(jiraAttachmentSourceSchema).min(1).max(20, '每次最多选择 20 个附件');
 interface ImageEntry { name: string; bytes: Uint8Array; mimeType: string; preview?: string; uploaded?: { scope: string; key: string; id: string; name: string } }
 export class JiraTestImages {
   private images = new Map<string, ImageEntry>();
-  async add(filenames: string[]): Promise<JiraTestImage[]> {
-    if (filenames.length > 20) throw new Error('每次最多选择 20 个附件');
+  async add(input: string[] | JiraAttachmentSource[]): Promise<JiraTestImage[]> {
+    if (input.length > 20) throw new Error('每次最多选择 20 个附件');
     const staged: [string, ImageEntry][] = []; let total = 0;
     const types: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
     const fileTypes: Record<string, string> = { '.md': 'text/markdown', '.txt': 'text/plain', '.log': 'text/plain', '.sql': 'text/plain', '.csv': 'text/csv', '.json': 'application/json', '.xml': 'application/xml', '.pdf': 'application/pdf', '.zip': 'application/zip', '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
-    for (const filename of filenames) {
-      const stat = await lstat(filename); if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('附件须为不超过 8 MiB 的普通文件');
-      const bytes = await readFile(filename); if (bytes.length > 8 * 1024 * 1024) throw new Error('单个附件不能超过 8 MiB');
+    for (const item of input) {
+      const source: JiraAttachmentSource = typeof item === 'string' ? { kind: 'path', path: item } : item;
+      let filename: string, bytes: Buffer, sourceMimeType = '';
+      if (source.kind === 'path') {
+        const stat = await lstat(source.path); if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('附件须为不超过 8 MiB 的普通文件');
+        filename = path.basename(source.path); bytes = await readFile(source.path);
+      } else {
+        filename = source.name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim() || '粘贴附件.bin'; bytes = Buffer.from(source.bytes); sourceMimeType = source.mimeType.toLowerCase();
+      }
+      if (bytes.length > 8 * 1024 * 1024) throw new Error('单个附件不能超过 8 MiB');
       total += bytes.length; if (total > 32 * 1024 * 1024) throw new Error('附件总量不能超过 32 MiB');
-      const extension = path.extname(filename).toLowerCase(), imageType = types[extension];
-      const mimeType = imageType ? inspectJiraImage(bytes, imageType).mimeType : fileTypes[extension] ?? 'application/octet-stream';
-      staged.push([randomUUID(), { name: path.basename(filename), bytes, mimeType, ...(imageType ? { preview: `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}` } : {}) }]);
+      const extension = path.extname(filename).toLowerCase(), imageType = types[extension] ?? (Object.values(types).includes(sourceMimeType) ? sourceMimeType : undefined);
+      const mimeType = imageType ? inspectJiraImage(bytes, imageType).mimeType : (sourceMimeType || fileTypes[extension] || 'application/octet-stream');
+      if (imageType && !path.extname(filename)) filename += imageType.endsWith('jpeg') ? '.jpg' : `.${imageType.slice(imageType.indexOf('/') + 1)}`;
+      staged.push([randomUUID(), { name: filename, bytes, mimeType, ...(imageType ? { preview: `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}` } : {}) }]);
     }
     if ([...this.images.values()].reduce((sum, image) => sum + image.bytes.length, 0) + total > 64 * 1024 * 1024) throw new Error('待上传附件过多，请先提交或重启清理');
     for (const [id, value] of staged) this.images.set(id, value);

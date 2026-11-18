@@ -8,7 +8,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentEvent, Session } from '../packages/domain/src';
 import { JiraConnector } from '../packages/jira-connector/src';
-import { JiraTestImages, jiraAttachmentPathsSchema, sessionTestResult } from '../apps/desktop/src/main/jira-workflow';
+import { JiraTestImages, jiraAttachmentPathsSchema, jiraAttachmentSourcesSchema, sessionTestResult } from '../apps/desktop/src/main/jira-workflow';
 import { LocalStore } from '../packages/storage/src';
 
 test('拖入附件只接受有限数量的本机绝对文件路径', () => {
@@ -18,6 +18,17 @@ test('拖入附件只接受有限数量的本机绝对文件路径', () => {
   for (const value of [[], [null], [''], ['relative.md'], ['https://example.invalid/report.md'], [filename + '\0.md'], Array(21).fill(filename)]) {
     assert.equal(jiraAttachmentPathsSchema.safeParse(value).success, false);
   }
+});
+
+test('测试结果支持剪贴板图片与文件载荷', async () => {
+  const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF1sAAAAASUVORK5CYII=', 'base64'));
+  assert.equal(jiraAttachmentSourcesSchema.safeParse([{ kind: 'clipboard', name: '粘贴截图.png', mimeType: 'image/png', bytes: png }]).success, true);
+  const manager = new JiraTestImages();
+  const images = await manager.add([{ kind: 'clipboard', name: '粘贴截图.png', mimeType: 'image/png', bytes: png }, { kind: 'clipboard', name: '测试结果.txt', mimeType: 'text/plain', bytes: Uint8Array.from(Buffer.from('构建通过')) }]);
+  assert.equal(images[0].name, '粘贴截图.png');
+  assert.match(images[0].preview!, /^data:image\/png;base64,/);
+  assert.equal(images[1].name, '测试结果.txt');
+  assert.equal(images[1].preview, undefined);
 });
 
 test('真实HTTP混合上传图片、MD和二进制附件，流转失败后重试复用附件，评论和状态同一请求', async () => {

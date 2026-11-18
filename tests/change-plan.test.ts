@@ -33,13 +33,12 @@ test('代码修改方案是可选记录，未发布、初步方案和范围变�
     const plan = { goal: '补充新文件，跟随现有 TypeScript 写法', changes: [{ path: 'new.ts', change: '新增 next 常量。' }], impact: '仅增加新文件；不修改数据库和事务。', validation: ['构建项目并检查新常量。'] };
     assert.equal((await call('publish_change_plan', { ...plan, impact: '' })).success, false);
     assert.equal((await call('publish_change_plan', { ...plan, goal: apiKey })).success, true);
-    assert.ok(events.some(event => event.type === 'message' && event.text.includes('[已脱敏]')));
-    assert.ok(events.every(event => !event.text.includes(apiKey)), '会话事件仍需脱敏');
+    assert.ok(events.some(event => event.type === 'message' && event.text.includes(apiKey)), '会话消息保留用户提供的原文');
     const example = '记录失败响应，示例 password="unit-only-password"，Authorization: Bearer synthetic-business-token';
     assert.equal((await call('publish_change_plan', { ...plan, impact: example })).success, true);
     const exampleMessage = events.filter(event => event.type === 'message').at(-1)!;
-    assert.equal(exampleMessage.text, redactRuntimeText(renderChangePlan(parseChangePlan({ ...plan, impact: example })), apiKey));
-    assert.ok(!exampleMessage.text.includes(example), '方案原文只进入模型上下文，事件内容应脱敏');
+    assert.equal(exampleMessage.text, renderChangePlan(parseChangePlan({ ...plan, impact: example })));
+    assert.ok(exampleMessage.text.includes(example), '会话中保留原始方案内容');
 
     const initialPlan = { ...plan, stage: 'draft', changes: [], assumptions: ['暂按现有入口设计，待代码证据确认。'], pendingQuestions: ['确认日志是否跟随业务事务回滚。'] };
     assert.equal((await call('publish_change_plan', initialPlan)).success, true);

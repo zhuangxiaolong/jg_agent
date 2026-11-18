@@ -43,7 +43,7 @@ import { BrowserManager } from './browser';
 import { ComputerManager } from './computer';
 import { createShareImportSession, exportShare, parseShare, prepareShareImport, sharedSessionContext, MAX_SHARE_BYTES } from './sharing';
 import { requirementsSource, shouldSyncRequirementsOnStartup, updateRequirements } from './requirements-sync';
-import { JiraTestImages, jiraAttachmentPathsSchema, jiraFlowSchema, sessionTestResult } from './jira-workflow';
+import { JiraTestImages, jiraAttachmentSourcesSchema, jiraFlowSchema, sessionTestResult } from './jira-workflow';
 import { ensureBuiltinDictionaries } from './bundled-dictionaries';
 import { evaluateBuildRun, evaluateTestRun } from '../../../../packages/verification/src';
 import { VerificationRunService, listVerificationHistory, readVerificationArtifact, verificationProfile, type VerificationProfileId, type VerificationRunResult } from './verification-service';
@@ -604,7 +604,7 @@ function saveSessionJiraIssue(session: Session, issue: JiraIssue): Session {
   return updated;
 }
 function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity'], attachments?: ConversationAttachment[]): void {
-  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? settings.redactContent(text) : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), ...(attachments ? { attachments } : {}), createdAt: new Date().toISOString() };
+  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? text : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), ...(attachments ? { attachments } : {}), createdAt: new Date().toISOString() };
   store.appendEvent(event);
   if (type === 'status' && ['completed', 'failed', 'interrupted'].includes(text)) performanceService?.finish(sessionId, text as 'completed' | 'failed' | 'interrupted');
   if (type === 'status' && text === 'completed') {
@@ -1975,7 +1975,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     const selected = await dialog.showOpenDialog(window, { title: '选择 Jira 附件', properties: ['openFile', 'multiSelections'], filters: [{ name: '所有文件', extensions: ['*'] }, { name: 'Markdown 与文本', extensions: ['md', 'txt', 'log', 'csv', 'json', 'sql'] }, { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
     return selected.canceled ? [] : jiraTestImages.add(selected.filePaths);
   });
-  handle('jira:add-attachments', (value: unknown) => jiraTestImages.add(jiraAttachmentPathsSchema.parse(value)));
+  handle('jira:add-attachments', (value: unknown) => jiraTestImages.add(jiraAttachmentSourcesSchema.parse(value)));
   handle('jira:transition', async (value: unknown) => {
     if (jiraFlowBusy) throw new Error('正在提交 Jira 流转，请等待完成');
     const input = jiraFlowSchema.parse(value); allowedJiraKey(input.key, input.projectKey); settings.assertCleanText(input.comment);
