@@ -44,7 +44,7 @@ export function GitPanel({ sessionId, project, running, onChanged, jiraUrl }: { 
     await act(push ? 'commit-push' : 'commit', async () => {
       let hash = '';
       try {
-        hash = await api.commitChanges(sessionId, { message: message.trim(), ...(authorName.trim() ? { authorName: authorName.trim() } : {}), ...(authorEmail.trim() ? { authorEmail: authorEmail.trim() } : {}) });
+        hash = await api.commitChanges(sessionId, { message: message.trim(), ...(authorName.trim() ? { authorName: authorName.trim() } : {}), ...(authorEmail.trim() ? { authorEmail: authorEmail.trim() } : {}), ...(jiraUrl ? { jiraUrl } : {}) });
         if (current.current !== sessionId) return;
         setNotice(`已提交：${hash.slice(0, 12)}`); setMessage('');
         await load(); await onChanged();

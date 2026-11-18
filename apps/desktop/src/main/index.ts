@@ -2173,7 +2173,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('requirements:check', async (value: unknown) => requirements(await projectDevelopmentSession(value)));
   handle('git:commit', (value: unknown, input: unknown) => gitOperation(async () => {
     const session = await projectDevelopmentSession(value); const options = commitSchema.parse(input);
-    const message = appendJiraCommitUrl(options.message, session.jiraIssue);
+    const message = appendJiraCommitUrl(options.message, session.jiraIssue ?? (options.jiraUrl ? { url: options.jiraUrl } : undefined));
     settings.assertCleanText(message + '\n' + (options.authorName ?? '') + '\n' + (options.authorEmail ?? ''));
     const initial = await changedContents(session);
     if (!initial.diffs.length) throw new Error('当前没有需要提交的代码变更');
