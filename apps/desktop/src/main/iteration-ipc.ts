@@ -21,7 +21,28 @@ export async function assembleProjectContext(store: LocalStore, projectId: strin
       resourceTexts[resource.id] = document.content.slice(0, 4000);
     } catch { resource.status = 'unavailable'; store.saveProjectResourceLink(resource); }
   }
-  return buildProjectContext(workspace, resources, store.listProjectFacts(projectId), store.listProjectDecisions(projectId), { taskId, resourceTexts });
+  const facts = store.listProjectFacts(projectId);
+  const decisions = store.listProjectDecisions(projectId);
+  const built = buildProjectContext(workspace, resources, facts, decisions, { taskId, resourceTexts });
+  const now = new Date().toISOString();
+  const replacedFacts = new Set(facts.filter(item => item.projectId === projectId && item.status === 'confirmed').map(item => item.supersedesFactId).filter((id): id is string => !!id));
+  const replacedDecisions = new Set(decisions.filter(item => item.projectId === projectId && item.status === 'confirmed').map(item => item.supersedesDecisionId).filter((id): id is string => !!id));
+  const candidates = [
+    { id: `project:${projectId}`, sourceType: 'project_resource' as const, sourceId: `workspace:${projectId}`, scope: 'project' as const, projectId, contentHash: createHash('sha256').update(JSON.stringify(workspace)).digest('hex'), updatedAt: workspace.updatedAt, trust: 'user_confirmed' as const, status: 'active' as const, title: workspace.name, text: [workspace.name, workspace.projectCode, workspace.systemType, workspace.productVersions.join(' '), workspace.stage, workspace.description].filter(Boolean).join(' '), systemType: workspace.systemType, reasons: ['当前会话绑定的项目工作区'] },
+    ...facts.filter(item => item.projectId === projectId && item.status === 'confirmed' && !replacedFacts.has(item.id) && (!item.validFrom || item.validFrom <= now) && (!item.validTo || item.validTo >= now)).map(item => {
+      const text = `事实：${item.title}；${item.content}`;
+      return { id: `fact:${item.id}`, sourceType: 'project_fact' as const, sourceId: item.id, scope: 'project' as const, projectId, contentHash: createHash('sha256').update(text).digest('hex'), updatedAt: item.updatedAt, trust: 'user_confirmed' as const, status: 'confirmed' as const, title: item.title, text, systemType: workspace.systemType, reasons: ['已确认且有效的项目事实'] };
+    }),
+    ...decisions.filter(item => item.projectId === projectId && item.status === 'confirmed' && !replacedDecisions.has(item.id)).map(item => {
+      const text = `决策：${item.title}；${item.decision}${item.reason ? `；原因：${item.reason}` : ''}`;
+      return { id: `decision:${item.id}`, sourceType: 'project_decision' as const, sourceId: item.id, scope: 'project' as const, projectId, contentHash: createHash('sha256').update(text).digest('hex'), updatedAt: item.updatedAt, trust: 'user_confirmed' as const, status: 'confirmed' as const, title: item.title, text, systemType: workspace.systemType, reasons: ['已确认且未被替代的项目决策'] };
+    }),
+    ...resources.filter(item => item.projectId === projectId && item.status === 'active' && item.sourceSha256 && resourceTexts[item.id]).map(item => {
+      const text = `项目资源：${item.displayName}${item.versionLabel ? `（${item.versionLabel}）` : ''}\n${resourceTexts[item.id]}`;
+      return { id: `resource:${item.id}:${item.sourceSha256}`, sourceType: 'project_resource' as const, sourceId: item.id, scope: 'project' as const, projectId, contentHash: item.sourceSha256!, updatedAt: item.linkedAt, trust: 'untrusted_project_data' as const, status: 'active' as const, title: item.displayName, text, systemType: workspace.systemType, reasons: ['当前项目资源，正文已通过 SHA256 校验'] };
+    }),
+  ];
+  return { ...built, candidates };
 }
 
 export function registerIterationIpc(deps: Dependencies) {

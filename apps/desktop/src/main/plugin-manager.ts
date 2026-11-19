@@ -35,6 +35,7 @@ import type {
 import { skillCompatibilityStatus } from '../../../../packages/domain/src/skill-intelligence';
 import { matchSkills, type SkillMatcherCandidate } from '../../../../packages/plugin-manager/src/skill-matcher';
 import type { LocalStore } from '../../../../packages/storage/src';
+import type { ContextCandidate } from '../../../../packages/performance/src';
 import type { CredentialVault } from './credentials';
 
 type RuntimeEnvironment = (home: string, apiKey?: string) => NodeJS.ProcessEnv;
@@ -136,6 +137,31 @@ export class PluginManagerService {
       process.env.CODEX_HOME,
       userHome ? path.join(userHome, '.codex') : undefined,
     ]).filter((home): home is string => !!home && home.trim().length > 0).map(home => path.resolve(home)))];
+  }
+
+  contextSkillCandidates(input: { sessionId: string; userPrompt: string; projectId?: string; projectSystem?: string }): ContextCandidate[] {
+    const snapshot = this.store.getSessionPluginSnapshot(input.sessionId);
+    if (!snapshot || snapshot.runtimeKind !== 'jinggong' || snapshot.effectiveScope !== 'session' || !snapshot.skillEntries) return [];
+    const entries = snapshot.skillEntries.filter(entry => entry.scope === 'global' || !!input.projectId && entry.projectId === input.projectId);
+    const candidates: SkillMatcherCandidate[] = entries.flatMap(entry => {
+      const plugin = this.store.getPlugin(entry.pluginId);
+      const skill = this.store.getPluginSkill(entry.skillId);
+      if (!plugin || !skill || plugin.contentHash !== entry.pluginHash || plugin.version !== entry.pluginVersion || skill.contentHash !== entry.skillHash || skill.pluginId !== plugin.id) return [];
+      const trusted = plugin.trustStatus === 'trusted' && this.hasTrust(plugin.id, 'install');
+      return [{ skillId: skill.id, pluginId: plugin.id, name: skill.name, description: skill.description, tags: skill.metadata?.tags,
+        pluginEnabled: plugin.enabled, trusted, skillEnabled: skill.enabled,
+        compatibility: skillCompatibilityStatus('jinggong', skill.enabled, plugin.enabled, plugin.trustStatus === 'trusted'),
+        scope: entry.scope, projectId: entry.projectId }];
+    });
+    const recommendations = matchSkills({ candidates, userPrompt: input.userPrompt, projectSystem: input.projectSystem, projectId: input.projectId, limit: 3 });
+    const entryById = new Map(entries.map(entry => [entry.skillId, entry]));
+    return recommendations.flatMap(recommendation => {
+      const entry = entryById.get(recommendation.skillId);
+      const skill = entry && this.store.getPluginSkill(entry.skillId);
+      if (!entry || !skill) return [];
+      const text = [skill.description, ...(skill.metadata?.tags ?? [])].filter(Boolean).join('\n');
+      return [{ id: `skill:${skill.id}:${skill.contentHash}`, sourceType: 'skill_metadata', sourceId: skill.id, scope: entry.scope, ...(entry.projectId ? { projectId: entry.projectId } : {}), contentHash: skill.contentHash, updatedAt: snapshot.createdAt, trust: 'managed_skill', status: 'active', title: skill.name, text, relevanceScore: recommendation.score, reasons: [recommendation.reason], explicit: recommendation.selectionSource === 'manual', systemType: input.projectSystem, version: entry.pluginVersion, pluginHash: entry.pluginHash }];
+    });
   }
 
   homeForProfile(profileId: string): string {
@@ -524,7 +550,7 @@ export class PluginManagerService {
         const content = skillText(file.bytes, MAX_SKILL_RUNTIME_CONTENT, 'Skill 正文');
         this.rememberLoadedSkill(input.sessionId, input.turnId, skill.id);
         appendEvent(entry, 'skill.loaded', selectionSource);
-        return { skillId, name: skill.name, content, resources: descriptor.resources.filter(resource => resource.kind !== 'script').map(resource => ({ kind: resource.kind, path: resource.relativePath })), scriptsExecutable: false };
+        return { skillId, name: skill.name, content, pluginVersion: entry.pluginVersion, pluginHash: entry.pluginHash, skillHash: entry.skillHash, scope: entry.scope, projectId: entry.projectId, resources: descriptor.resources.filter(resource => resource.kind !== 'script').map(resource => ({ kind: resource.kind, path: resource.relativePath })), scriptsExecutable: false };
       } catch {
         appendEvent(entry, 'skill.load_failed', selectionSource, { errorCode: 'SKILL_CONTENT_UNAVAILABLE' });
         throw new Error('Skill 加载失败：内容校验或大小限制未通过');
@@ -895,4 +921,3 @@ export class PluginManagerService {
 }
 
 function byExpectedId(installed: CodexInstalledPlugin[], pluginId: string): boolean { return installed.some(item => item.pluginId === pluginId); }
-

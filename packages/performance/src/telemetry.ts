@@ -8,6 +8,9 @@ const MAX_SPANS = 1500;
 const STATUSES = new Set(['running', 'completed', 'failed', 'cancelled', 'interrupted', 'unavailable']);
 export function defaultPerformanceSettings(): PerformanceSettings {
   return { enabled: true, telemetryEnabled: true, workspaceIndexEnabled: true, contextOptimizationEnabled: true, safeParallelEnabled: true,
+    unifiedContextEnabled: true, retrievalCacheEnabled: true, contextExplainabilityEnabled: true,
+    contextSources: { memory: true, project_fact: true, project_decision: true, skill_metadata: true, skill_body: true, dictionary: true, project_resource: true, workspace_code: true, task_evidence: true },
+    maxSkillContexts: 3, maxMemoryItems: 20, maxProjectAssertions: 10,
     maxParallelReadOperations: 3, retainDays: 30, contextBudgetTokens: 6000, testStrategy: 'recommend', version: 1,
     runtimeReuseEnabled: true, runtimeReuseIdleTtlMs: 5 * 60 * 1000, runtimeReuseMaxIdleInstances: 3,
     updatedAt: new Date().toISOString(), runtimeOverrides: {}, workspaceOverrides: {} };
@@ -15,6 +18,13 @@ export function defaultPerformanceSettings(): PerformanceSettings {
 function normalizeSettings(value: Partial<PerformanceSettings>): PerformanceSettings {
   const settings = { ...defaultPerformanceSettings(), ...value };
   const defaults = defaultPerformanceSettings();
+  settings.contextSources = Object.fromEntries(Object.entries(defaults.contextSources).map(([key, enabled]) => [key, typeof value.contextSources?.[key as keyof PerformanceSettings['contextSources']] === 'boolean' ? value.contextSources[key as keyof PerformanceSettings['contextSources']] : enabled])) as PerformanceSettings['contextSources'];
+  if (typeof settings.unifiedContextEnabled !== 'boolean') settings.unifiedContextEnabled = defaults.unifiedContextEnabled;
+  if (typeof settings.retrievalCacheEnabled !== 'boolean') settings.retrievalCacheEnabled = defaults.retrievalCacheEnabled;
+  if (typeof settings.contextExplainabilityEnabled !== 'boolean') settings.contextExplainabilityEnabled = defaults.contextExplainabilityEnabled;
+  if (!Number.isInteger(settings.maxSkillContexts) || settings.maxSkillContexts < 0 || settings.maxSkillContexts > 10) settings.maxSkillContexts = defaults.maxSkillContexts;
+  if (!Number.isInteger(settings.maxMemoryItems) || settings.maxMemoryItems < 0 || settings.maxMemoryItems > 50) settings.maxMemoryItems = defaults.maxMemoryItems;
+  if (!Number.isInteger(settings.maxProjectAssertions) || settings.maxProjectAssertions < 0 || settings.maxProjectAssertions > 50) settings.maxProjectAssertions = defaults.maxProjectAssertions;
   if (typeof settings.runtimeReuseEnabled !== 'boolean') settings.runtimeReuseEnabled = defaults.runtimeReuseEnabled;
   if (!Number.isInteger(settings.runtimeReuseIdleTtlMs) || settings.runtimeReuseIdleTtlMs < 1000 || settings.runtimeReuseIdleTtlMs > 3600000) settings.runtimeReuseIdleTtlMs = defaults.runtimeReuseIdleTtlMs;
   if (!Number.isInteger(settings.runtimeReuseMaxIdleInstances) || settings.runtimeReuseMaxIdleInstances < 1 || settings.runtimeReuseMaxIdleInstances > 10) settings.runtimeReuseMaxIdleInstances = defaults.runtimeReuseMaxIdleInstances;
@@ -66,17 +76,22 @@ export class PerformanceTelemetry {
     return settings.enabled && (!runtimeKind || settings.runtimeOverrides[runtimeKind] !== false) && (!workspaceId || settings.workspaceOverrides[workspaceId] !== false);
   }
   updateSettings(patch: Partial<PerformanceSettings>): PerformanceSettings {
-    const allowed = ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'maxParallelReadOperations', 'retainDays', 'contextBudgetTokens', 'runtimeReuseEnabled', 'runtimeReuseIdleTtlMs', 'runtimeReuseMaxIdleInstances', 'testStrategy', 'runtimeOverrides', 'workspaceOverrides'];
+    const allowed = ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'unifiedContextEnabled', 'retrievalCacheEnabled', 'contextExplainabilityEnabled', 'contextSources', 'maxSkillContexts', 'maxMemoryItems', 'maxProjectAssertions', 'maxParallelReadOperations', 'retainDays', 'contextBudgetTokens', 'runtimeReuseEnabled', 'runtimeReuseIdleTtlMs', 'runtimeReuseMaxIdleInstances', 'testStrategy', 'runtimeOverrides', 'workspaceOverrides'];
     if (!patch || typeof patch !== 'object' || Object.keys(patch).some(key => !allowed.includes(key))) throw new Error('性能设置字段无效');
-    for (const key of ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'runtimeReuseEnabled'] as const) if (patch[key] !== undefined && typeof patch[key] !== 'boolean') throw new Error('性能开关无效');
-    for (const [key, minimum, maximum] of [['maxParallelReadOperations', 1, 3], ['retainDays', 1, 365], ['contextBudgetTokens', 256, 1000000], ['runtimeReuseIdleTtlMs', 1000, 3600000], ['runtimeReuseMaxIdleInstances', 1, 10]] as const) {
+    for (const key of ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'unifiedContextEnabled', 'retrievalCacheEnabled', 'contextExplainabilityEnabled', 'runtimeReuseEnabled'] as const) if (patch[key] !== undefined && typeof patch[key] !== 'boolean') throw new Error('性能开关无效');
+    for (const [key, minimum, maximum] of [['maxParallelReadOperations', 1, 3], ['retainDays', 1, 365], ['contextBudgetTokens', 256, 1000000], ['runtimeReuseIdleTtlMs', 1000, 3600000], ['runtimeReuseMaxIdleInstances', 1, 10], ['maxSkillContexts', 0, 10], ['maxMemoryItems', 0, 50], ['maxProjectAssertions', 0, 50]] as const) {
       const value = patch[key]; if (value !== undefined && (!Number.isInteger(value) || value < minimum || value > maximum)) throw new Error(`性能设置 ${key} 超出范围`);
+    }
+    if (patch.contextSources !== undefined) {
+      const allowedSources = ['memory', 'project_fact', 'project_decision', 'skill_metadata', 'skill_body', 'dictionary', 'project_resource', 'workspace_code', 'task_evidence'];
+      const value = patch.contextSources;
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !allowedSources.includes(key)) || Object.values(value).some(enabled => typeof enabled !== 'boolean')) throw new Error('上下文来源设置无效');
     }
     if (patch.testStrategy !== undefined && !['recommend', 'targeted', 'full_approval'].includes(patch.testStrategy)) throw new Error('测试策略无效');
     for (const key of ['runtimeOverrides', 'workspaceOverrides'] as const) if (patch[key] !== undefined) {
       const value = patch[key]; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([name, enabled]) => typeof enabled !== 'boolean' || !/^[\w.:-]{1,128}$/.test(name) || key === 'runtimeOverrides' && !['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(name))) throw new Error('性能覆盖规则无效');
     }
-    this.state.settings = { ...this.state.settings, ...structuredClone(patch), version: this.state.settings.version + 1, updatedAt: new Date().toISOString() };
+    this.state.settings = { ...this.state.settings, ...structuredClone(patch), ...(patch.contextSources !== undefined ? { contextSources: { ...this.state.settings.contextSources, ...structuredClone(patch.contextSources) } } : {}), version: this.state.settings.version + 1, updatedAt: new Date().toISOString() };
     this.prune(); this.persist(); return this.getSettings();
   }
   resetSettings(): PerformanceSettings {
@@ -150,6 +165,13 @@ export class PerformanceTelemetry {
   }
   setContextStats(traceId: string | undefined, stats: PerformanceTrace['context']): void {
     const trace = this.state.traces.find(item => item.id === traceId); if (trace) { trace.context = structuredClone(stats); this.persist(); }
+  }
+  recordLoadedSkill(traceId: string | undefined, summary: NonNullable<PerformanceTrace['loadedSkills']>[number]): void {
+    const trace = this.state.traces.find(item => item.id === traceId); if (!trace || trace.status !== 'running') return;
+    const loadedSkills = trace.loadedSkills ?? [];
+    if (loadedSkills.some(item => item.sourceId === summary.sourceId && item.contentHash === summary.contentHash)) return;
+    trace.loadedSkills = [...loadedSkills, { ...summary, sourceId: cleanPerformanceText(summary.sourceId).slice(0, 200), title: cleanPerformanceText(summary.title).slice(0, 120), reason: cleanPerformanceText(summary.reason).slice(0, 240), contentHash: /^[a-f0-9]{64}$/i.test(summary.contentHash) ? summary.contentHash : '' }].slice(-20);
+    this.persist();
   }
   finishTrace(traceId: string | undefined, status: PerformanceStatus): void {
     const trace = this.state.traces.find(item => item.id === traceId); if (!trace || trace.status !== 'running' || status === 'running') return;

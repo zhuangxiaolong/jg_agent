@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } fro
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ContextOptimizer, indexablePath, PerformanceTelemetry, recommendTests, SafeParallelScheduler, WorkspaceIndexService, type ContextFragment, type PerformanceState, type RegisteredTestCommand, type ScheduledOperation } from '../packages/performance/src';
+import { ContextOptimizer, ContextRetrievalPlanner, defaultPerformanceSettings, indexablePath, PerformanceTelemetry, recommendTests, SafeParallelScheduler, WorkspaceIndexService, type ContextCandidate, type ContextFragment, type PerformanceState, type RegisteredTestCommand, type ScheduledOperation } from '../packages/performance/src';
 
 function fragment(patch: Partial<ContextFragment> = {}): ContextFragment {
   return { workspaceId: 'w', repositoryId: 'r', worktreeId: 't', path: 'src/a.ts', hash: 'a'.repeat(64), indexVersion: 1, startLine: 1, endLine: 3, text: 'export class BuildWidget {}', score: 3, ...patch };
@@ -138,6 +138,55 @@ test('上下文保留需求与验收，去重且预算不足时仅裁剪代码�
   const changed = optimizer.build({ requiredText: '', fragments: [fragment({ hash: 'b'.repeat(64), text: 'changed' })], budgetTokens: 500 }); assert.equal(changed.stats.cacheHits, 0);
   const otherWorkspace = optimizer.build({ requiredText: '', fragments: [fragment({ workspaceId: 'other' })], budgetTokens: 500 }); assert.equal(otherWorkspace.stats.cacheHits, 0);
   const over = optimizer.build({ requiredText: '必需标准'.repeat(100), fragments: [one], budgetTokens: 10 }); assert.equal(over.stats.requiredOverBudget, true); assert.equal(over.fragments.length, 0); assert.equal(over.text, '必需标准'.repeat(100));
+});
+function contextCandidate(patch: Partial<ContextCandidate> = {}): ContextCandidate {
+  return { id: 'fact:1', sourceType: 'project_fact', sourceId: '1', scope: 'project', projectId: 'p1', contentHash: 'a'.repeat(64), trust: 'user_confirmed', status: 'confirmed', title: '工单接口约定', text: 'MES5 工单接口必须兼容 Oracle。', ...patch };
+}
+test('统一检索严格隔离项目、状态与系统，并说明排除原因', () => {
+  const settings = defaultPerformanceSettings();
+  const planned = new ContextRetrievalPlanner().plan({ sessionId: 's1', projectId: 'p1', workspaceId: 'w1', systemType: 'MES5', query: 'MES5 工单接口' }, [
+    contextCandidate(),
+    contextCandidate({ id: 'other-project', projectId: 'p2', sourceId: 'other', title: 'MES5 工单接口' }),
+    contextCandidate({ id: 'rejected', sourceId: 'rejected', status: 'rejected' }),
+    contextCandidate({ id: 'old', sourceId: 'old', status: 'superseded' }),
+    contextCandidate({ id: 'wrong-system', sourceId: 'wrong-system', systemType: 'WMS' }),
+    contextCandidate({ id: 'global-memory', sourceType: 'memory', scope: 'global', projectId: undefined, trust: 'user_memory', title: '工单接口偏好' }),
+  ], settings);
+  assert.deepEqual(planned.candidates.map(item => item.id), ['fact:1', 'global-memory']);
+  assert.match(planned.excluded.find(item => item.sourceId === 'other')!.reason, /项目范围/);
+  assert.match(planned.excluded.find(item => item.sourceId === 'rejected')!.reason, /rejected/);
+  assert.match(planned.excluded.find(item => item.sourceId === 'old')?.reason ?? '', /superseded/);
+  assert.ok(!planned.candidates.some(item => item.systemType === 'WMS'));
+});
+test('统一上下文永不裁剪 Required，统计仅含 Hash 与来源元数据', () => {
+  const requiredText = '必须完整保留的开发要求与验收条件'.repeat(100);
+  const candidate = contextCandidate({ text: 'SENSITIVE_PROJECT_CONTENT_DO_NOT_PERSIST' });
+  const bundle = new ContextOptimizer().build({ requiredText, candidates: [candidate], budgetTokens: 128, excluded: [{ sourceType: 'project_fact', sourceId: 'excluded-id', title: '未选事实', reason: '预算不足' }] });
+  assert.ok(bundle.text.startsWith(requiredText));
+  assert.equal(bundle.stats.requiredOverBudget, true);
+  assert.equal(bundle.stats.optionalEstimatedTokens, 0);
+  assert.equal(bundle.stats.excluded?.[0].reason, '预算不足');
+  assert.ok(!JSON.stringify(bundle.stats).includes('SENSITIVE_PROJECT_CONTENT_DO_NOT_PERSIST'));
+  assert.equal(bundle.stats.tokenMeasurement, 'estimated');
+});
+test('性能设置兼容旧状态并严格校验来源开关与数量上限', () => {
+  const telemetry = new PerformanceTelemetry();
+  assert.equal(telemetry.getSettings().unifiedContextEnabled, true);
+  assert.equal(telemetry.getSettings().contextSources.project_fact, true);
+  telemetry.updateSettings({ contextSources: { project_fact: false } as never, maxProjectAssertions: 0 });
+  assert.equal(telemetry.getSettings().contextSources.project_fact, false);
+  assert.equal(telemetry.getSettings().contextSources.memory, true);
+  assert.throws(() => telemetry.updateSettings({ contextSources: { not_a_source: true } as never }));
+  assert.throws(() => telemetry.updateSettings({ maxSkillContexts: 11 }));
+});
+test('实际加载 Skill 只记录名称、版本、Hash 与估算大小', () => {
+  let saved: PerformanceState | undefined;
+  const telemetry = new PerformanceTelemetry({ save: value => { saved = value; } });
+  const traceId = telemetry.startTrace({ sessionId: 'skill-session', runtimeKind: 'jinggong' });
+  telemetry.recordLoadedSkill(traceId, { sourceType: 'skill_body', sourceId: 'skill-id', title: 'Skill Name', scope: 'project', contentHash: 'b'.repeat(64), reason: '已校验加载', estimatedTokens: 12, version: '1.2.3', pluginHash: 'c'.repeat(64) });
+  const report = telemetry.report('skill-session');
+  assert.equal(report.latest!.loadedSkills?.[0].version, '1.2.3');
+  assert.ok(!JSON.stringify(report).includes('Skill 正文'));
 });
 function operation(id: string, patch: Partial<ScheduledOperation> = {}): ScheduledOperation { return { id, parentTaskId: 'parent', workspaceId: 'w', repositoryIds: ['r'], worktreeId: 't', operation: '检索', safety: 'readonly', timeoutMs: 1000, requiresApproval: false, ...patch }; }
 function deferred() { let resolve!: () => void; return { promise: new Promise<void>(done => { resolve = done; }), release: () => resolve() }; }
