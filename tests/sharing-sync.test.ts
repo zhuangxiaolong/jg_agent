@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -56,6 +56,33 @@ test('分享契约不携带 Runtime，导入会话默认 Claude 且不受旧全�
       assert.equal(store.getSession(source.id)?.runtimeThreadId, 'existing-thread');
     }
   } finally { store.close(); }
+});
+
+test('记忆分享复核旧自动记忆、过滤敏感内容并去除本机证据标识', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-memory-sharing-'));
+  const source = await LocalStore.open(path.join(root, 'source.db'));
+  const destination = await LocalStore.open(path.join(root, 'destination.db'));
+  try {
+    const createdAt = new Date().toISOString();
+    source.saveMemory({ id: 'internal-memory-id', title: '旧自动记忆', content: '本轮任务和模型建议', createdAt, source: 'session', sessionId: 'private-session-id', projectId: 'private-project-id', sourceEventId: 'private-event-id', evidence: [{ sourceType: 'session_event', sessionId: 'private-session-id', eventId: 'private-event-id', sourceId: 'private-source-id', createdAt }] });
+    source.saveMemory({ id: 'sensitive-memory', title: '密码', content: 'password="synthetic-credential"', createdAt });
+    const content = exportShare(source, { kind: 'memories' }, text => text);
+    for (const internal of ['internal-memory-id', 'private-session-id', 'private-project-id', 'private-event-id', 'private-source-id', 'synthetic-credential']) assert.equal(content.includes(internal), false);
+    const bundle = parseShare(content);
+    assert.equal(bundle.memories.length, 1);
+    assert.equal(bundle.memories[0].status, 'pending_review');
+    assert.equal(bundle.memories[0].memorySource, 'legacy_session');
+    assert.equal(bundle.memories[0].evidence?.[0].eventId, undefined);
+    assert.equal(bundle.memories[0].evidence?.[0].sourceType, 'import');
+    const prepared = prepareShareImport(destination, bundle);
+    assert.equal(prepared.memories[0].status, 'pending_review');
+
+    const legacyBundle = parseShare(JSON.stringify({ format: 'jinggong-share', version: 1, exportedAt: createdAt, memories: [{ title: '兼容旧格式', content: '普通人工记忆', createdAt }] }));
+    const legacyImport = prepareShareImport(destination, legacyBundle);
+    assert.equal(legacyImport.memories[0].status, 'active');
+    assert.equal(legacyImport.memories[0].memorySource, 'legacy_import');
+    assert.throws(() => exportShare(source, { kind: 'memories', memoryIds: ['sensitive-memory'] }, text => text), /阻止导出/);
+  } finally { source.close(); destination.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('在线规范按清单校验摘要、原子保存、保留禁用状态，拒绝本地冲突及损坏的更新', async () => {

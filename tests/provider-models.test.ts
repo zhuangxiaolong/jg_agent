@@ -212,7 +212,7 @@ test('局部重合例外不放宽其他连接密码，自由文本和无效编�
   } finally { await state.close(); }
 });
 
-test('会话开发要求与手动记忆正文可保存当前中转站密钥原文供模型上下文使用', async t => {
+test('开发要求可保留用户提供密钥样例，手动记忆拒绝保存配置凭据', async t => {
   const state = await fixture();
   try {
     const key = 'synthetic-current-model-key';
@@ -221,7 +221,7 @@ test('会话开发要求与手动记忆正文可保存当前中转站密钥原�
     const content = `开发要求示例中保留 ${key}，供会话模型上下文验证。`;
     const document = state.settings.saveRequirement({ title: '开发要求.md', content, system: 'MES5' });
     assert.equal(document.content, content);
-    const memory = state.settings.saveMemory({ title: '会话密钥样例', content });
-    assert.equal(memory.content, content);
+    assert.throws(() => state.settings.saveMemory({ title: '会话密钥样例', content }), /凭据或敏感内容/);
+    assert.deepEqual(state.store.listMemories(), []);
   } finally { await state.close(); }
 });

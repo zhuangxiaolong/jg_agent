@@ -240,16 +240,28 @@ export interface JiraSearchPage { issues: JiraIssue[]; startAt: number; maxResul
 export interface JiraSavedQuery { id: string; input: JiraSearchInput; page: JiraSearchPage; savedAt: string }
 export type ProductSystem = 'MES5' | 'MES6' | 'WMS' | '前端' | '通用';
 export interface ManagedDocument { id: string; kind: 'dictionary' | 'requirement'; system: ProductSystem; name: string; content: string; digest: string; createdAt: string; enabled: boolean; remote?: { source: string; key: string; version: string; digest: string } }
-export interface Memory { id: string; title: string; content: string; createdAt: string; source?: 'session'; sessionId?: string; projectId?: string; sourceEventId?: string }
+export type MemoryScope = 'global';
+export type MemoryCategory = 'preference' | 'working_style' | 'constraint' | 'tool_preference' | 'role_context' | 'reusable_experience' | 'other';
+export type MemoryStatus = 'active' | 'pending_review' | 'superseded' | 'archived' | 'blocked_sensitive';
+export type MemorySource = 'manual' | 'explicit_user' | 'session_extraction' | 'verified_experience' | 'legacy_session' | 'legacy_import';
+export interface MemoryEvidence { sourceType: 'session_event' | 'manual' | 'verification' | 'import'; sourceId?: string; sessionId?: string; eventId?: string; createdAt: string }
+export interface Memory {
+  id: string; title: string; content: string; createdAt: string;
+  source?: 'session'; sessionId?: string; projectId?: string; sourceEventId?: string;
+  scope?: MemoryScope; category?: MemoryCategory; status?: MemoryStatus; memorySource?: MemorySource;
+  confidence?: number; tags?: string[]; evidence?: MemoryEvidence[]; updatedAt?: string; supersedesMemoryId?: string; reviewReason?: string;
+}
+export interface MemorySettings { autoCaptureEnabled: boolean; globalInjectionEnabled: boolean; projectInjectionEnabled: boolean; maxItems: number; maxChars: number }
+export interface MemoryDiagnostics { retrievedAt: string; durationMs: number; totalCandidates: number; injectedCount: number; injectedChars: number; skippedCount: number; contextHash: string; categories: MemoryCategory[] }
 export interface UpdateStatus { state: UpdateState; version?: string; progress?: number; message?: string }
 export interface RequirementsSync { url: string; automatic: boolean; version?: string; lastChecked?: string; lastUpdated?: string; message?: string; error?: string }
 export interface ShareExportInput { kind: 'session' | 'memories'; sessionId?: string; memoryIds?: string[] }
-export interface ShareImportResult { sessions: number; memories: number; sessionId?: string }
+export interface ShareImportResult { sessions: number; memories: number; skippedSensitive?: number; sessionId?: string }
 export interface BrowserAction { action: 'open' | 'snapshot' | 'click' | 'fill' | 'select' | 'press' | 'evaluate' | 'screenshot' | 'back' | 'forward' | 'reload' | 'tab'; url?: string; ref?: string; selector?: string; frame?: string; value?: string; script?: string; key?: string; tabId?: string }
 export interface BrowserTabState { id: string; title: string; url: string; active: boolean; canGoBack?: boolean; canGoForward?: boolean; loading?: boolean }
 export interface BrowserPanelState { sessionId: string; visible: boolean; tabs: BrowserTabState[]; downloads: string[] }
 export interface BrowserViewport { sessionId: string; visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }
-export interface SettingsSnapshot { grok?: GrokSettingsSnapshot; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
+export interface SettingsSnapshot { grok?: GrokSettingsSnapshot; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; memorySettings: MemorySettings; memoryDiagnostics?: MemoryDiagnostics; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
 export interface GitCommit { hash: string; shortHash: string; author: string; date: string; message: string }
 export interface GitState { branch: string; commits: GitCommit[]; remotes: string[]; dirty: boolean; changesBlockedReason?: string }
 export interface GitFileEntry { path: string; status?: string }
@@ -444,7 +456,9 @@ export interface DesktopApi {
   importDocument(input: { kind: ManagedDocument['kind']; system: ProductSystem }): Promise<ManagedDocument | null>;
   deleteDocument(id: string): Promise<void>;
   setDocumentEnabled(id: string, enabled: boolean): Promise<void>;
-  saveMemory(input: { title: string; content: string }): Promise<Memory>;
+  saveMemory(input: { id?: string; title: string; content: string; category?: MemoryCategory }): Promise<Memory>;
+  setMemoryStatus(id: string, status: MemoryStatus): Promise<void>;
+  saveMemorySettings(input: MemorySettings): Promise<MemorySettings>;
   deleteMemory(id: string): Promise<void>;
   getGitState(sessionId: string): Promise<GitState>;
   getProjectGitState(target: string | { projectId: string }): Promise<GitState>;

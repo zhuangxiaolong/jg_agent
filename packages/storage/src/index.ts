@@ -4,7 +4,7 @@ import type { TaskAuditAppend, TaskAuditSnapshot, TaskContract, TaskContractReco
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
@@ -1654,9 +1654,25 @@ export class LocalStore {
 
   listMemories(): Memory[] { return this.rows<Memory>('SELECT value FROM memories ORDER BY created_at DESC, rowid DESC'); }
 
+  getMemorySettings(): Partial<MemorySettings> | undefined { return this.rows<Partial<MemorySettings>>('SELECT value FROM settings WHERE key = ?', ['memory-settings-v1'])[0]; }
+
+  saveMemorySettings(settings: MemorySettings): void {
+    this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['memory-settings-v1', JSON.stringify(settings)]));
+  }
+
   saveMemory(memory: Memory): void {
     const value: Memory = { id: memory.id, title: memory.title, content: memory.content, createdAt: memory.createdAt };
     if (memory.source === 'session') { value.source = 'session'; value.sessionId = memory.sessionId; value.projectId = memory.projectId; value.sourceEventId = memory.sourceEventId; }
+    if (memory.scope) value.scope = memory.scope;
+    if (memory.category) value.category = memory.category;
+    if (memory.status) value.status = memory.status;
+    if (memory.memorySource) value.memorySource = memory.memorySource;
+    if (memory.confidence !== undefined) value.confidence = memory.confidence;
+    if (memory.tags) value.tags = memory.tags.slice(0, 20);
+    if (memory.evidence) value.evidence = memory.evidence.slice(-10);
+    if (memory.updatedAt) value.updatedAt = memory.updatedAt;
+    if (memory.supersedesMemoryId) value.supersedesMemoryId = memory.supersedesMemoryId;
+    if (memory.reviewReason) value.reviewReason = memory.reviewReason;
     this.transaction(() => this.db.run('INSERT INTO memories(id, created_at, value) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET created_at=excluded.created_at, value=excluded.value', [value.id, value.createdAt, JSON.stringify(value)]));
   }
 

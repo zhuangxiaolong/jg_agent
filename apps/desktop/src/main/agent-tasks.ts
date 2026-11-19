@@ -8,6 +8,7 @@ import type { RuntimeEvent, RuntimeOptions } from '../../../../packages/agent-ru
 import type { AgentTask, AgentTaskEvent, AgentTaskStatus, RuntimeKind, Session, TaskBudgetPolicy, TaskContract } from '../../../../packages/domain/src';
 import { applicableDocuments, buildDeveloperContext } from '../../../../packages/policy/src';
 import { sessionMemories } from './session-memory';
+import { normalizeMemorySettings } from '../../../../packages/memory-engine/src';
 import type { SettingsService } from './settings';
 import type { LocalStore } from '../../../../packages/storage/src';
 
@@ -384,7 +385,9 @@ export class AgentTaskRunner {
         return document;
       })
       : applicableDocuments(this.options.store.listDocuments(), session);
-    const context = contract ? documents.map(document => `【开发规范：${document.name}；${document.digest}】\n${document.content}`).join('\n\n') : buildDeveloperContext(documents, sessionMemories(this.options.store.listMemories(), session.projectId));
+    const memorySettings = normalizeMemorySettings(this.options.store.getMemorySettings());
+    const memories = sessionMemories(this.options.store.listMemories(), session.projectId, `${task.name}\n${task.description}\n${task.input ?? ''}`, memorySettings, this.options.settings.memorySecrets());
+    const context = contract ? documents.map(document => `【开发规范：${document.name}；${document.digest}】\n${document.content}`).join('\n\n') : buildDeveloperContext(documents, memories);
     const developerInstructions = `${context}\n【子 Agent 任务职责】本任务由精工Agent调度，角色为${ANALYSIS_ROLES[task.role]}。负责检查当前会话项目代码与现状证据，输出分析结论、证据文件和未解决项，供主 Agent 汇总实施。任务分析与具体交付按下述契约分工完成。${contract ? `\n契约版本：${contract.contractVersion}\n目标：${contract.goal}\n期望交付：${contract.outputExpectations.join('；')}\n验收标准：${contract.acceptanceCriteria.join('；')}\n使用当前契约与显式引用的上下文，不继承父任务聊天历史或无关记忆。` : ''}`;
     let gateway: RuntimeOptions['toolGateway'];
     const runtimeOptions: RuntimeOptions = { executable, home: path.join(this.options.dataRoot, 'runtime', 'agent-tasks', task.id), baseUrl: provider.baseUrl, model: task.model ?? session.model, apiKey, shellToolEnabled: false, reasoningEffort: session.reasoningEffort, developerInstructions, dictionaries: documents.filter(item => item.kind === 'dictionary'), ...(contract && active.budget ? { toolGateway: async (request, execute) => {

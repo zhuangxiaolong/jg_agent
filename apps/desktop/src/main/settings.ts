@@ -2,14 +2,16 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
 import type { GrokSettingsService } from './grok-settings';
-import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerCredentialRevealSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, memorySettingsSchema, memoryStatusSchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerCredentialRevealSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
 import type { LocalStore } from '../../../../packages/storage/src';
-import type { ClaudeRuntimeSettings, ManagedDocument, ProviderModel, ProviderProfile, ProviderSettings, RuntimeKind, SettingsSnapshot, UpdateStatus, WeComTargetSummary } from '../../../../packages/domain/src';
+import type { ClaudeRuntimeSettings, ManagedDocument, Memory, MemorySettings, MemoryStatus, ProviderModel, ProviderProfile, ProviderSettings, RuntimeKind, SettingsSnapshot, UpdateStatus, WeComTargetSummary } from '../../../../packages/domain/src';
 import type { WeComDeliveryRecord } from '../../../../packages/wecom-notification/src/desktop-service';
 import type { WeComNotificationTarget } from '../../../../packages/wecom-notification/src';
+import { normalizeMemory, normalizeMemorySettings, scanMemoryText } from '../../../../packages/memory-engine/src';
+import { getLatestMemoryDiagnostics } from './session-memory';
 
 /** 短凭据与协议、域名和模型标识局部重合不等于泄漏；完整凭据和地址路径仍检查。 */
 function containsProviderCredential(value: string, secret: string, kind: 'text' | 'identifier' | 'url' = 'text'): boolean {
@@ -30,6 +32,10 @@ export class SettingsService {
   credential(id: string): CredentialStore {
     profileIdSchema.parse(id);
     return new CredentialStore(id === 'legacy-default' ? path.join(this.dataRoot, 'config/model-key.dpapi') : path.join(this.dataRoot, 'config/secrets', `${id}.dpapi`));
+  }
+  memorySecrets(): string[] {
+    const vaults = [...this.store.listProviders().map(profile => this.credential(profile.id)), ...(this.grok?.profiles().map(profile => this.grok!.credential(profile.id)) ?? []), this.jiraCredential(), this.claudeCredential(), ...this.store.listWeComTargets<{ id: string }>().map(target => this.wecomCredential(target.id))];
+    return vaults.flatMap(vault => { try { const secret = vault.read(); return secret ? [secret] : []; } catch { return []; } });
   }
   jiraCredential(): CredentialStore { return new CredentialStore(path.join(this.dataRoot, 'config/secrets/jira.dpapi')); }
   revealJiraPassword(value: unknown): string {
@@ -57,7 +63,8 @@ export class SettingsService {
     return profile ? { baseUrl: profile.baseUrl, model: profile.models[0], hasKey: profile.hasKey } : { baseUrl: '', model: '', hasKey: false };
   }
   snapshot(update: UpdateStatus = { state: 'disabled', message: '更新检查尚未启动' }): SettingsSnapshot {
-    return { ...(this.grok ? { grok: this.grok.snapshot() } : {}), preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories: this.store.listMemories(), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
+    const memories = this.store.listMemories().map(memory => normalizeMemory(memory));
+    return { ...(this.grok ? { grok: this.grok.snapshot() } : {}), preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories, memorySettings: normalizeMemorySettings(this.store.getMemorySettings()), ...(getLatestMemoryDiagnostics() ? { memoryDiagnostics: getLatestMemoryDiagnostics() } : {}), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
   }
   saveRuntimeKind(value: unknown): RuntimeKind {
     if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk' && value !== 'grok_build_acp') throw new Error('Runtime 类型无效');
@@ -271,11 +278,34 @@ export class SettingsService {
     const document: ManagedDocument = { id: current?.id ?? randomUUID(), kind: 'requirement', system: input.system, name, content: input.content, digest: createHash('sha256').update(input.content).digest('hex'), createdAt: current?.createdAt ?? new Date().toISOString(), enabled: current?.enabled ?? true, ...(current?.remote ? { remote: current.remote } : {}) };
     parsePolicy(document); this.store.saveDocument(document); return document;
   }
-  saveMemory(value: unknown) {
-    this.assertIdle(); const input = memorySchema.parse(value); this.assertCleanText(input.title);
-    if (this.store.listMemories().length >= 100) throw new Error('记忆最多 100 条，请先整理和删除');
-    const memory = { id: randomUUID(), ...input, createdAt: new Date().toISOString() };
+  saveMemory(value: unknown): Memory {
+    this.assertIdle(); const input = memorySchema.parse(value);
+    if (!scanMemoryText(`${input.title}\n${input.content}`, this.memorySecrets()).safe) throw new Error('记忆包含凭据或敏感内容，已阻止保存');
+    const records = this.store.listMemories();
+    const current = input.id ? records.find(memory => memory.id === input.id) : undefined;
+    if (input.id && !current) throw new Error('要编辑的记忆不存在');
+    if (!current && records.length >= 500) throw new Error('记忆最多保存 500 条，请先整理和删除');
+    const duplicate = !current ? records.find(memory => memory.content.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase() === input.content.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()) : undefined;
+    const timestamp = new Date().toISOString();
+    const memory: Memory = {
+      id: current?.id ?? duplicate?.id ?? randomUUID(), title: input.title, content: input.content,
+      createdAt: current?.createdAt ?? duplicate?.createdAt ?? timestamp, updatedAt: timestamp, scope: 'global',
+      category: input.category ?? current?.category ?? duplicate?.category ?? 'other', status: 'active', memorySource: current?.memorySource ?? duplicate?.memorySource ?? 'manual',
+      confidence: current?.confidence ?? duplicate?.confidence ?? 1,
+      evidence: [...(current?.evidence ?? duplicate?.evidence ?? []), { sourceType: 'manual' as const, createdAt: timestamp }].slice(-10)
+    };
     this.store.saveMemory(memory); return memory;
+  }
+  setMemoryStatus(value: unknown, statusValue: unknown): void {
+    this.assertIdle(); const id = idSchema.parse(value); const status = memoryStatusSchema.parse(statusValue);
+    const current = this.store.listMemories().find(memory => memory.id === id);
+    if (!current) throw new Error('记忆不存在');
+    if (status === 'active' && !scanMemoryText(`${current.title}\n${current.content}`, this.memorySecrets()).safe) throw new Error('记忆包含敏感内容，不能恢复生效');
+    this.store.saveMemory({ ...current, status, updatedAt: new Date().toISOString() });
+  }
+  saveMemorySettings(value: unknown): MemorySettings {
+    this.assertIdle(); const settings = memorySettingsSchema.parse(value);
+    this.store.saveMemorySettings(normalizeMemorySettings(settings)); return settings;
   }
   deleteMemory(value: unknown): void { this.assertIdle(); this.store.deleteMemory(idSchema.parse(value)); }
 }

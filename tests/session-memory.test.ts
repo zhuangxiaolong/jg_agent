@@ -8,7 +8,7 @@ import type { AgentEvent, Session } from '../packages/domain/src';
 import { rememberCompletedSession, sessionMemories } from '../apps/desktop/src/main/session-memory';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../packages/domain/src/updates';
 
-test('自动记忆按真实完成轮次摘录、重复完成去重、多轮更新同一条并按项目隔离，重启仍保留', async () => {
+test('自动记忆只摘录本轮用户明确长期规则，排除普通任务和模型回答', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-memory-'));
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
   try {
@@ -16,28 +16,30 @@ test('自动记忆按真实完成轮次摘录、重复完成去重、多轮更�
     const session: Session = { id: 'session', projectId: 'project', title: '验证构建', status: 'completed', workspacePath: root, branch: 'agent/test', model: 'model', createdAt: new Date().toISOString() };
     store.saveSession(session);
     const event = (id: string, type: AgentEvent['type'], text: string) => store.appendEvent({ id, type, text, sessionId: session.id, createdAt: new Date().toISOString() });
-    event('u1', 'user', '分析构建要求'); event('m1', 'message', '现有脚本要求先构建后测试。'); event('c1', 'status', 'completed');
+    event('u1', 'user', '请记住：提交代码前必须先运行相关测试。'); event('m1', 'message', 'password="synthetic-credential"'); event('c1', 'status', 'completed');
     const first = rememberCompletedSession(store, session);
-    assert.ok(first); assert.match(first.content, /未经独立核实/); assert.match(first.content, /分析构建要求/);
+    assert.equal(first.length, 1); assert.match(first[0].content, /提交代码前必须先运行相关测试/);
+    assert.equal(first[0].status, 'active'); assert.equal(first[0].evidence?.length, 1);
     rememberCompletedSession(store, session); assert.equal(store.listMemories().length, 1);
-    event('u2', 'user', '验证第二轮'); event('d1', 'delta', '结果第'); event('d2', 'delta', '二轮。'); event('c2', 'status', 'completed');
-    const next = rememberCompletedSession(store, session);
-    assert.equal(next?.id, first.id); assert.match(next!.content, /结果第二轮/); assert.doesNotMatch(next!.content, /分析构建要求/);
-    store.saveMemory({ id: 'manual', title: '全局人工记忆', content: '手工录入', createdAt: new Date().toISOString() });
+    assert.equal(store.listMemories()[0].evidence?.length, 1, '重复完成不能重复添加证据');
+    event('u2', 'user', '分析本次构建输出'); event('m2', 'message', 'password="synthetic-credential"'); event('c2', 'status', 'completed');
+    assert.deepEqual(rememberCompletedSession(store, session), []);
+    assert.equal(store.listMemories().length, 1);
+    assert.doesNotMatch(JSON.stringify(store.listMemories()), /synthetic-credential/);
+    store.saveMemory({ id: 'manual', title: '全局人工记忆', content: '手工录入', category: 'preference', createdAt: new Date().toISOString() });
     assert.equal(sessionMemories(store.listMemories(), 'other').length, 1);
-    assert.equal(sessionMemories(store.listMemories(), 'project').length, 2);
     store.close(); store = await LocalStore.open(filename);
-    assert.equal(store.listMemories().find(item => item.source === 'session')?.sourceEventId, 'c2');
-    assert.equal(rememberCompletedSession(store, { ...session, status: 'failed' }), undefined);
-    event('u3', 'user', '分析密码字段示例'); event('m3', 'message', 'password="synthetic-credential"'); event('c3', 'status', 'completed');
-    assert.match(rememberCompletedSession(store, session)!.content, /password="synthetic-credential"/);
-    assert.equal(store.listMemories().find(item => item.source === 'session')?.sourceEventId, 'c3');
-    event('u4', 'user', '当前配置凭据误粘贴'); event('m4', 'message', 'known-configured-secret'); event('c4', 'status', 'completed');
-    assert.match(rememberCompletedSession(store, session)!.content, /known-configured-secret/);
+    assert.equal(store.listMemories().find(item => item.id !== 'manual')?.evidence?.[0].eventId, 'u1');
+    assert.deepEqual(rememberCompletedSession(store, { ...session, status: 'failed' }), []);
+    event('u3', 'user', '请记住：以后使用 known-configured-secret。'); event('c3', 'status', 'completed');
+    assert.deepEqual(rememberCompletedSession(store, session, { knownSecrets: ['known-configured-secret'] }), []);
+    store.saveMemorySettings({ autoCaptureEnabled: false, globalInjectionEnabled: true, projectInjectionEnabled: true, maxItems: 20, maxChars: 10000 });
+    event('u4', 'user', '请记住：以后提交前必须复核变更。'); event('c4', 'status', 'completed');
+    assert.deepEqual(rememberCompletedSession(store, session, { enabled: store.getMemorySettings()?.autoCaptureEnabled }), []);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('无项目会话的自动记忆可持久化且不泄漏到项目会话上下文', async () => {
+test('普通独立会话与项目会话均不兜底生成长期记忆', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'jinggong-no-project-memory-'));
   const filename = path.join(root, 'agent.db'); let store = await LocalStore.open(filename);
   try {
@@ -57,14 +59,13 @@ test('无项目会话的自动记忆可持久化且不泄漏到项目会话上�
     rememberCompletedSession(store, projectSession);
 
     const memories = store.listMemories();
-    assert.equal(sessionMemories(memories, undefined as unknown as string).some(memory => memory.sessionId === standalone.id), true);
-    assert.equal(sessionMemories(memories, 'project').some(memory => memory.sessionId === standalone.id), false);
-    assert.equal(sessionMemories(memories, undefined as unknown as string).some(memory => memory.sessionId === projectSession.id), false);
-    assert.equal(sessionMemories(memories, 'project').some(memory => memory.sessionId === projectSession.id), true);
+    assert.deepEqual(memories, []);
+    assert.deepEqual(sessionMemories(memories), []);
+    assert.deepEqual(sessionMemories(memories, 'project'), []);
 
     store.close(); store = await LocalStore.open(filename);
     assert.equal(store.getSession(standalone.id)?.projectId, undefined);
-    assert.equal(store.listMemories().find(memory => memory.sessionId === standalone.id)?.sourceEventId, 'standalone-done');
+    assert.deepEqual(store.listMemories(), []);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
