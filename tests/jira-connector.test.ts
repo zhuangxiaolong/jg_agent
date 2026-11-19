@@ -142,6 +142,8 @@ test('合成CD日报任务与跨项目分页：本次项目筛选不修改实例
     assert.equal(second.issues[0].key, 'CD-434');
     assert.equal(second.isLast, true);
     assert.equal((await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent' })).jql, 'ORDER BY updated DESC, key ASC');
+    const priorityOrdered = await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent', onlyMine: true, priorityFirst: true });
+    assert.equal(priorityOrdered.jql, 'assignee = currentUser() ORDER BY priority DESC, updated DESC, key ASC');
     assert.equal((await connector.getIssue('CD-435', '*')).key, 'CD-435');
     assert.equal((await connector.getIssue('CD-435', 'CD')).key, 'CD-435');
     await assert.rejects(connector.getIssue('OTHER-1', '*'), /访问权限/);
@@ -154,6 +156,7 @@ test('合成CD日报任务与跨项目分页：本次项目筛选不修改实例
       await assert.rejects(connector.searchIssues({ date: '2026-11-04', projectKey } as unknown as Parameters<JiraConnector['searchIssues']>[0]), /项目 Key/);
       await assert.rejects(connector.getIssue('CD-435', projectKey as string), /项目 Key/);
     }
+    await assert.rejects(connector.searchIssues({ date: '2026-11-04', priorityFirst: 'yes' } as unknown as Parameters<JiraConnector['searchIssues']>[0]), /分页或负责人筛选参数无效/);
     assert.equal(requests.length, requestCount);
     wrongProject = true;
     await assert.rejects(connector.searchIssues({ date: '2026-11-04', projectKey: 'CD' }), /之外/);

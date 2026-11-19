@@ -76,8 +76,9 @@ test('直接输入开发规范限制正文、标题和资料类型，保留完�
 });
 
 test('Jira 查询项目范围保留日报和本人条件并拒绝注入或伪造快照', () => {
-  const query = { date: '2026-11-04', scope: 'daily', onlyMine: true, projectKey: '*' };
+  const query = { date: '2026-11-04', scope: 'daily', onlyMine: true, projectKey: '*', priorityFirst: true };
   assert.deepEqual(jiraSearchSchema.parse(query), query);
+  assert.equal(jiraSearchSchema.safeParse({ ...query, priorityFirst: 'yes' }).success, false);
   assert.equal(jiraProjectScopeSchema.parse('CD'), 'CD');
   assert.equal(jiraProjectScopeSchema.parse(undefined), undefined);
   for (const projectKey of ['', 'CD" OR project = OTHER', '../CD', 'C'.repeat(65), { key: 'CD' }]) {

@@ -235,7 +235,7 @@ export interface JiraTransition { id: string; name: string; status: string }
 export interface JiraAssignee { id: string; displayName: string; field: 'name' | 'accountId' }
 export interface JiraTestImage { id: string; name: string; preview?: string }
 export interface JiraFlowInput { key: string; projectKey?: string; transitionId: string; assignee?: JiraAssignee; comment: string; imageIds: string[]; sessionId?: string }
-export interface JiraSearchInput { date: string; startAt?: number; onlyMine?: boolean; scope?: 'daily' | 'recent'; projectKey?: string }
+export interface JiraSearchInput { date: string; startAt?: number; onlyMine?: boolean; scope?: 'daily' | 'recent'; projectKey?: string; priorityFirst?: boolean }
 export interface JiraSearchPage { issues: JiraIssue[]; startAt: number; maxResults: number; total: number; isLast: boolean; jql: string; timeZone: string; fetchedAt: string }
 export interface JiraSavedQuery { id: string; input: JiraSearchInput; page: JiraSearchPage; savedAt: string }
 export type ProductSystem = 'MES5' | 'MES6' | 'WMS' | '前端' | '通用';

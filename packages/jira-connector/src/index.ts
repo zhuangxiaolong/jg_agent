@@ -381,11 +381,12 @@ export class JiraConnector {
     const nextDate = new Date(date.getTime() + 86400000).toISOString().slice(0, 10);
     if (!/^\d{4}-/.test(nextDate)) throw new Error('查询日期超出支持范围');
     const startAt = input.startAt ?? 0;
-    if (!integer(startAt, 1000000) || (input.onlyMine !== undefined && typeof input.onlyMine !== 'boolean')) throw new Error('Jira 分页或负责人筛选参数无效');
+    if (!integer(startAt, 1000000) || (input.onlyMine !== undefined && typeof input.onlyMine !== 'boolean') || (input.priorityFirst !== undefined && typeof input.priorityFirst !== 'boolean')) throw new Error('Jira 分页或负责人筛选参数无效');
     const connection = await this.metadata();
     const dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
     const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : [])];
-    const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY updated DESC, key ASC`;
+    const ordering = input.priorityFirst ? 'priority DESC, updated DESC, key ASC' : 'updated DESC, key ASC';
+    const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY ${ordering}`;
     const query = new URLSearchParams({ jql, startAt: String(startAt), maxResults: String(PAGE_SIZE), fields: this.fields() });
     const data = await this.get('search', query);
     if (!object(data) || !Array.isArray(data.issues) || !integer(data.startAt, 1000000) || data.startAt !== startAt || !integer(data.maxResults, 1000) || !integer(data.total, 100000000) || data.issues.length > PAGE_SIZE || data.issues.length > data.maxResults || (!data.maxResults && data.total > startAt) || (!data.issues.length && data.total > startAt)) throw new Error('Jira 返回的分页数据异常，请重新查询；未展示不完整任务列表');

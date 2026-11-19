@@ -311,7 +311,7 @@ function ProfileSettings({ preferences, api, pending, act }: Operations & { pref
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) || file.size > 120 * 1024) { setError('头像请使用 PNG、JPG、GIF 或 WebP，且不超过 120 KB。'); return; }
+    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) { setError('头像请使用 PNG、JPG、GIF 或 WebP。'); return; }
     const reader = new FileReader();
     reader.onload = () => { if (typeof reader.result === 'string') { setAvatar(reader.result); setError(''); } };
     reader.onerror = () => setError('头像读取失败，请换一张图片。');

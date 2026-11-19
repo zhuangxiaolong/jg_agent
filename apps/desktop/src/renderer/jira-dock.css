@@ -28,6 +28,8 @@
 .jira-dock .jira-filters>.jira-today-button { grid-column: 1 / -1; min-height: 30px; }
 .jira-dock .jira-date-query>.jira-filter-field { grid-column: 1 / -1; }
 .jira-dock .jira-date-query>.jira-today-button { grid-column: auto; }
+.jira-dock .jira-date-actions { min-width: 0; gap: 5px; }
+.jira-dock .jira-date-actions>button { flex: 1; min-width: 0; min-height: 34px; padding: 6px 5px; font-size: 9px; }
 .jira-dock .jira-filters .primary-button { min-width: 0; min-height: 34px; padding: 8px; }
 .jira-dock .jira-only-mine { font-size: 10px; min-width: 0; }
 .jira-dock .jira-browser { display: flex; flex-direction: column; gap: 13px; }

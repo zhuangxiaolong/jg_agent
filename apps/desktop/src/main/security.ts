@@ -32,7 +32,7 @@ export const providerSchema = z.object({
 export const modelProfileSchema = z.object({ id: profileIdSchema.optional(), name: z.string().trim().min(1).max(80), baseUrl: httpsUrlSchema, models: z.array(modelSchema).min(1).max(50).refine(values => new Set(values).size === values.length, '模型不能重复'), modelCatalog: z.array(z.object({ id: modelSchema, name: z.string().trim().min(1).max(240) }).strict()).max(100).optional(), apiKey: modelApiKeySchema.optional() }).strict();
 export const providerCredentialRevealSchema = z.object({ id: profileIdSchema, baseUrl: httpsUrlSchema }).strict();
 export const providerModelsSchema = z.union([profileIdSchema, z.object({ id: profileIdSchema.optional(), baseUrl: httpsUrlSchema, apiKey: modelApiKeySchema.optional() }).strict()]);
-const avatarSchema = z.string().max(300000).refine(value => value.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(value), '头像格式不受支持');
+const avatarSchema = z.string().refine(value => value.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(value), '头像格式不受支持');
 export const preferencesSchema = z.object({
   theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']),
   style: z.enum(['jinggong', 'minimal']),
@@ -84,7 +84,7 @@ export const sessionCreateSchema = z.object({
   pluginIds: z.array(pluginIdentifierSchema).max(100).optional(),
 }).strict()
   .refine(value => (!value.jiraIssueKey && !value.jiraProjectKey) || (!!value.projectId && !!value.jiraIssueKey), 'Jira 关联必须同时绑定项目和任务');
-export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), startAt: z.number().int().min(0).max(1000000).optional(), onlyMine: z.boolean().optional(), scope: z.enum(['daily', 'recent']).optional(), projectKey: jiraProjectScopeSchema }).strict();
+export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), startAt: z.number().int().min(0).max(1000000).optional(), onlyMine: z.boolean().optional(), scope: z.enum(['daily', 'recent']).optional(), projectKey: jiraProjectScopeSchema, priorityFirst: z.boolean().optional() }).strict();
 export const requirementInputSchema = z.object({ id: idSchema.optional(), title: z.string().trim().min(1).max(160).refine(value => !/[\r\n\x00]/.test(value), '标题不能包含换行'), content: z.string().min(1).max(80000).refine(value => !!value.trim(), '请输入开发要求正文'), system: systemSchema }).strict();
 export const documentImportSchema = z.object({ kind: z.enum(['dictionary', 'requirement']), system: systemSchema }).strict();
 export const memorySchema = z.object({ title: z.string().trim().min(1).max(120), content: z.string().trim().min(1).max(12000) }).strict();

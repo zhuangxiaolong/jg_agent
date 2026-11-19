@@ -76,6 +76,10 @@ test('图片摘要随会话持久化，原路径和二进制不进入快照；�
     const session = { id: 'session', projectId: 'project', title: '图片快照', workspacePath: 'D:\\fixture-work', branch: 'agent/session', status: 'idle' as const, createdAt: '2026-11-04T00:00:00Z', model: '', jiraIssue: snapshot };
     store.saveSession(session); store.saveJiraIssue(scope, snapshot);
     for (const theme of ['purple', 'black', 'sky', 'grass'] as const) { const value = preferencesSchema.parse({ theme, style: 'minimal' }); store.savePreferences(value); assert.deepEqual(store.getPreferences(), value); }
+    const largeAvatar = `data:image/png;base64,${'A'.repeat(400000)}`;
+    const profilePreferences = preferencesSchema.parse({ theme: 'grass', style: 'minimal', userProfile: { name: '测试', avatar: largeAvatar, profession: '' } });
+    store.savePreferences(profilePreferences);
+    assert.equal(store.getPreferences().userProfile?.avatar, largeAvatar);
     assert.equal(preferencesSchema.safeParse({ theme: 'unknown', style: 'minimal' }).success, false);
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getSession('session')!.jiraIssue!.attachments[0].localImage, { sha256: 'a'.repeat(64), mimeType: 'image/png', size: 68 });

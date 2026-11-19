@@ -1262,7 +1262,7 @@ export class LocalStore {
   getPreferences(): Preferences {
     const value = this.rows<Partial<Preferences>>('SELECT value FROM settings WHERE key = ?', ['preferences'])[0];
     const profile = value?.userProfile && typeof value.userProfile === 'object' ? value.userProfile : undefined;
-    const avatar = typeof profile?.avatar === 'string' && profile.avatar.length <= 300000 && (profile.avatar.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(profile.avatar)) ? profile.avatar : 'preset-green';
+    const avatar = typeof profile?.avatar === 'string' && (profile.avatar.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(profile.avatar)) ? profile.avatar : 'preset-green';
     const preferences: Preferences = {
       theme: value?.theme ?? 'dark',
       style: value?.style ?? 'jinggong',
@@ -1604,9 +1604,9 @@ export class LocalStore {
 
   saveJiraQuery(scope: string, input: JiraSearchInput, page: JiraSearchPage): JiraSavedQuery {
     this.jiraScope(scope);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !['daily', 'recent'].includes(input.scope ?? 'daily') || input.projectKey !== undefined && input.projectKey !== '*' && !/^[A-Z][A-Z0-9_]{0,63}$/.test(input.projectKey)) throw new Error('Jira 本地记录查询条件无效');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !['daily', 'recent'].includes(input.scope ?? 'daily') || input.projectKey !== undefined && input.projectKey !== '*' && !/^[A-Z][A-Z0-9_]{0,63}$/.test(input.projectKey) || input.priorityFirst !== undefined && typeof input.priorityFirst !== 'boolean') throw new Error('Jira 本地记录查询条件无效');
     if (!Array.isArray(page.issues) || page.issues.length > 50 || !Number.isSafeInteger(page.total) || page.total < 0 || !Number.isSafeInteger(page.startAt) || page.startAt < 0 || !Number.isSafeInteger(page.maxResults) || page.maxResults < 0 || page.maxResults > 1000 || page.startAt !== (input.startAt ?? 0)) throw new Error('Jira 本地记录分页无效');
-    const normalized: JiraSearchInput = { date: input.date, startAt: page.startAt, onlyMine: !!input.onlyMine, scope: input.scope ?? 'daily', ...(input.projectKey === undefined ? {} : { projectKey: input.projectKey }) };
+    const normalized: JiraSearchInput = { date: input.date, startAt: page.startAt, onlyMine: !!input.onlyMine, scope: input.scope ?? 'daily', ...(input.projectKey === undefined ? {} : { projectKey: input.projectKey }), ...(input.priorityFirst ? { priorityFirst: true } : {}) };
     const id = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     const record: JiraSavedQuery = { id, input: normalized, page: { startAt: page.startAt, maxResults: page.maxResults, total: page.total, isLast: !!page.isLast, jql: jiraText(page.jql, '查询语句', 2000), timeZone: jiraText(page.timeZone, '时区', 200), fetchedAt: jiraText(page.fetchedAt, '读取时间', 100), issues: page.issues.map(jiraSnapshot) }, savedAt: new Date().toISOString() };
     if (Buffer.byteLength(JSON.stringify(record)) > 16 * 1024 * 1024) throw new Error('单次 Jira 记录超过16 MiB，请缩小查询范围');
