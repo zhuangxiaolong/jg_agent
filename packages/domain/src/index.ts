@@ -195,7 +195,8 @@ export type ProviderModelsInput = string | { id?: string; baseUrl: string; apiKe
 export type CompletionSound = 'chime' | 'bright' | 'soft' | 'off';
 export type UpdateMode = 'automatic' | 'manual';
 export type UpdateState = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error';
-export interface Preferences { theme: 'dark' | 'light' | 'system' | 'purple' | 'black' | 'sky' | 'grass'; style: 'jinggong' | 'minimal'; completionSound: CompletionSound; updateMode?: UpdateMode }
+export interface UserProfile { name: string; avatar: string; profession: string }
+export interface Preferences { theme: 'dark' | 'light' | 'system' | 'purple' | 'black' | 'sky' | 'grass'; style: 'jinggong' | 'minimal'; completionSound: CompletionSound; updateMode?: UpdateMode; userProfile?: UserProfile }
 export interface LayoutPreferences {
   leftVisible: boolean;
   rightVisible: boolean;

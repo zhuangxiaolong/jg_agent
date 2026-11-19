@@ -1261,7 +1261,20 @@ export class LocalStore {
 
   getPreferences(): Preferences {
     const value = this.rows<Partial<Preferences>>('SELECT value FROM settings WHERE key = ?', ['preferences'])[0];
-    return { theme: value?.theme ?? 'dark', style: value?.style ?? 'jinggong', completionSound: value?.completionSound ?? 'chime', updateMode: value?.updateMode === 'manual' ? 'manual' : 'automatic' };
+    const profile = value?.userProfile && typeof value.userProfile === 'object' ? value.userProfile : undefined;
+    const avatar = typeof profile?.avatar === 'string' && profile.avatar.length <= 300000 && (profile.avatar.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(profile.avatar)) ? profile.avatar : 'preset-green';
+    const preferences: Preferences = {
+      theme: value?.theme ?? 'dark',
+      style: value?.style ?? 'jinggong',
+      completionSound: value?.completionSound ?? 'chime',
+      updateMode: value?.updateMode === 'manual' ? 'manual' : 'automatic'
+    };
+    if (profile) preferences.userProfile = {
+      name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim().slice(0, 40) : '您',
+      avatar,
+      profession: typeof profile.profession === 'string' ? profile.profession.trim().slice(0, 100) : ''
+    };
+    return preferences;
   }
 
   /** 性能资料只存脱敏阶段元数据，沿用现有 SQLite 的原子提交和备份路径。 */
@@ -1274,7 +1287,18 @@ export class LocalStore {
   }
 
   savePreferences(preferences: Preferences): void {
-    const value: Preferences = { theme: preferences.theme, style: preferences.style, completionSound: preferences.completionSound ?? 'chime', updateMode: preferences.updateMode === 'manual' ? 'manual' : 'automatic' };
+    const profile = preferences.userProfile;
+    const value: Preferences = {
+      theme: preferences.theme,
+      style: preferences.style,
+      completionSound: preferences.completionSound ?? 'chime',
+      updateMode: preferences.updateMode === 'manual' ? 'manual' : 'automatic'
+    };
+    if (profile) value.userProfile = {
+      name: profile.name?.trim() || '您',
+      avatar: profile.avatar || 'preset-green',
+      profession: profile.profession?.trim() || ''
+    };
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['preferences', JSON.stringify(value)]));
   }
 

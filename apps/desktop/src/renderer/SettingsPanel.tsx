@@ -1,6 +1,6 @@
 import './jira-password.css';
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus } from '../../../../packages/domain/src';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
+import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus, UserProfile } from '../../../../packages/domain/src';
 import { Icon } from './ui';
 import { DictionaryPreview } from './DictionaryPreview';
 import { readableError } from './dictionary-index';
@@ -11,10 +11,10 @@ import { SessionDataSettings } from './SessionDataSettings';
 import './provider-models.css';
 import './settings-feedback.css';
 
-export type SettingsTab = 'providers' | 'appearance' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions';
+export type SettingsTab = 'providers' | 'appearance' | 'profile' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions';
 type Tab = SettingsTab;
-const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' | 'chat' | 'shield' | 'refresh' | 'terminal' }[] = [
-  { id: 'providers', name: '模型中转站', icon: 'box' }, { id: 'appearance', name: '外观', icon: 'layers' },
+const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' | 'chat' | 'shield' | 'refresh' | 'terminal' | 'edit' }[] = [
+  { id: 'providers', name: '模型中转站', icon: 'box' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
   { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
 ];
 const failure = readableError;
@@ -66,6 +66,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
         {feedback && <div className={`settings-feedback ${feedback.kind === 'error' ? 'form-error' : 'settings-notice'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}><Icon name={feedback.kind === 'error' ? 'alert' : 'check'} /><span>{feedback.text}</span><button type="button" className="icon-button" aria-label="关闭设置提示" title="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" /></button></div>}
         {tab === 'providers' && <Providers profiles={snapshot.providers} pending={pending} act={act} api={api} onSaved={onClose} />}
         {tab === 'appearance' && <Appearance preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
+        {tab === 'profile' && <ProfileSettings preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'runtime' && <RuntimeSettings pending={pending} api={api} onRuntimeChecked={onRuntimeChecked} />}
         {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
@@ -290,6 +291,37 @@ function Appearance({ preferences, api, pending, act }: Operations & { preferenc
     { value: 'off', label: '关闭声音', detail: '仅显示通知' },
   ];
   return <section><div className="section-heading"><div><h3>外观</h3><p>选择适合您的界面风格与主题。</p></div></div><h4>界面风格</h4><div className="style-options">{([{ id: 'jinggong', name: '精工风格', description: '品牌配色与研发工作台' }, { id: 'minimal', name: '极简风格', description: '中性色彩与精简装饰' }] as const).map(option => <button className={`style-choice ${preferences.style === option.id ? 'selected' : ''}`} key={option.id} aria-pressed={preferences.style === option.id} disabled={pending} onClick={() => act(() => api.savePreferences({ ...preferences, style: option.id }), '界面风格已保存。')}><div className={`style-preview preview-${option.id}`}><span /><span /><span /></div><strong>{option.name}</strong><p>{option.description}</p>{preferences.style === option.id && <Icon name="check" />}</button>)}</div><h4>主题</h4><div className="theme-options">{([{ value: 'dark', label: '深色' }, { value: 'light', label: '浅色' }, { value: 'system', label: '跟随系统' }, { value: 'purple', label: '紫色' }, { value: 'black', label: '黑色' }, { value: 'sky', label: '天空蓝' }, { value: 'grass', label: '草绿色' }] as const).map(option => <button className={preferences.theme === option.value ? 'selected' : ''} key={option.value} aria-pressed={preferences.theme === option.value} disabled={pending} onClick={() => act(() => api.savePreferences({ ...preferences, theme: option.value }), '主题已保存。')}>{option.label}{preferences.theme === option.value && <Icon name="check" />}</button>)}</div><h4>会话完成提示音</h4><div className="completion-sounds" aria-label="会话完成提示音">{sounds.map(sound => <button type="button" className={preferences.completionSound === sound.value ? 'selected' : ''} key={sound.value} aria-pressed={preferences.completionSound === sound.value} disabled={pending} onClick={() => act(() => api.savePreferences({ ...preferences, completionSound: sound.value }), '完成提示音已保存。')}><span><strong>{sound.label}</strong><small>{sound.detail}</small></span>{preferences.completionSound === sound.value && <Icon name="check" />}</button>)}</div><button type="button" className="secondary-button sound-preview" disabled={pending} onClick={() => playCompletionSound(preferences.completionSound)}>试听当前提示音</button><p className="section-description">偏好保存在本机，重新启动后仍然生效。提示音在会话完成时播放。</p></section>;
+}
+
+const profilePresets = [
+  { id: 'preset-green', label: '精工绿', glyph: '👤' },
+  { id: 'preset-blue', label: '研发蓝', glyph: '🧑‍💻' },
+  { id: 'preset-orange', label: '交付橙', glyph: '🛠️' },
+  { id: 'preset-purple', label: '分析紫', glyph: '📊' },
+] as const;
+
+function ProfileSettings({ preferences, api, pending, act }: Operations & { preferences: Preferences }) {
+  const initial: UserProfile = preferences.userProfile ?? { name: '您', avatar: 'preset-green', profession: '' };
+  const [name, setName] = useState(initial.name);
+  const [avatar, setAvatar] = useState(initial.avatar);
+  const [profession, setProfession] = useState(initial.profession);
+  const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  function chooseFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) || file.size > 120 * 1024) { setError('头像请使用 PNG、JPG、GIF 或 WebP，且不超过 120 KB。'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { if (typeof reader.result === 'string') { setAvatar(reader.result); setError(''); } };
+    reader.onerror = () => setError('头像读取失败，请换一张图片。');
+    reader.readAsDataURL(file);
+  }
+  function avatarPreview(value: string) {
+    if (value.startsWith('data:image/')) return <img src={value} alt="头像预览" />;
+    return <span>{profilePresets.find(item => item.id === value)?.glyph ?? '👤'}</span>;
+  }
+  return <section><div className="section-heading"><div><h3>关于我</h3><p>维护会话中显示的姓名、头像和职业偏向，让 Agent 更贴合您的工作场景。</p></div></div><form className="settings-form profile-form" onSubmit={event => { event.preventDefault(); void act(() => api.savePreferences({ ...preferences, userProfile: { name: name.trim() || '您', avatar, profession: profession.trim() } }), '个人信息已保存。'); }}><label htmlFor="profile-name">显示名称</label><input id="profile-name" value={name} onChange={event => setName(event.target.value)} maxLength={40} disabled={pending} placeholder="例如：张三" /><label htmlFor="profile-profession">职业偏向</label><input id="profile-profession" value={profession} onChange={event => setProfession(event.target.value)} maxLength={100} disabled={pending} placeholder="例如：MES 项目经理、C# 开发、实施顾问" /><span className="field-hint">可填写岗位、行业或常用技术方向，帮助会话理解您的关注点。</span><label>头像</label><div className="profile-avatar-preview">{avatarPreview(avatar)}<span>{name.trim() || '您'}</span></div><div className="profile-avatar-options" aria-label="选择默认头像">{profilePresets.map(item => <button type="button" key={item.id} className={avatar === item.id ? 'selected' : ''} aria-pressed={avatar === item.id} disabled={pending} onClick={() => { setAvatar(item.id); setError(''); }}><span>{item.glyph}</span><small>{item.label}</small></button>)}<button type="button" className={`profile-avatar-upload ${avatar.startsWith('data:image/') ? 'selected' : ''}`} disabled={pending} onClick={() => fileRef.current?.click()}><span>{avatar.startsWith('data:image/') ? avatarPreview(avatar) : '＋'}</span><small>上传图片</small></button></div><input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={chooseFile} />{error && <p className="form-error" role="alert">{error}</p>}<div className="settings-actions"><button className="primary-button" type="submit" disabled={pending || !name.trim()}><Icon name="check" />{pending ? '正在保存…' : '保存个人信息'}</button></div></form></section>;
 }
 
 function Jira({ snapshot, api, act, pending }: Operations & { snapshot: SettingsSnapshot }) {

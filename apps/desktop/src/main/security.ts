@@ -32,7 +32,14 @@ export const providerSchema = z.object({
 export const modelProfileSchema = z.object({ id: profileIdSchema.optional(), name: z.string().trim().min(1).max(80), baseUrl: httpsUrlSchema, models: z.array(modelSchema).min(1).max(50).refine(values => new Set(values).size === values.length, '模型不能重复'), modelCatalog: z.array(z.object({ id: modelSchema, name: z.string().trim().min(1).max(240) }).strict()).max(100).optional(), apiKey: modelApiKeySchema.optional() }).strict();
 export const providerCredentialRevealSchema = z.object({ id: profileIdSchema, baseUrl: httpsUrlSchema }).strict();
 export const providerModelsSchema = z.union([profileIdSchema, z.object({ id: profileIdSchema.optional(), baseUrl: httpsUrlSchema, apiKey: modelApiKeySchema.optional() }).strict()]);
-export const preferencesSchema = z.object({ theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']), style: z.enum(['jinggong', 'minimal']), completionSound: z.enum(['chime', 'bright', 'soft', 'off']).default('chime'), updateMode: z.enum(['automatic', 'manual']).default('automatic') }).strict();
+const avatarSchema = z.string().max(300000).refine(value => value.startsWith('preset-') || /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(value), '头像格式不受支持');
+export const preferencesSchema = z.object({
+  theme: z.enum(['dark', 'light', 'system', 'purple', 'black', 'sky', 'grass']),
+  style: z.enum(['jinggong', 'minimal']),
+  completionSound: z.enum(['chime', 'bright', 'soft', 'off']).default('chime'),
+  updateMode: z.enum(['automatic', 'manual']).default('automatic'),
+  userProfile: z.object({ name: z.string().trim().min(1).max(40), avatar: avatarSchema, profession: z.string().trim().max(100) }).strict().optional()
+}).strict();
 export const layoutSchema = z.object({
   leftVisible: z.boolean(), rightVisible: z.boolean(), bottomVisible: z.boolean(),
   leftWidth: z.number().int().min(180).max(520).optional(),

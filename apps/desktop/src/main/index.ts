@@ -1726,7 +1726,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       session.runtimeCapabilitiesVersion = RUNTIME_CAPABILITIES_VERSION;
       runs.assertCurrent(ticket);
       session.status = 'running'; session.unreadCompletionId = undefined; store.saveSession(session);
-      if (!queuedTurnId) emit(session.id, 'user', prompt, undefined, undefined, undefined, undefined, attachments);
+      if (!queuedTurnId) emit(session.id, 'user', parsed.prompt, undefined, undefined, undefined, undefined, attachments);
       emit(session.id, 'status', 'running');
       // 主会话配置与 Runtime 就绪后再产生子任务，避免失败会话仍请求模型。
       automaticTaskIds = createAutomaticAgentTasks(session, parsed.prompt);

@@ -396,6 +396,12 @@ html[data-style="minimal"] .brand-mark { opacity: .8; }
 .message-image-card { width: min(240px, 100%); }
 .message-image-card .conversation-image-trigger img { height: 148px; }
 .message-image-card .conversation-image-loading { min-height: 148px; }
+.conversation-file-card { display: inline-flex; width: min(280px, 100%); min-height: 58px; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-1); color: var(--text-secondary); }
+.conversation-file-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 6px; background: var(--surface-3); color: var(--accent); }
+.conversation-file-icon .icon { width: 16px; height: 16px; }
+.conversation-file-details { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.conversation-file-details strong { overflow: hidden; color: var(--text); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-file-details small { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-image-remove { position: absolute; top: 8px; right: 8px; display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #ffffff40; border-radius: 50%; background: #171a20e8; color: #fff; }
 .conversation-image-remove .icon { width: 12px; height: 12px; }
 .conversation-image-remove:hover { background: var(--danger); }

@@ -1,12 +1,13 @@
 import { useTransientError } from './use-transient-error';
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot } from '../../../../packages/domain/src';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
+import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon, Mark } from './ui';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
 import { MarkdownContent } from './MarkdownContent';
 import { ConversationImagePreview } from './ConversationImagePreview';
+import { ConversationFilePreview } from './ConversationFilePreview';
 import { playCompletionSound } from './completion-sound';
 import { GitPanel } from './GitPanel';
 import { ProjectGitPanel } from './ProjectGitPanel';
@@ -14,7 +15,7 @@ import { DiffPreview } from './DiffPreview';
 import { JiraPanel } from './JiraPanel';
 import { jiraTaskPrompt } from './JiraIssueDetails';
 import { RequirementAdmissionPanel } from './RequirementAdmissionPanel';
-import { compactAgentEvent, engineText, engineVersion, runtimeAssistantName, sessionDisplayName, toolPlatformText } from './branding';
+import { compactAgentEvent, engineText, engineVersion, sessionDisplayName, toolPlatformText } from './branding';
 import { isSessionRunActive } from './session-run-state';
 import { isJiraSessionCreating } from './jira-create-state';
 import { ProjectRow } from './ProjectRow';
@@ -34,6 +35,7 @@ import './runtime-approval.css';
 
 const statusLabels: Record<SessionStatus, string> = { idle: '就绪', running: '运行中', 'waiting-approval': '等待审批', completed: '已完成', failed: '失败', interrupted: '已中断' };
 const reasoningLabels: Record<ReasoningEffort, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高' };
+const defaultUserProfile: UserProfile = { name: '您', avatar: 'preset-green', profession: '' };
 const defaultLayout: LayoutPreferences = { leftVisible: true, rightVisible: true, bottomVisible: false, leftWidth: 220, rightWidth: 420, bottomHeight: 180 };
 type ResizeKind = 'left' | 'right' | 'bottom' | 'composer' | 'standalone';
 interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; startValue: number; latest: number; pointerId: number; handle: HTMLButtonElement }
@@ -44,6 +46,14 @@ function time(value: string) { return formatClockTime(value); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
 function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? '当前引擎' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
 function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
+function displayUserMessageText(text: string): string {
+  return text.replace(/\r?\n\r?\n【本轮上传附件(?:；[^】]*)?】[\s\S]*$/, '').trim();
+}
+function userAvatar(profile: UserProfile) {
+  if (profile.avatar.startsWith('data:image/')) return <img src={profile.avatar} alt="" />;
+  const glyphs: Record<string, string> = { 'preset-blue': '🧑‍💻', 'preset-orange': '🛠️', 'preset-purple': '📊' };
+  return <span>{glyphs[profile.avatar] ?? '👤'}</span>;
+}
 function buildDiffTree(files: FileDiff[]): DiffTreeNode[] {
   const roots: DiffTreeNode[] = [];
   for (const file of files) {
@@ -86,6 +96,7 @@ function timeline(events: AgentEvent[]) {
       continue;
     }
     if (event.type === 'message' && /^### (?:代码变更(?:已)?核验|构建、测试与报告核验)/.test(event.text.trim())) continue;
+    if (event.type === 'status' && ['running', 'completed'].includes(event.text)) continue;
     const compactText = compactAgentEvent(event);
     if (compactText === null) continue;
     const last = rows[rows.length - 1];
@@ -154,6 +165,7 @@ export function App() {
   const [error, setError] = useTransientError();
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
+  const [newSessionMenu, setNewSessionMenu] = useState<{ x: number; y: number } | null>(null);
   const [browserStates, setBrowserStates] = useState<Record<string, BrowserPanelState>>({});
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false);
   const [showReturnLatest, setShowReturnLatest] = useState(false);
@@ -182,6 +194,8 @@ export function App() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const sessionSettingsRef = useRef<HTMLDivElement>(null);
   const sessionSettingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const newSessionButtonRef = useRef<HTMLButtonElement>(null);
+  const newSessionMenuRef = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
   const completionSoundRef = useRef<CompletionSound>('chime');
   const selectedSessionRef = useRef('');
@@ -206,7 +220,8 @@ export function App() {
   const browserOpen = !!session && !!browserState?.visible;
   const sessionProject = data?.projects.find(item => item.id === session?.projectId);
   const sessionRuntimeKind = session?.runtimeKind ?? 'codex';
-  const assistantName = runtimeAssistantName(sessionRuntimeKind);
+  const assistantName = '精工Agent';
+  const userProfile = data?.settings.preferences.userProfile ?? defaultUserProfile;
   const sessionRuntimeHealth = sessionRuntimeKind === 'grok_build_acp' ? data?.runtimes?.grok_build_acp : data?.runtimes?.[sessionRuntimeKind] ?? data?.runtime;
   const sessionTitle = session ? sessionDisplayName(session) : '';
   const status = sessionId ? statuses[sessionId] || session?.status || 'idle' : 'idle';
@@ -222,6 +237,7 @@ export function App() {
     for (const event of sessionEvents) {
       const compactText = compactAgentEvent(event);
       if (compactText === null) continue;
+      if (event.type === 'status' && ['running', 'completed'].includes(event.text)) continue;
       if (activityTab === 'tools' ? event.type !== 'tool' : !['tool', 'status', 'error'].includes(event.type)) continue;
       const display = { ...event, text: compactText };
       const previous = compacted[compacted.length - 1];
@@ -230,6 +246,18 @@ export function App() {
     }
     return compacted;
   }, [sessionEvents, activityTab]);
+  useEffect(() => {
+    if (!newSessionMenu) return;
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Node && (newSessionMenuRef.current?.contains(event.target) || newSessionButtonRef.current?.contains(event.target))) return;
+      setNewSessionMenu(null);
+    };
+    const dismiss = () => setNewSessionMenu(null);
+    document.addEventListener('pointerdown', close);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('blur', dismiss);
+    return () => { document.removeEventListener('pointerdown', close); window.removeEventListener('resize', dismiss); window.removeEventListener('blur', dismiss); };
+  }, [newSessionMenu]);
   const activeDiff = diffs.find(file => file.path === selectedFile);
   const providerChoices = useMemo(() => sessionProviderChoices(data?.settings, sessionRuntimeKind), [data?.settings, sessionRuntimeKind]);
   const defaultProvider = providerChoices.find(item => item.enabled && item.models.some(model => model.enabled));
@@ -824,6 +852,12 @@ export function App() {
     setSessionSettingsOpen(false);
     void newSession(selectedProjectId);
   }
+  function openIndependentSession() {
+    if (sessionId) void discardEmptySession(sessionId, true);
+    setSessionSettingsOpen(false);
+    setNewSessionMenu(null);
+    void newSession(undefined);
+  }
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== 'n') return;
@@ -968,7 +1002,8 @@ export function App() {
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>研发助手</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
-      <div className="sidebar-section top-nav"><button className="nav-item active" disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button></div>
+      <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item active" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button></div>
+      {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>
         {!data?.projects.length && <div className="sidebar-empty">可以添加 Git 项目，也可以直接创建独立会话。</div>}
@@ -995,7 +1030,7 @@ export function App() {
             {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
                {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 直接使用所选项目目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
-               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool-group' ? <details className="tool-event tool-event-group" key={row.id}><summary><Icon name="terminal" /><span>工具事件（{row.toolEvents?.length ?? 1} 项）</span><time>{time(row.createdAt)}</time><span className="tool-event-expand">点击展开</span></summary><div className="tool-event-list">{row.toolEvents?.map((tool, index) => <pre key={`${tool.id}-${index}`}>{toolPlatformText(tool.text)}</pre>)}</div></details> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className="message-avatar">{row.type === 'user' ? '我' : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? '您' : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? row.text : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div>{row.type === 'user' && row.attachments?.some(item => item.kind === 'image') && <div className="message-images" aria-label="消息图片">{row.attachments.filter(item => item.kind === 'image').map(attachment => <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} />)}</div>}</div></article>)}
+               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool-group' ? <details className="tool-event tool-event-group" key={row.id}><summary><Icon name="terminal" /><span>工具事件（{row.toolEvents?.length ?? 1} 项）</span><time>{time(row.createdAt)}</time><span className="tool-event-expand">点击展开</span></summary><div className="tool-event-list">{row.toolEvents?.map((tool, index) => <pre key={`${tool.id}-${index}`}>{toolPlatformText(tool.text)}</pre>)}</div></details> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className={`message-avatar ${row.type === 'user' ? 'user-avatar' : ''}`}>{row.type === 'user' ? userAvatar(userProfile) : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? userProfile.name : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? displayUserMessageText(row.text) : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div>{row.type === 'user' && row.attachments?.length ? <div className="message-images" aria-label="消息附件">{row.attachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} /> : <ConversationFilePreview key={attachment.id} attachment={attachment} />)}</div> : null}</div></article>)}
               {runtimeApprovals.map(event => {
                 const approval = event.approval!;
                 const marker = `${sessionId}:${approval.requestId}`;
@@ -1039,7 +1074,7 @@ export function App() {
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
-</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div><span className={'status-label ' + status}><span className="status-dot" />{statusLabels[status]}</span></div>
+</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
             </div>
           </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>从后往前看，挑战一切不可能</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>项目会话直接使用所选本地目录，执行时遵循本机安全策略。</span></div></div>}
         </main>
@@ -1078,7 +1113,6 @@ export function App() {
         <div className="activity-panel-header"><div role="group" aria-label="运行活动分类"><button id="activity-output-tab" className={activityTab === 'output' ? 'active' : ''} aria-pressed={activityTab === 'output'} aria-controls="activity-events" onClick={() => setActivityTab('output')}><Icon name="terminal" />运行输出</button><button id="activity-tools-tab" className={activityTab === 'tools' ? 'active' : ''} aria-pressed={activityTab === 'tools'} aria-controls="activity-events" onClick={() => setActivityTab('tools')}>工具活动</button></div><span>{session ? `${activityEvents.length} 条事件` : '尚未选择会话'}</span></div>
         <div id="activity-events" className="activity-events" role="region" aria-labelledby={activityTab === 'output' ? 'activity-output-tab' : 'activity-tools-tab'} tabIndex={0}>{activityEvents.length ? activityEvents.map(event => <div key={event.id} className={`activity-event activity-${event.type}`}><time dateTime={event.createdAt}>{time(event.createdAt)}</time><span>{event.type === 'tool' ? '工具' : event.type === 'error' ? '错误' : '状态'}</span><pre>{event.type === 'tool' ? toolPlatformText(event.text) : event.type === 'status' && event.text in statusLabels ? statusLabels[event.text as SessionStatus] : engineText(event.text)}</pre></div>) : <div className="activity-empty"><Icon name="terminal" /><span>{session ? activityTab === 'tools' ? '当前会话尚无工具活动，执行后的真实工具事件会显示在这里。' : '当前会话尚无运行输出，状态、错误与工具事件会显示在这里。' : '选择会话后查看真实运行输出与工具活动。'}</span></div>}<div ref={activityEndRef} /></div>
       </section>
-      <footer className="statusbar"><div><span className="statusbar-dot" />本地会话</div><div><span>Windows 桌面 PoC</span><span className="statusbar-separator">·</span><span>{configuredProvider?.hasKey || !session && data?.settings?.providers.some(item => item.hasKey) ? '模型凭据已加密保存' : '模型凭据待配置'}</span></div></footer>
     </div>
     {showSettings && data?.settings && <SettingsPanel settings={data.settings} sessions={data.sessions} projects={data.projects} currentProjectId={projectId} onImportCompleted={importedShare} onRuntimeChecked={runtimeChecked} initialTab={settingsTab} onClose={() => setShowSettings(false)} onChanged={settingsChanged} />}
   </div>;
