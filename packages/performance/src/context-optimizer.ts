@@ -22,7 +22,7 @@ export class ContextOptimizer {
       const tokens = estimate(rendered); if (stats.estimatedTokens + tokens > input.budgetTokens) { stats.trimmedCount++; continue; }
       pieces.push(rendered); fragments.push(fragment); sources.add(source); ranges.push([fragment.startLine, fragment.endLine]); included.set(source, ranges); stats.estimatedTokens += tokens;
     }
-    stats.sourceCount = sources.size; stats.fragmentCount = fragments.length;
+    stats.sourceCount = sources.size; stats.fragmentCount = fragments.length; stats.requiredChars = input.requiredText.length; stats.retrievedChars = fragments.reduce((total, fragment) => total + fragment.text.length, 0); stats.contextSizeChars = pieces.join('').length;
     return { text: pieces.join(''), fragments, stats };
   }
   clear(): void { this.cache.clear(); }

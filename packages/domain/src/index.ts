@@ -344,6 +344,7 @@ export interface DesktopApi {
     indexStatus(sessionId: string): Promise<{ status: string; fileCount: number; updatedAt?: string; error?: string }>;
     rebuildIndex(sessionId: string): Promise<void>;
     testPlan(sessionId: string, fullRequested?: boolean): Promise<import('../../performance/src/test-policy').TestPlan>;
+    markFirstUiRender(sessionId: string): Promise<void>;
   };
   /** Plugin Manager IPC 能力，当前构建未接入时保持未定义。 */
   pluginManager?: PluginManagerApi;
@@ -368,6 +369,7 @@ export interface DesktopApi {
   deleteSession(id: string): Promise<void>;
   markSessionRead(id: string, completionId: string): Promise<void>;
   getEvents(sessionId: string): Promise<AgentEvent[]>;
+  prewarmSession(sessionId: string): Promise<void>;
   listAgentTasks(sessionId: string): Promise<AgentTask[]>;
   taskEngineering?: TaskEngineeringApi;
   listAgentTaskEvents(sessionId: string, taskId: string): Promise<AgentTaskEvent[]>;

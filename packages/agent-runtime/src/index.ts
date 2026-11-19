@@ -12,6 +12,7 @@ import { BROWSER_TOOL } from './browser-tool';
 import { COMPUTER_TOOL, normalizeComputerToolInput, parseComputerAction } from './computer-tool';
 import { MAX_JIRA_IMAGE_BYTES, MAX_JIRA_IMAGES, MAX_JIRA_SESSION_IMAGE_BYTES, validateJiraImage, type JiraImageMimeType } from '../../jira-connector/src';
 import { buildRuntimeExecutionInstructions, RUNTIME_EXECUTION_RULES_VERSION } from './execution-instructions';
+import { ReadonlyToolConcurrency } from './readonly-tool-concurrency';
 
 export type { AuthorizedDirectory, AuthorizedDirectoryPolicy } from './authorized-directory-broker';
 
@@ -38,6 +39,7 @@ export interface RuntimeEvent {
 
 export interface RuntimeToolInvocation { toolName: string; arguments: unknown; threadId: string; turnId: string; requestId: string | number }
 export interface RuntimeModelRequest { threadId: string; turnId: string; requestId: string }
+export type RuntimeLifecycleEvent = 'app_server_spawn_start' | 'app_server_spawned' | 'app_server_initialize_start' | 'app_server_initialized';
 
 export { CodexRuntimeAdapter, JinggongRuntimeAdapter, RuntimeManager, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, createRuntimeManager, JINGGONG_RUNTIME_VERSION } from './manager';
 export type { RuntimeAdapter, RuntimeAdapterFactory, RuntimeManagerOptions } from './manager';
@@ -65,10 +67,12 @@ export interface RuntimeOptions {
   browser?: (input: unknown) => Promise<{ text: string; imageUrl?: string }>;
   computer?: (input: unknown, signal: AbortSignal) => Promise<{ text: string; imageUrl?: string }>;
   rpcTimeoutMs?: number;
+  maxParallelDictionaryReads?: number;
   /** 受控分析只使用平台 Responses 请求循环和只读工具，不启动原生 CLI。 */
   executionMode?: 'native' | 'controlled_analysis';
   /** 每次实际 HTTP 模型请求前预留预算；拒绝时不发送，也不在适配器内重试。 */
   modelRequestGateway?: (request: RuntimeModelRequest) => Promise<void> | void;
+  onLifecycle?: (event: RuntimeLifecycleEvent) => void;
   /** 原生模式只覆盖动态工具；受控分析模式的全部工具均通过此网关。 */
   toolGateway?: (request: RuntimeToolInvocation, execute: () => Promise<Record<string, unknown>>) => Promise<Record<string, unknown>>;
   /** 资料解析工具的读取策略；每次调用动态读取，不代表原生 Runtime 的文件访问权限。 */
@@ -164,9 +168,10 @@ export class CodexRuntime {
   private readonly sessionRoots = new Map<string, string>();
   private readonly readBrokers = new Map<string, ProjectReadBroker>();
   private readonly authorizedDirectoryBrokers = new Map<string, AuthorizedDirectoryBroker>();
-  private readonly dictionaryBroker: DictionaryBroker;
+  private dictionaryBroker: DictionaryBroker;
   private readonly streamedItems = new Set<string>();
   private readonly handledRuntimeRequests = new Set<string | number>();
+  private readonlyToolConcurrency: ReadonlyToolConcurrency;
   private nextId = 1;
   private initialized = false;
   private closing = false;
@@ -174,14 +179,17 @@ export class CodexRuntime {
   private lifecycle = 0;
   private starting?: Promise<void>;
   private inflightTools = 0;
-  constructor(private readonly options: RuntimeOptions) { this.dictionaryBroker = new DictionaryBroker(options.dictionaries ?? []); }
+  constructor(private readonly options: RuntimeOptions) {
+    this.dictionaryBroker = new DictionaryBroker(options.dictionaries ?? []);
+    this.readonlyToolConcurrency = new ReadonlyToolConcurrency(options.maxParallelDictionaryReads ?? 1);
+  }
 
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.emitter.on('event', listener);
     return () => { this.emitter.off('event', listener); };
   }
 
-  /** 仅在已结算轮次之间重绑平台回调；静态配置由会话复用身份保持不变。 */
+  /** 仅在已结算轮次之间重绑平台回调；静态配置由复用身份保证一致。 */
   rebindTurnContext(options: RuntimeOptions): void {
     if (this.active.size || this.pending.size || this.starting || this.closing || this.inflightTools) throw new Error('Runtime 尚未空闲，不能重绑本轮工具上下文');
     this.options.beforeWrite = options.beforeWrite;
@@ -192,9 +200,20 @@ export class CodexRuntime {
     this.options.requestDirectoryAccess = options.requestDirectoryAccess;
     this.options.modelRequestGateway = options.modelRequestGateway;
     this.options.executionRulesVersion = options.executionRulesVersion;
+    this.options.onLifecycle = options.onLifecycle;
+    this.options.maxParallelDictionaryReads = options.maxParallelDictionaryReads;
+    this.readonlyToolConcurrency = new ReadonlyToolConcurrency(options.maxParallelDictionaryReads ?? 1);
     // broker 保存创建时的写入/授权回调，热恢复时必须重新创建，不能沿用旧轮票据。
     this.readBrokers.clear();
     this.authorizedDirectoryBrokers.clear();
+  }
+
+  setTurnContext(options: RuntimeOptions): void {
+    if (this.active.size || this.pending.size || this.starting || this.closing || this.inflightTools) throw new Error('Runtime 尚未空闲，不能设置本轮上下文');
+    this.options.developerInstructions = options.developerInstructions;
+    this.options.dictionaries = options.dictionaries;
+    this.options.executionRulesVersion = options.executionRulesVersion;
+    this.dictionaryBroker = new DictionaryBroker(options.dictionaries ?? []);
   }
 
   async checkRuntime(): Promise<RuntimeHealth> {
@@ -247,8 +266,10 @@ export class CodexRuntime {
     };
     const args = ['app-server', '--listen', 'stdio://'];
     for (const [key, value] of Object.entries(overrides)) args.push('-c', `${key}=${JSON.stringify(value)}`);
+    this.options.onLifecycle?.('app_server_spawn_start');
     const child = spawn(this.options.executable, args, { cwd: this.options.home, env: runtimeEnvironment(this.options.home, this.options.apiKey), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
+    this.options.onLifecycle?.('app_server_spawned');
     const decoder = new JsonLinesDecoder();
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
@@ -281,10 +302,12 @@ export class CodexRuntime {
       this.fail(new Error(this.closing ? 'Runtime 已关闭' : `Runtime 进程异常退出${diagnostic ? `：${diagnostic}` : ''}`));
     });
     try {
+      this.options.onLifecycle?.('app_server_initialize_start');
       const initialize = await this.request('initialize', { clientInfo: { name: 'jinggong_agent', title: '精工 Agent', version: this.options.runtimeVersion ?? '0.1.0' }, capabilities: { experimentalApi: true, requestAttestation: false } });
       if (this.options.expectedUserAgentPrefix && (typeof initialize?.userAgent !== 'string' || !initialize.userAgent.startsWith(this.options.expectedUserAgentPrefix))) throw new Error(`${this.options.runtimeDisplayName ?? 'Runtime'} 协议身份校验失败`);
       this.write({ method: 'initialized', params: {} });
       this.initialized = true;
+      this.options.onLifecycle?.('app_server_initialized');
     } catch (error) { await this.close(); throw error; }
   }
 
@@ -659,7 +682,7 @@ export class CodexRuntime {
         this.emit({ threadId, type: 'message', text: renderChangePlan(plan), requestId: id });
         result = { published: true, stage: plan.stage, files: plan.changes.map(item => item.path) };
       } else {
-        result = authorizedTool ? await authorizedBroker!.call(params.tool, params.arguments) : dictionaryTool ? await this.dictionaryBroker.call(params.tool, params.arguments) : await broker!.call(params.tool, params.arguments);
+        result = authorizedTool ? await authorizedBroker!.call(params.tool, params.arguments) : dictionaryTool ? await this.readonlyToolConcurrency.run(params.turnId, () => this.dictionaryBroker.call(params.tool, params.arguments), this.turnAbortControllers.get(params.turnId)?.signal) : await broker!.call(params.tool, params.arguments);
       }
       return result;
       };

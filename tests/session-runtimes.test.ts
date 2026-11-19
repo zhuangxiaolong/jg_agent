@@ -324,3 +324,20 @@ test('Codex 显式配置匹配时复用，旧票据无法释放新轮，失败�
   assert.equal(a.closed, 1);
   assert.equal(runtimes.get(next.sessionId), undefined);
 });
+
+test('Codex 空闲实例策略独立限额，不回收 Grok 空闲 Runtime', async () => {
+  const runs = new RunLifecycle(), runtimes = new SessionRuntimes(10000, 3);
+  const codex = [runtimeFixture('codex'), runtimeFixture('codex')];
+  const grok = runtimeFixture('grok_build_acp');
+  for (const [index, adapter] of codex.entries()) {
+    const ticket = runs.begin(`codex-idle-${index}`); runtimes.bind(ticket, adapter.adapter, 'same-codex-config');
+    await runtimes.markTerminal(ticket, adapter.adapter, true); await runtimes.markSendSettled(ticket, adapter.adapter);
+  }
+  const grokTicket = runs.begin('grok-idle'); runtimes.bind(grokTicket, grok.adapter, 'grok-config');
+  await runtimes.markTerminal(grokTicket, grok.adapter, true); await runtimes.markSendSettled(grokTicket, grok.adapter);
+  await runtimes.updateCodexPolicy({ enabled: true, idleTtlMs: 10000, maxIdleInstances: 1 });
+  assert.deepEqual(codex.map(item => item.closed), [1, 0]);
+  assert.equal(grok.closed, 0);
+  await runtimes.closeAll();
+  assert.deepEqual(codex.map(item => item.closed), [1, 1]); assert.equal(grok.closed, 1);
+});

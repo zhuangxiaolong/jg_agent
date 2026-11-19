@@ -107,7 +107,7 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
         return value;
       }).catch(reason => {
         if (context === contextSequence.current && revision === filterRevision.current) {
-          setTimeZoneError(`未能确认 Jira 时区：${readableError(reason)}。可手动选择日期后抓取，或重试“使用 Jira 今日”。`);
+          setTimeZoneError(`未能确认 Jira 时区：${readableError(reason)}。可手动选择日期后抓取，或重试今日自动抓取。`);
           if (!filtersTouched.current) { setAutoFailed(true); setAutoStatus('自动抓取失败，已有本地记录仍可查看。请手动重试。'); }
         }
         return null;
@@ -137,22 +137,6 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
       .finally(() => { if (request === projectSequence.current) setProjectsLoading(false); });
     return () => { projectSequence.current += 1; };
   }, [configured, settings.baseUrl, settings.account, settings.projectKey]);
-  async function loadJiraToday() {
-    markFiltersChanged();
-    const revision = filterRevision.current;
-    const context = contextSequence.current;
-    const request = ++timeZoneSequence.current;
-    setTimeZoneLoading(true); setTimeZoneError('');
-    try {
-      const connection = await api.testJiraConnection();
-      const currentDate = jiraDateAt(connection.timeZone);
-      if (request !== timeZoneSequence.current || context !== contextSequence.current || revision !== filterRevision.current) return;
-      knownTimeZone.current = connection.timeZone;
-      setTimeZone(connection.timeZone);
-      setDate(currentDate); dateTouched.current = false; setDateEdited(false);
-    } catch (reason) { if (request === timeZoneSequence.current) setTimeZoneError(`未能确认 Jira 时区：${readableError(reason)}。可手动选择日期后抓取，或重试“使用 Jira 今日”。`); }
-    finally { if (request === timeZoneSequence.current) setTimeZoneLoading(false); }
-  }
   async function performSearch(query: QuerySelection, startAt = 0, automaticRequest = false, preserveDetail = false) {
     const context = contextSequence.current;
     const request = ++sequence.current;
@@ -255,7 +239,6 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
     <p className="jira-query-snapshot" aria-label="Jira 查询条件快照"><strong>{searched ? '本次结果' : '待查询'}：</strong>项目：{searched?.projectLabel || selectedProjectLabel} · {((searched?.scope || scope) === 'daily') ? `日报日期：${searched?.date || date}（${searched?.timeZone || timeZone || 'Jira 时区待确认'}）` : '最近任务（不限日报日期）'} · 负责人：{(searched?.onlyMine ?? onlyMine) ? '仅本人' : '全部'}</p>
     <form className="jira-filters jira-date-query" aria-label="日报日期查询" onSubmit={submit}>
       <label className="jira-filter-field">日报日期<input aria-label="Jira 任务日期" type="date" required={scope === 'daily'} value={date} onChange={event => { markFiltersChanged(); dateTouched.current = true; setDateEdited(true); setDate(event.target.value); }} disabled={loading || scope !== 'daily'} /></label>
-      <button className="secondary-button jira-today-button" type="button" disabled={!configured || timeZoneLoading || loading || scope !== 'daily'} onClick={() => loadJiraToday()}>{timeZoneLoading && scope === 'daily' ? '正在确认 Jira 时区…' : '使用 Jira 今日'}</button>
       <div className="jira-date-actions"><button className="primary-button" disabled={!configured || loading || scope === 'daily' && (!date || !dateEdited && (!timeZone || timeZoneLoading))}><Icon name={loading ? 'refresh' : 'download'} />{loading ? '正在抓取…' : '抓取任务'}</button><button className="secondary-button" type="button" disabled={!configured || loading} onClick={() => void searchAllMine()}><Icon name="download" />抓取所有任务</button></div>
     </form>
     <details className="jira-query-controls" open={!compact}><summary>查询条件与历史</summary>

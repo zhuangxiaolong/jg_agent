@@ -46,6 +46,24 @@ test('崩溃恢复不以墙钟差值补造持续时间，关闭总开关可回�
   recovered.resetSettings(); recovered.updateSettings({ runtimeOverrides: { codex: false }, workspaceOverrides: { blocked: false } });
   assert.equal(recovered.isEnabled('codex', 'w'), false); assert.equal(recovered.isEnabled('jinggong', 'blocked'), false); assert.equal(recovered.isEnabled('jinggong', 'w'), true);
 });
+test('Runtime 复用策略校验，分开记录首个文本、UI 首绘和预热耗时', () => {
+  let now = 0;
+  const service = new PerformanceTelemetry({ now: () => now });
+  const defaults = service.getSettings();
+  assert.equal(defaults.runtimeReuseEnabled, true); assert.equal(defaults.runtimeReuseIdleTtlMs, 300000); assert.equal(defaults.runtimeReuseMaxIdleInstances, 3);
+  assert.throws(() => service.updateSettings({ runtimeReuseIdleTtlMs: 999 }));
+  assert.throws(() => service.updateSettings({ runtimeReuseMaxIdleInstances: 11 }));
+  const id = service.startTrace({ sessionId: 'codex-session', runtimeKind: 'codex' })!;
+  service.setRuntimeReuse(id, false, 'idle_instance_unavailable');
+  service.markFirstUiRender(id);
+  now = 28; service.recordRuntimeEvent(id, { type: 'delta', text: '首段文本' });
+  now = 47; service.markFirstUiRender(id);
+  service.recordCompletedSpan(id, { stage: 'runtime.spawn', operation: 'codex.app_server_prewarm_spawn', durationMs: 12 });
+  const trace = service.report('codex-session').latest!;
+  assert.equal(trace.runtimeReuseHit, false); assert.equal(trace.runtimeReuseMissReason, 'idle_instance_unavailable');
+  assert.equal(trace.firstAssistantDeltaMs, 28); assert.equal(trace.firstUiRenderMs, 47);
+  assert.equal(trace.spans[0].stage, 'runtime.spawn'); assert.equal(trace.spans[0].durationMs, 12);
+});
 test('索引只解析变更文件，跨重启复用元数据并保留符号检索', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'jg-performance-index-')); const cache = await mkdtemp(path.join(os.tmpdir(), 'jg-performance-cache-'));
   try {

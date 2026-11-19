@@ -25,10 +25,8 @@
 .jira-dock .jira-project-filter { grid-column: 1 / -1; max-width: none; }
 .jira-dock .jira-filter-field { min-width: 0; gap: 4px; }
 .jira-dock .jira-filter-field select, .jira-dock .jira-filter-field input { min-width: 0; width: 100%; box-sizing: border-box; font-size: 10px; padding: 8px; }
-.jira-dock .jira-filters>.jira-today-button { grid-column: 1 / -1; min-height: 30px; }
 .jira-dock .jira-date-query>.jira-filter-field { grid-column: 1 / -1; }
-.jira-dock .jira-date-query>.jira-today-button { grid-column: auto; }
-.jira-dock .jira-date-actions { min-width: 0; gap: 5px; }
+.jira-dock .jira-date-actions { width: 100%; min-width: 0; gap: 5px; }
 .jira-dock .jira-date-actions>button { flex: 1; min-width: 0; min-height: 34px; padding: 6px 5px; font-size: 9px; }
 .jira-dock .jira-filters .primary-button { min-width: 0; min-height: 34px; padding: 8px; }
 .jira-dock .jira-only-mine { font-size: 10px; min-width: 0; }

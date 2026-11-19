@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Session } from '../../../../packages/domain/src';
 import type { RuntimeEvent } from '../../../../packages/agent-runtime/src';
 import type { LocalStore } from '../../../../packages/storage/src';
-import { ContextOptimizer, PerformanceTelemetry, SafeParallelScheduler, WorkspaceIndexService, type PerformanceState, type WorkspaceIndexIdentity } from '../../../../packages/performance/src';
+import { ContextOptimizer, PerformanceTelemetry, SafeParallelScheduler, WorkspaceIndexService, type PerformanceStage, type PerformanceState, type WorkspaceIndexIdentity } from '../../../../packages/performance/src';
 
 /** 只在现有已授权会话目录内加速检索，失败始终回到原 Runtime 工具。 */
 export class DesktopPerformanceService {
@@ -43,6 +43,11 @@ export class DesktopPerformanceService {
     }).catch(() => this.telemetry.endSpan(span, 'unavailable'));
   }
   traceId(sessionId: string): string | undefined { return this.traces.get(sessionId); }
+  setRuntimeReuse(sessionId: string, hit: boolean, missReason?: string): void { this.telemetry.setRuntimeReuse(this.traceId(sessionId), hit, missReason); }
+  markFirstUiRender(sessionId: string): void { this.telemetry.markFirstUiRender(this.traceId(sessionId)); }
+  recordCompletedSpan(sessionId: string, stage: PerformanceStage, operation: string, durationMs: number): void {
+    this.telemetry.recordCompletedSpan(this.traceId(sessionId), { stage, operation, durationMs });
+  }
   record(sessionId: string, event: RuntimeEvent): void { this.telemetry.recordRuntimeEvent(this.traceId(sessionId), event); }
   finish(sessionId: string, state: 'completed' | 'failed' | 'interrupted' | 'cancelled'): void {
     this.telemetry.finishTrace(this.traceId(sessionId), state);

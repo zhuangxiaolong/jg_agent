@@ -30,7 +30,8 @@ import { SessionRuntimes } from './session-runtimes';
 import { SessionGitService } from './session-git';
 import { SessionFollowups } from './session-followups';
 import { RuntimePrewarmService } from './runtime-prewarm';
-import { codexRuntimeReuseKey } from './runtime-reuse';
+import { CodexAppServerPrewarm } from './codex-app-server-prewarm';
+import { codexRuntimeProcessKey, codexRuntimeReuseKey } from './runtime-reuse';
 import { JiraImageStore } from './jira-images';
 import { createDesktopTray } from './tray';
 import { detectProductSystem } from '../../../../packages/system-detection/src';
@@ -92,6 +93,7 @@ let images: JiraImageStore;
 let tray: Tray | undefined;
 const runtimes = new SessionRuntimes();
 let runtimePrewarm: RuntimePrewarmService | undefined;
+let codexAppServerPrewarm: CodexAppServerPrewarm | undefined;
 let agentTaskRunner: AgentTaskRunner | undefined;
 let performanceService: DesktopPerformanceService | undefined;
 const runtimeEventBuffers = new Map<string, RuntimeEventBatcher>();
@@ -155,6 +157,25 @@ function fullReadDirectories(): Array<{ id: string; path: string }> {
 function authorizedReadPolicy(): import('../../../../packages/agent-runtime/src').AuthorizedDirectoryPolicy {
   // 文档解析工具保持只读；历史目录选择不限制普通 Runtime 的完整访问。
   return { mode: 'full', directories: fullReadDirectories() };
+}
+
+async function prewarmCodexSession(sessionId: string): Promise<void> {
+  if (!codexAppServerPrewarm || quitting || shutdownStarted) return;
+  await codexAppServerPrewarm.selectSession(sessionId);
+  const performanceSettings = performanceService?.telemetry.getSettings();
+  if (performanceSettings && !performanceSettings.runtimeReuseEnabled) return;
+  const session = store.getSession(sessionId);
+  if (!session || (session.runtimeKind ?? 'codex') !== 'codex' || store.getSessionPluginSnapshot(session.id)) return;
+  const provider = settings.profiles().find(item => item.id === session.providerId) ?? (!session.providerId ? settings.profiles()[0] : undefined);
+  if (!provider || !provider.models.includes(session.model)) return;
+  const apiKey = settings.credential(provider.id).read(provider.baseUrl);
+  if (!apiKey) return;
+  const options: RuntimeOptions = {
+    executable, home: path.join(dataRoot, 'runtime', 'homes', 'codex'), baseUrl: provider.baseUrl, model: session.model, apiKey,
+    reasoningEffort: session.reasoningEffort, shellToolEnabled: true,
+    maxParallelDictionaryReads: performanceSettings?.enabled && performanceSettings.safeParallelEnabled ? performanceSettings.maxParallelReadOperations : 1,
+  };
+  await codexAppServerPrewarm.warm(options, session.workspacePath, session.id);
 }
 
 function resetRuntimeAfterReadAccessChange(session: Session): Session {
@@ -800,7 +821,18 @@ async function getRuntime(ticket: RunTicket, session: Session): Promise<RuntimeA
   const requiredInstructions = buildDeveloperContext(documents, sessionMemories(store.listMemories(), session.projectId)) + projectInstructions + jiraContext + admissionContext + taskInstruction + ((!session.runtimeThreadId || (session.runtimeCapabilitiesVersion ?? 0) < RUNTIME_CAPABILITIES_VERSION) ? sharedSessionContext(store, session) : '') + (previousHistory ? '\n【工具升级前会话历史摘录，仅供参考】\n' + previousHistory : '') + browserInstruction + computerInstruction;
   const developerInstructions = await performanceService?.augmentContext(session, requiredInstructions) ?? requiredInstructions;
   runs.assertCurrent(ticket);
-  const runtimeOptions: RuntimeOptions = { executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, authorizedDirectories: () => authorizedReadPolicy(),
+  const performanceSettings = performanceService?.telemetry.getSettings();
+  const maxParallelDictionaryReads = performanceSettings?.enabled && performanceSettings.safeParallelEnabled ? performanceSettings.maxParallelReadOperations : 1;
+  const lifecycleSpans = new Map<string, string | undefined>();
+  const onLifecycle = (event: import('../../../../packages/agent-runtime/src').RuntimeLifecycleEvent): void => {
+    const traceId = performanceService?.traceId(session.id);
+    if (event === 'app_server_spawn_start') lifecycleSpans.set('spawn', performanceService?.telemetry.startSpan(traceId, { stage: 'runtime.spawn', operation: `${kind}.app_server_spawn` }));
+    else if (event === 'app_server_spawned') performanceService?.telemetry.endSpan(lifecycleSpans.get('spawn'), 'completed');
+    else if (event === 'app_server_initialize_start') lifecycleSpans.set('initialize', performanceService?.telemetry.startSpan(traceId, { stage: 'runtime.initialize', operation: `${kind}.app_server_initialize` }));
+    else if (event === 'app_server_initialized') performanceService?.telemetry.endSpan(lifecycleSpans.get('initialize'), 'completed');
+  };
+  const runtimeOptions: RuntimeOptions = { executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
+    onLifecycle,
     requestDirectoryAccess: async () => {
       runs.assertCurrent(ticket);
       return { granted: true, mode: 'full', message: '当前 Runtime 已启用完整文件读写和命令执行权限，无需额外授权。目录工具可只读解析文档，其他文件操作使用原生工具。' };
@@ -838,15 +870,31 @@ async function getRuntime(ticket: RunTicket, session: Session): Promise<RuntimeA
     : kind === 'codex' && !selectedPlugins ? await codexRuntimeReuseKey(runtimeOptions, session.workspacePath, readAccess) : undefined;
   runs.assertCurrent(ticket);
   let reusableAdapter = reuseKey ? runtimes.takeReusable(ticket, reuseKey) : undefined;
+  let prewarmedAdapter = false;
+  if (!reusableAdapter && kind === 'codex' && !selectedPlugins) {
+    const prewarmed = await codexAppServerPrewarm?.take(runtimeOptions, session.workspacePath, session.id);
+    reusableAdapter = prewarmed?.adapter;
+    prewarmedAdapter = !!prewarmed;
+    if (prewarmed) for (const span of prewarmed.spans) performanceService?.recordCompletedSpan(session.id, span.stage, 'codex.app_server_prewarm_' + (span.stage === 'runtime.spawn' ? 'spawn' : 'initialize'), span.durationMs);
+    runs.assertCurrent(ticket);
+  }
   if (canReuse && !reusableAdapter) await runtimes.closeSession(session.id);
   runs.assertCurrent(ticket);
-  if (reusableAdapter?.rebindTurnContext) {
-    try { reusableAdapter.rebindTurnContext(runtimeOptions); }
+  let reuseMissReason = reusableAdapter ? undefined : selectedPlugins ? 'plugins_enabled' : !reuseKey ? 'runtime_not_reusable' : 'idle_instance_unavailable';
+  if (reusableAdapter) {
+    try {
+      if (prewarmedAdapter) {
+        if (!reusableAdapter.setTurnContext) throw new Error('预热 Runtime 不支持设置本轮上下文');
+        reusableAdapter.setTurnContext(runtimeOptions);
+      }
+      reusableAdapter.rebindTurnContext?.(runtimeOptions);
+    }
     catch {
       // 少数终态先于平台工具结算的情况不能热重绑；尚未发任务，回收后冷恢复。
-      await reusableAdapter.close(); reusableAdapter = undefined; runs.assertCurrent(ticket);
+      await reusableAdapter.close(); reusableAdapter = undefined; reuseMissReason = prewarmedAdapter ? 'prewarm_context_bind_failed' : 'turn_context_rebind_failed'; runs.assertCurrent(ticket);
     }
   }
+  performanceService?.setRuntimeReuse(session.id, !!reusableAdapter, reuseMissReason);
   const manager = createRuntimeManager({ [kind]: () => {
     if (grokOptions) return createGrokBuildRuntimeAdapter(grokOptions);
     if (kind === 'claude_agent_sdk') {
@@ -928,7 +976,7 @@ async function getRuntime(ticket: RunTicket, session: Session): Promise<RuntimeA
       if (event.text === 'completed') void followups.drain(current.id);
     }
   };
-  const batcher = new RuntimeEventBatcher(event => { void publishRuntimeEvent(event); }, 80, true);
+  const batcher = new RuntimeEventBatcher(event => { void publishRuntimeEvent(event); }, 16, true);
   runtimeEventBuffers.set(session.id, batcher);
   const unsubscribe = candidateAdapter.onEvent(event => {
     // 所有 Runtime 首字即时可见，后续增量合并写盘，不依赖性能统计开关。
@@ -1008,6 +1056,8 @@ if (primaryInstance) app.whenReady().then(async () => {
   grokSettings = new GrokSettingsService(store, dataRoot, assertIdle);
   settings = new SettingsService(store, dataRoot, assertIdle, app.getVersion(), grokSettings);
   performanceService = new DesktopPerformanceService(store, dataRoot, clean);
+  const performanceSettings = performanceService.telemetry.getSettings();
+  await runtimes.updateCodexPolicy({ enabled: performanceSettings.runtimeReuseEnabled, idleTtlMs: performanceSettings.runtimeReuseIdleTtlMs, maxIdleInstances: performanceSettings.runtimeReuseMaxIdleInstances });
   for (const session of store.listSessions()) {
     const project = store.listProjects().find(item => item.id === session.projectId);
     if (!canGenerateSessionTitle(session, project?.name)) continue;
@@ -1052,6 +1102,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     isBusy: () => quitting || shutdownStarted || runs.size > 0 || creating.size > 0 || gitBusy || jiraFlowBusy || activeVerifications.size > 0 || verificationStarting.size > 0 || (agentTaskRunner?.activeCount ?? 0) > 0,
     publish: health => { if (window && !window.isDestroyed() && !quitting) window.webContents.send('runtime:health-changed', health); },
   });
+  codexAppServerPrewarm = new CodexAppServerPrewarm();
+  await codexAppServerPrewarm.updatePolicy({ enabled: performanceSettings.runtimeReuseEnabled, idleTtlMs: performanceSettings.runtimeReuseIdleTtlMs, maxIdleInstances: performanceSettings.runtimeReuseMaxIdleInstances });
   images = new JiraImageStore(dataRoot);
   window = new BrowserWindow({ title: '精工Agent', icon: path.join(__dirname, 'renderer/assets/app-icon.png'), width: 1440, height: 960, minWidth: 1000, minHeight: 700, backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -1066,7 +1118,10 @@ if (primaryInstance) app.whenReady().then(async () => {
     const selected = store.getRuntimeKind();
     const [jinggong, codex, claude_agent_sdk, grok_build_acp] = (['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp'] as const).map(kind => runtimePrewarm!.snapshot(kind));
     const gitVersion = await git.version().catch(() => '未检测到 Git，请安装官方 Git for Windows');
-    return { projects: store.listProjects(), sessions: store.listSessions(), activeSessionIds: runs.tickets.map(ticket => ticket.sessionId), provider: settings.defaultProvider(), settings: settings.snapshot(updateStatus), layout: store.getLayout(), runtime: selected === 'jinggong' ? jinggong : selected === 'claude_agent_sdk' ? claude_agent_sdk : selected === 'grok_build_acp' ? grok_build_acp : codex, runtimes: { jinggong, codex, claude_agent_sdk, grok_build_acp }, dataDirectory: dataRoot, closeToTray: !!tray && !tray.isDestroyed(), gitVersion };
+    const sessions = store.listSessions();
+    const recent = sessions[0];
+    if (recent && (recent.runtimeKind ?? 'codex') === 'codex') void prewarmCodexSession(recent.id).catch(() => undefined);
+    return { projects: store.listProjects(), sessions, activeSessionIds: runs.tickets.map(ticket => ticket.sessionId), provider: settings.defaultProvider(), settings: settings.snapshot(updateStatus), layout: store.getLayout(), runtime: selected === 'jinggong' ? jinggong : selected === 'claude_agent_sdk' ? claude_agent_sdk : selected === 'grok_build_acp' ? grok_build_acp : codex, runtimes: { jinggong, codex, claude_agent_sdk, grok_build_acp }, dataDirectory: dataRoot, closeToTray: !!tray && !tray.isDestroyed(), gitVersion };
   });
   const iterationProject = (value: unknown) => {
     const id = projectIdSchema.parse(value); const project = store.listProjects().find(item => item.id === id);
@@ -1400,20 +1455,24 @@ if (primaryInstance) app.whenReady().then(async () => {
     return updated;
   });
   handle('session:events', (value: unknown) => store.events(sessionById(value).id));
+  handle('session:prewarm', (value: unknown) => { void prewarmCodexSession(sessionById(value).id).catch(() => undefined); });
   handle('session:conversation-image', async (value: unknown) => {
     const input = sessionConversationImageSchema.parse(value);
     return conversationImageDataUrl(input.sessionId, input.attachmentId, input.fullSize);
   });
   handle('performance:report', (value: unknown) => performanceService!.telemetry.report(sessionById(value).id));
+  handle('performance:ui-render', (value: unknown) => performanceService!.markFirstUiRender(sessionById(value).id));
   handle('performance:export', (value: unknown) => performanceService!.telemetry.export(sessionById(value).id));
   handle('performance:clear', (value: unknown) => { const session = sessionById(value); assertSessionIdle(session.id); performanceService!.telemetry.clear(session.id); });
-  handle('performance:settings', (value: unknown) => {
+  handle('performance:settings', async (value: unknown) => {
     assertIdle();
     const result = performanceService!.telemetry.updateSettings(value as never);
+    await runtimes.updateCodexPolicy({ enabled: result.runtimeReuseEnabled, idleTtlMs: result.runtimeReuseIdleTtlMs, maxIdleInstances: result.runtimeReuseMaxIdleInstances });
+    await codexAppServerPrewarm?.updatePolicy({ enabled: result.runtimeReuseEnabled, idleTtlMs: result.runtimeReuseIdleTtlMs, maxIdleInstances: result.runtimeReuseMaxIdleInstances });
     // 旧监听器不能在关闭功能后继续扫描；下一轮按新设置重新启动。
     performanceService!.stopIndexes(); performanceService!.telemetry.flush(); return result;
   });
-  handle('performance:reset', () => { assertIdle(); performanceService!.stopIndexes(); const result = performanceService!.telemetry.resetSettings(); performanceService!.telemetry.flush(); return result; });
+  handle('performance:reset', async () => { assertIdle(); performanceService!.stopIndexes(); const result = performanceService!.telemetry.resetSettings(); await runtimes.updateCodexPolicy({ enabled: result.runtimeReuseEnabled, idleTtlMs: result.runtimeReuseIdleTtlMs, maxIdleInstances: result.runtimeReuseMaxIdleInstances }); await codexAppServerPrewarm?.updatePolicy({ enabled: result.runtimeReuseEnabled, idleTtlMs: result.runtimeReuseIdleTtlMs, maxIdleInstances: result.runtimeReuseMaxIdleInstances }); performanceService!.telemetry.flush(); return result; });
   handle('performance:index-status', (value: unknown) => performanceService!.indexStatus(sessionById(value)));
   handle('performance:index-rebuild', async (value: unknown) => { const session = await projectDevelopmentSession(value); assertSessionIdle(session.id); await performanceService!.rebuild(session); });
   handle('performance:test-plan', async (value: unknown, fullValue?: unknown) => {
@@ -2270,6 +2329,7 @@ app.on('before-quit', event => {
     for (const ticket of tickets) runs.cancel(ticket);
     void (async () => {
       try {
+        await codexAppServerPrewarm?.close(); codexAppServerPrewarm = undefined;
         await runtimePrewarm?.close();
         performanceService?.close();
         for (const verification of activeVerifications.values()) verification.controller.abort();
@@ -2292,6 +2352,7 @@ app.on('before-quit', event => {
   for (const ticket of tickets) runs.cancel(ticket);
   void (async () => {
     try {
+      await codexAppServerPrewarm?.close(); codexAppServerPrewarm = undefined;
       await runtimePrewarm?.close();
       performanceService?.close();
       for (const verification of activeVerifications.values()) verification.controller.abort();

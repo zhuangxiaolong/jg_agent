@@ -177,6 +177,20 @@ export function App() {
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout);
   const [activityTab, setActivityTab] = useState<'output' | 'tools'>('output');
   const [workingExpanded, setWorkingExpanded] = useState(false);
+  const uiRenderMarkedSessions = useRef(new Set<string>());
+  const pendingUiRenderSessions = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (sessionId) void api.prewarmSession(sessionId).catch(() => undefined);
+  }, [api, sessionId]);
+
+  useEffect(() => {
+    if (pendingUiRenderSessions.current.has(sessionId) && sessionId && !uiRenderMarkedSessions.current.has(sessionId) && api.performance) {
+      pendingUiRenderSessions.current.delete(sessionId);
+      uiRenderMarkedSessions.current.add(sessionId);
+      void api.performance.markFirstUiRender(sessionId).catch(() => { uiRenderMarkedSessions.current.delete(sessionId); });
+    }
+  }, [api, events, sessionId]);
   const [draftProvider, setDraftProvider] = useState('');
   const [draftModel, setDraftModel] = useState('');
   const [draftSystem, setDraftSystem] = useState<ProductSystem>('通用');
@@ -680,14 +694,30 @@ export function App() {
       setProjectId(recent ? recent.projectId || '' : next.projects[0]?.id || '');
       setSessionId(recent?.id || '');
     }).catch(reason => alive && setError(message(reason)));
+    let pendingEvents: AgentEvent[] = [];
+    let frame: number | undefined;
+    const flushEvents = () => {
+      frame = undefined;
+      if (!alive || pendingEvents.length === 0) return;
+      const batch = pendingEvents;
+      pendingEvents = [];
+      const visibleSessions = batch.filter(event => (event.type === 'delta' || event.type === 'message') && event.text.trim()).map(event => event.sessionId);
+      for (const id of visibleSessions) pendingUiRenderSessions.current.add(id);
+      setEvents(current => {
+        const next = { ...current };
+        for (const event of batch) next[event.sessionId] = mergeEvents(next[event.sessionId] || [], [event]);
+        return next;
+      });
+    };
     const off = api.onEvent(event => {
       if (!alive) return;
-      setEvents(current => ({ ...current, [event.sessionId]: mergeEvents(current[event.sessionId] || [], [event]) }));
+      pendingEvents.push(event);
       if (event.type === 'status' && event.text in statusLabels) {
         setStatuses(current => ({ ...current, [event.sessionId]: event.text as SessionStatus }));
         if (bootstrapping && ['running', 'waiting-approval', 'completed', 'failed', 'interrupted'].includes(event.text)) observedRunStatuses.add(event.sessionId);
       }
       if (event.type === 'status' && ['running', 'waiting-approval'].includes(event.text)) {
+        if (event.text === 'running') { uiRenderMarkedSessions.current.delete(event.sessionId); pendingUiRenderSessions.current.delete(event.sessionId); }
         runningSessions.current.add(event.sessionId);
         if (event.sessionId === selectedSessionRef.current) setWorkingExpanded(false);
       }
@@ -704,6 +734,8 @@ export function App() {
           playCompletionSound(completionSoundRef.current);
         }
       }
+      if (event.type === 'status' && ['completed', 'failed', 'interrupted'].includes(event.text)) flushEvents();
+      else if (frame === undefined) frame = window.requestAnimationFrame(flushEvents);
     });
     const offTitle = api.onSessionTitleChanged(updated => {
       if (!alive) return;
@@ -721,6 +753,8 @@ export function App() {
     });
     return () => {
       alive = false;
+      pendingEvents = [];
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
       off(); offTitle(); offReadAccess?.(); offRuntime?.(); offUpdate();
     };
   }, [api]);

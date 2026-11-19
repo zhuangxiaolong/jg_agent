@@ -6,7 +6,7 @@ import { useTransientError } from './use-transient-error';
 import './performance.css';
 
 const stageNames: Record<PerformanceStage, string> = {
-  'runtime.initialize': '引擎初始化', 'workspace.index_check': '索引检查', 'workspace.index_update': '增量索引',
+  'runtime.spawn': '引擎进程启动', 'runtime.initialize': '引擎初始化', 'workspace.index_check': '索引检查', 'workspace.index_update': '增量索引',
   search: '代码搜索', 'file.read': '文件读取', 'context.retrieve': '片段检索', 'context.build': '上下文组装',
   'model.queue': '模型排队', 'model.first_token': '首个响应', 'model.response': '模型响应',
   'tool.queue': '工具排队', 'tool.execute': '工具执行', 'command.execute': '命令执行', 'test.execute': '构建 / 测试', retry: '重试', 'task.finalize': '收尾',
@@ -52,6 +52,9 @@ export function PerformancePanel({ api, session }: { api: DesktopApi; session?: 
     {error && <p className="inline-error" role="alert">{error}</p>}
     {report && <details className="performance-settings"><summary>性能策略</summary>
       {([['enabled', '性能优化总开关'], ['telemetryEnabled', '耗时监控'], ['workspaceIndexEnabled', '工作区增量索引'], ['contextOptimizationEnabled', '上下文去重与预算'], ['safeParallelEnabled', '安全只读并行']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={report.settings[key]} disabled={busy} onChange={event => void change({ [key]: event.target.checked })} />{label}</label>)}
+      <label>Codex Runtime 空闲复用<input type="checkbox" checked={report.settings.runtimeReuseEnabled} disabled={busy} onChange={event => void change({ runtimeReuseEnabled: event.target.checked })} /></label>
+      <label>Runtime 空闲保留（分钟）<input type="number" min={1} max={60} value={Math.round(report.settings.runtimeReuseIdleTtlMs / 60000)} disabled={busy} onChange={event => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 1 && value <= 60) void change({ runtimeReuseIdleTtlMs: value * 60000 }); }} /></label>
+      <label>Codex 最大空闲实例<select value={report.settings.runtimeReuseMaxIdleInstances} disabled={busy} onChange={event => void change({ runtimeReuseMaxIdleInstances: Number(event.target.value) })}><option value={1}>1</option><option value={2}>2</option><option value={3}>3</option></select></label>
       <label>当前引擎启用<input type="checkbox" checked={report.settings.runtimeOverrides[session.runtimeKind ?? 'codex'] !== false} disabled={busy} onChange={event => void change({ runtimeOverrides: { ...report.settings.runtimeOverrides, [session.runtimeKind ?? 'codex']: event.target.checked } })} /></label>
       <label>当前工作区启用<input type="checkbox" checked={report.settings.workspaceOverrides[session.workspaceId ?? session.projectId ?? session.id] !== false} disabled={busy} onChange={event => void change({ workspaceOverrides: { ...report.settings.workspaceOverrides, [session.workspaceId ?? session.projectId ?? session.id]: event.target.checked } })} /></label>
       <label>只读并行上限<select value={report.settings.maxParallelReadOperations} disabled={busy} onChange={event => void change({ maxParallelReadOperations: Number(event.target.value) })}><option value={1}>1</option><option value={2}>2</option><option value={3}>3</option></select></label>
@@ -61,8 +64,8 @@ export function PerformancePanel({ api, session }: { api: DesktopApi; session?: 
     </details>}
     <div className="performance-index"><b>工作区索引</b><span>{index?.status ?? '检查中'} · {index?.fileCount ?? 0} 个文件</span>{index?.error && <small>{index.error}</small>}<button className="text-button" disabled={busy || !session.projectId} onClick={() => void run(() => api.performance!.rebuildIndex(session.id))}>重建索引</button></div>
     {!trace ? <p>尚无本会话的执行记录。发送任务后开始采集。</p> : <>
-      <dl><dt>本轮状态</dt><dd>{statusNames[trace.status]}</dd><dt>总耗时</dt><dd>{duration(trace.totalDurationMs)}</dd><dt>Runtime</dt><dd>{trace.runtimeKind}</dd><dt>Provider</dt><dd>{trace.providerId ?? '不可用'}</dd><dt>模型 ID</dt><dd>{trace.modelId ?? '不可用'}</dd><dt>端点标识</dt><dd>{trace.endpoint ?? '不可用'}</dd><dt>首个可见响应</dt><dd>{duration(trace.firstVisibleResponseMs)}</dd><dt>工具事件通知</dt><dd>{trace.toolEvents} 条（不等同于调用数）</dd><dt>重试错误通知</dt><dd>{trace.retryCount}</dd></dl>
-      {trace.context && <p>上下文：{trace.context.fragmentCount} 个片段 · 约 {trace.context.estimatedTokens} Token（估算） · 去重 {trace.context.deduplicatedCount} · 裁剪 {trace.context.trimmedCount} · 缓存命中 {trace.context.cacheHits}</p>}
+      <dl><dt>本轮状态</dt><dd>{statusNames[trace.status]}</dd><dt>总耗时</dt><dd>{duration(trace.totalDurationMs)}</dd><dt>Runtime</dt><dd>{trace.runtimeKind}</dd><dt>复用</dt><dd>{trace.runtimeReuseHit === undefined ? '不可用' : trace.runtimeReuseHit ? '命中' : `未命中（${trace.runtimeReuseMissReason ?? '未知原因'}）`}</dd><dt>Provider</dt><dd>{trace.providerId ?? '不可用'}</dd><dt>模型 ID</dt><dd>{trace.modelId ?? '不可用'}</dd><dt>端点标识</dt><dd>{trace.endpoint ?? '不可用'}</dd><dt>Runtime 首个文本</dt><dd>{duration(trace.firstAssistantDeltaMs ?? trace.firstVisibleResponseMs)}</dd><dt>UI 首次渲染</dt><dd>{duration(trace.firstUiRenderMs)}</dd><dt>工具事件通知</dt><dd>{trace.toolEvents} 条（不等同于调用数）</dd><dt>重试错误通知</dt><dd>{trace.retryCount}</dd></dl>
+      {trace.context && <p>上下文：{trace.context.contextSizeChars ?? '不可用'} 字符 · {trace.context.fragmentCount} 个片段 · 约 {trace.context.estimatedTokens} Token（估算） · 必需 {trace.context.requiredChars ?? '不可用'} · 检索 {trace.context.retrievedChars ?? '不可用'} · 去重 {trace.context.deduplicatedCount} · 裁剪 {trace.context.trimmedCount} · 缓存命中 {trace.context.cacheHits}</p>}
       <details open><summary>执行阶段时间线</summary><ol className="performance-timeline">{trace.spans.map(span => <li key={span.id}><strong>{stageNames[span.stage] ?? span.stage}</strong><span>{statusNames[span.status]} · {duration(span.durationMs)}</span><small>{span.operation}</small></li>)}</ol></details>
     </>}
     <details><summary>当前不可采集的指标</summary><ul>{report?.unavailable.map(item => <li key={item}>{item}</li>)}</ul></details>

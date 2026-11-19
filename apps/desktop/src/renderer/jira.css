@@ -16,9 +16,8 @@ html[data-theme="light"] .jira-filters input[type="date"] { color-scheme: light;
 .jira-only-mine { display: flex; gap: 7px; align-items: center; min-height: 40px; font-size: 11px; }
 .jira-only-mine input { accent-color: var(--accent); }
 .jira-filters .primary-button { font-size: 11px; padding: 11px 16px; min-height: 40px; }
-.jira-date-actions { display: flex; align-items: center; gap: 8px; }
-.jira-date-actions>button { min-height: 40px; white-space: nowrap; }
-.jira-today-button { font-size: 10px; padding: 11px 12px; min-height: 40px; }
+.jira-date-actions { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; }
+.jira-date-actions>button { flex: 1; min-width: 0; min-height: 40px; white-space: nowrap; }
 .jira-query-hint { color: var(--muted); font-size: 10px; margin: 13px 0 22px; line-height: 1.8; }
 .jira-query-history { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 15px; margin-bottom: 20px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 7px; }
 .jira-query-history>label { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 180px; font-size: 10px; color: var(--muted); }

@@ -18,6 +18,8 @@ export interface RuntimeAdapter {
   resumeSession(threadId: string, cwd: string, nativeSessionId?: string): Promise<string>;
   /** 仅在静态配置一致的空闲实例复用时，替换捕获旧轮票据的平台回调。 */
   rebindTurnContext?(options: RuntimeOptions): void;
+  /** App Server 预热尚未绑定 Thread 时，绑定下一轮动态指引与字典。 */
+  setTurnContext?(options: RuntimeOptions): void;
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths?: string[]): Promise<void>;
   /** true 已追加到当前轮；false 确定未提交可排队；异常不得自动重投。 */
   steerTurn?(threadId: string, prompt: string, cwd: string): Promise<boolean>;
@@ -37,6 +39,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   startSession(cwd: string): Promise<string> { return this.runtime.startSession(cwd); }
   resumeSession(threadId: string, cwd: string, _nativeSessionId?: string): Promise<string> { return this.runtime.resumeSession(threadId, cwd); }
   rebindTurnContext(options: RuntimeOptions): void { this.runtime.rebindTurnContext(options); }
+  setTurnContext(options: RuntimeOptions): void { this.runtime.setTurnContext(options); }
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
   steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
@@ -59,6 +62,7 @@ export class JinggongRuntimeAdapter implements RuntimeAdapter {
   startSession(cwd: string): Promise<string> { return this.runtime.startSession(cwd); }
   resumeSession(threadId: string, cwd: string, _nativeSessionId?: string): Promise<string> { return this.runtime.resumeSession(threadId, cwd); }
   rebindTurnContext(options: RuntimeOptions): void { this.runtime.rebindTurnContext(options); }
+  setTurnContext(options: RuntimeOptions): void { this.runtime.setTurnContext(options); }
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
   steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
@@ -123,4 +127,3 @@ export class RuntimeManager {
 }
 
 export function createRuntimeManager(options: RuntimeManagerOptions = {}): RuntimeManager { return new RuntimeManager(options); }
-

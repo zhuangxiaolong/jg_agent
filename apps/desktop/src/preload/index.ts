@@ -33,6 +33,7 @@ const api: DesktopApi = {
     indexStatus: id => invoke('performance:index-status', id),
     rebuildIndex: id => invoke('performance:index-rebuild', id),
     testPlan: (id, fullRequested) => invoke('performance:test-plan', id, fullRequested),
+    markFirstUiRender: id => invoke('performance:ui-render', id),
   },
   pluginManager: {
     selectPluginPath: sourceType => invoke('plugin:select-path', sourceType),
@@ -120,6 +121,7 @@ const api: DesktopApi = {
   deleteSession: id => invoke('session:delete', id),
   markSessionRead: (id, completionId) => invoke('session:read', id, completionId),
   getEvents: id => invoke('session:events', id),
+  prewarmSession: id => invoke('session:prewarm', id),
   getConversationImage: (sessionId, attachmentId, fullSize = false) => invoke('session:conversation-image', { sessionId, attachmentId, fullSize }),
   listAgentTasks: id => invoke('agent-task:list', id),
   taskEngineering: {

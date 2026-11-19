@@ -1,5 +1,15 @@
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
+import { performance } from 'node:perf_hooks';
 import type { RunTicket } from './lifecycle';
+
+export interface CodexRuntimeReusePolicy {
+  enabled: boolean;
+  idleTtlMs: number;
+  maxIdleInstances: number;
+}
+
+const DEFAULT_CODEX_IDLE_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_GROK_IDLE_TTL_MS = 2 * 60 * 1000;
 
 interface RuntimeEntry {
   ticket: RunTicket;
@@ -22,8 +32,37 @@ function supportsIdleReuse(adapter: RuntimeAdapter): boolean {
 export class SessionRuntimes {
   private readonly entries = new Map<string, RuntimeEntry>();
   private idleSequence = 0;
+  private readonly legacyIdleTtlMs: number;
+  private readonly legacyMaxIdleInstances: number;
+  private codexPolicy: CodexRuntimeReusePolicy;
 
-  constructor(private readonly idleTtlMs = 2 * 60 * 1000) {}
+  constructor(idleTtlMs?: number, maxIdleInstances = 3) {
+    this.legacyIdleTtlMs = idleTtlMs ?? DEFAULT_GROK_IDLE_TTL_MS;
+    this.legacyMaxIdleInstances = maxIdleInstances;
+    this.codexPolicy = { enabled: true, idleTtlMs: idleTtlMs ?? DEFAULT_CODEX_IDLE_TTL_MS, maxIdleInstances };
+  }
+
+  async updateCodexPolicy(policy: CodexRuntimeReusePolicy): Promise<void> {
+    if (typeof policy.enabled !== 'boolean' || !Number.isInteger(policy.idleTtlMs) || policy.idleTtlMs < 1000 || policy.idleTtlMs > 60 * 60 * 1000 || !Number.isInteger(policy.maxIdleInstances) || policy.maxIdleInstances < 1 || policy.maxIdleInstances > 10) throw new Error('Codex Runtime 复用策略无效');
+    const previous = this.codexPolicy;
+    this.codexPolicy = { ...policy };
+    if (!policy.enabled) {
+      await Promise.allSettled([...this.entries.values()].filter(entry => entry.adapter.kind === 'codex' && entry.idleExpiresAt !== undefined).map(entry => this.closeEntry(entry)));
+    } else if (previous.idleTtlMs !== policy.idleTtlMs) {
+      const now = performance.now();
+      const codexIdle = [...this.entries.values()].filter(entry => entry.adapter.kind === 'codex' && entry.idleExpiresAt !== undefined);
+      await Promise.allSettled(codexIdle.map(async entry => {
+        const idleStartedAt = entry.idleExpiresAt! - previous.idleTtlMs;
+        const expiresAt = idleStartedAt + policy.idleTtlMs;
+        if (expiresAt <= now) { await this.closeEntry(entry); return; }
+        if (entry.idleTimer) clearTimeout(entry.idleTimer);
+        entry.idleExpiresAt = expiresAt;
+        entry.idleTimer = setTimeout(() => { void this.closeEntry(entry).catch(() => undefined); }, expiresAt - now);
+        entry.idleTimer.unref();
+      }));
+    }
+    await this.trimIdleEntries();
+  }
 
   get(sessionId: string): RuntimeAdapter | undefined { return this.entries.get(sessionId)?.adapter; }
   hasActive(sessionId: string): boolean {
@@ -50,8 +89,9 @@ export class SessionRuntimes {
 
   takeReusable(ticket: RunTicket, reuseKey: string): RuntimeAdapter | undefined {
     const entry = this.entries.get(ticket.sessionId);
+    if (entry?.adapter.kind === 'codex' && !this.codexPolicy.enabled) return;
     if (!entry || ticket.cancelled || entry.ticket === ticket || entry.ticket.cancelled || !supportsIdleReuse(entry.adapter) || !entry.reusable || !entry.terminal || !entry.sendSettled || entry.reuseKey !== reuseKey || entry.idleExpiresAt === undefined) return;
-    if (Date.now() >= entry.idleExpiresAt) { void this.closeEntry(entry).catch(() => undefined); return; }
+    if (performance.now() >= entry.idleExpiresAt) { void this.closeEntry(entry).catch(() => undefined); return; }
     this.entries.delete(ticket.sessionId);
     this.clearEntry(entry);
     return entry.adapter;
@@ -73,7 +113,7 @@ export class SessionRuntimes {
     if (!this.owns(ticket, adapter)) return;
     const entry = this.entries.get(ticket.sessionId)!;
     entry.terminal = true;
-    entry.reusable = reusable && supportsIdleReuse(adapter) && !!entry.reuseKey && !ticket.cancelled;
+    entry.reusable = reusable && supportsIdleReuse(adapter) && !!entry.reuseKey && !ticket.cancelled && (adapter.kind !== 'codex' || this.codexPolicy.enabled);
     await this.closeIfSettled(ticket, adapter);
   }
 
@@ -90,12 +130,22 @@ export class SessionRuntimes {
     if (!entry.reusable || ticket.cancelled) { await this.closeEntry(entry); return; }
     if (entry.idleExpiresAt !== undefined) return;
     this.unsubscribe(entry.unsubscribe); entry.unsubscribe = undefined;
-    entry.idleExpiresAt = Date.now() + this.idleTtlMs;
+    const idleTtlMs = entry.adapter.kind === 'codex' ? this.codexPolicy.idleTtlMs : this.legacyIdleTtlMs;
+    entry.idleExpiresAt = performance.now() + idleTtlMs;
     entry.idleOrder = ++this.idleSequence;
-    entry.idleTimer = setTimeout(() => { void this.closeEntry(entry).catch(() => undefined); }, this.idleTtlMs);
+    entry.idleTimer = setTimeout(() => { void this.closeEntry(entry).catch(() => undefined); }, idleTtlMs);
     entry.idleTimer.unref();
+    await this.trimIdleEntries();
+  }
+
+  private async trimIdleEntries(): Promise<void> {
     const idle = [...this.entries.values()].filter(item => item.idleExpiresAt !== undefined).sort((a, b) => a.idleOrder! - b.idleOrder!);
-    await Promise.allSettled(idle.slice(0, Math.max(0, idle.length - 3)).map(item => this.closeEntry(item)));
+    const codexIdle = idle.filter(item => item.adapter.kind === 'codex');
+    const legacyIdle = idle.filter(item => item.adapter.kind !== 'codex');
+    await Promise.allSettled([
+      ...codexIdle.slice(0, Math.max(0, codexIdle.length - this.codexPolicy.maxIdleInstances)),
+      ...legacyIdle.slice(0, Math.max(0, legacyIdle.length - this.legacyMaxIdleInstances)),
+    ].map(item => this.closeEntry(item)));
   }
 
   private unsubscribe(unsubscribe?: () => void): void {

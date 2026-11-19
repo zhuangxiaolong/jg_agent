@@ -9,7 +9,16 @@ const STATUSES = new Set(['running', 'completed', 'failed', 'cancelled', 'interr
 export function defaultPerformanceSettings(): PerformanceSettings {
   return { enabled: true, telemetryEnabled: true, workspaceIndexEnabled: true, contextOptimizationEnabled: true, safeParallelEnabled: true,
     maxParallelReadOperations: 3, retainDays: 30, contextBudgetTokens: 6000, testStrategy: 'recommend', version: 1,
+    runtimeReuseEnabled: true, runtimeReuseIdleTtlMs: 5 * 60 * 1000, runtimeReuseMaxIdleInstances: 3,
     updatedAt: new Date().toISOString(), runtimeOverrides: {}, workspaceOverrides: {} };
+}
+function normalizeSettings(value: Partial<PerformanceSettings>): PerformanceSettings {
+  const settings = { ...defaultPerformanceSettings(), ...value };
+  const defaults = defaultPerformanceSettings();
+  if (typeof settings.runtimeReuseEnabled !== 'boolean') settings.runtimeReuseEnabled = defaults.runtimeReuseEnabled;
+  if (!Number.isInteger(settings.runtimeReuseIdleTtlMs) || settings.runtimeReuseIdleTtlMs < 1000 || settings.runtimeReuseIdleTtlMs > 3600000) settings.runtimeReuseIdleTtlMs = defaults.runtimeReuseIdleTtlMs;
+  if (!Number.isInteger(settings.runtimeReuseMaxIdleInstances) || settings.runtimeReuseMaxIdleInstances < 1 || settings.runtimeReuseMaxIdleInstances > 10) settings.runtimeReuseMaxIdleInstances = defaults.runtimeReuseMaxIdleInstances;
+  return settings;
 }
 function identifier(value: string | undefined): string | undefined { return typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200) : undefined; }
 function endpoint(value?: string): string | undefined {
@@ -32,7 +41,7 @@ export class PerformanceTelemetry {
     let loaded: PerformanceState | undefined;
     try { const candidate = options.load?.() as PerformanceState | undefined; if (candidate?.version === 1 && candidate.settings && typeof candidate.settings === 'object' && Array.isArray(candidate.traces)) loaded = candidate; } catch { /* 性能历史不可用时不阻断开发流程。 */ }
     this.state = loaded
-      ? { version: 1, settings: { ...defaultPerformanceSettings(), ...loaded.settings }, traces: loaded.traces.filter(trace => trace && typeof trace.id === 'string' && typeof trace.sessionId === 'string' && typeof trace.startedAt === 'string' && STATUSES.has(trace.status) && ['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(trace.runtimeKind) && Array.isArray(trace.spans) && trace.spans.length <= MAX_SPANS && trace.spans.every(span => span && typeof span.id === 'string' && typeof span.stage === 'string' && typeof span.operation === 'string' && STATUSES.has(span.status))).slice(-MAX_TRACES) }
+      ? { version: 1, settings: normalizeSettings(loaded.settings), traces: loaded.traces.filter(trace => trace && typeof trace.id === 'string' && typeof trace.sessionId === 'string' && typeof trace.startedAt === 'string' && STATUSES.has(trace.status) && ['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(trace.runtimeKind) && Array.isArray(trace.spans) && trace.spans.length <= MAX_SPANS && trace.spans.every(span => span && typeof span.id === 'string' && typeof span.stage === 'string' && typeof span.operation === 'string' && STATUSES.has(span.status))).slice(-MAX_TRACES) }
       : { version: 1, settings: defaultPerformanceSettings(), traces: [] };
     for (const trace of this.state.traces) {
       if (trace.status === 'running') { trace.status = 'interrupted'; trace.endedAt = new Date().toISOString(); }
@@ -57,10 +66,10 @@ export class PerformanceTelemetry {
     return settings.enabled && (!runtimeKind || settings.runtimeOverrides[runtimeKind] !== false) && (!workspaceId || settings.workspaceOverrides[workspaceId] !== false);
   }
   updateSettings(patch: Partial<PerformanceSettings>): PerformanceSettings {
-    const allowed = ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'maxParallelReadOperations', 'retainDays', 'contextBudgetTokens', 'testStrategy', 'runtimeOverrides', 'workspaceOverrides'];
+    const allowed = ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'maxParallelReadOperations', 'retainDays', 'contextBudgetTokens', 'runtimeReuseEnabled', 'runtimeReuseIdleTtlMs', 'runtimeReuseMaxIdleInstances', 'testStrategy', 'runtimeOverrides', 'workspaceOverrides'];
     if (!patch || typeof patch !== 'object' || Object.keys(patch).some(key => !allowed.includes(key))) throw new Error('性能设置字段无效');
-    for (const key of ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled'] as const) if (patch[key] !== undefined && typeof patch[key] !== 'boolean') throw new Error('性能开关无效');
-    for (const [key, minimum, maximum] of [['maxParallelReadOperations', 1, 3], ['retainDays', 1, 365], ['contextBudgetTokens', 256, 1000000]] as const) {
+    for (const key of ['enabled', 'telemetryEnabled', 'workspaceIndexEnabled', 'contextOptimizationEnabled', 'safeParallelEnabled', 'runtimeReuseEnabled'] as const) if (patch[key] !== undefined && typeof patch[key] !== 'boolean') throw new Error('性能开关无效');
+    for (const [key, minimum, maximum] of [['maxParallelReadOperations', 1, 3], ['retainDays', 1, 365], ['contextBudgetTokens', 256, 1000000], ['runtimeReuseIdleTtlMs', 1000, 3600000], ['runtimeReuseMaxIdleInstances', 1, 10]] as const) {
       const value = patch[key]; if (value !== undefined && (!Number.isInteger(value) || value < minimum || value > maximum)) throw new Error(`性能设置 ${key} 超出范围`);
     }
     if (patch.testStrategy !== undefined && !['recommend', 'targeted', 'full_approval'].includes(patch.testStrategy)) throw new Error('测试策略无效');
@@ -103,7 +112,7 @@ export class PerformanceTelemetry {
   recordRuntimeEvent(traceId: string | undefined, event: { type: string; text: string; requestId?: string | number; performance?: { callId: string; phase: 'started' | 'completed'; operation: string; stage: string; exitCode?: number | null } }): void {
     const trace = this.state.traces.find(item => item.id === traceId); if (!trace || trace.status !== 'running') return;
     if ((event.type === 'delta' || event.type === 'message') && event.text.trim() && trace.firstVisibleResponseMs === undefined) {
-      const started = this.clocks.get(trace.id); if (started !== undefined) trace.firstVisibleResponseMs = Math.max(0, this.now() - started);
+      const started = this.clocks.get(trace.id); if (started !== undefined) { trace.firstVisibleResponseMs = Math.max(0, this.now() - started); trace.firstAssistantDeltaMs = trace.firstVisibleResponseMs; }
     }
     if (event.type === 'tool') trace.toolEvents++;
     if (event.performance) {
@@ -120,6 +129,24 @@ export class PerformanceTelemetry {
     // 文本未提供稳定工具调用 ID，不能将 started/completed 通知数冒充工具调用数。
     if (event.type === 'error' && /retry|重试/i.test(event.text)) trace.retryCount++;
     if (event.type === 'status' && ['completed', 'failed', 'interrupted'].includes(event.text)) this.finishTrace(trace.id, event.text as PerformanceStatus);
+  }
+  setRuntimeReuse(traceId: string | undefined, hit: boolean, missReason?: string): void {
+    const trace = this.state.traces.find(item => item.id === traceId); if (!trace) return;
+    trace.runtimeReuseHit = hit; trace.runtimeReuseMissReason = hit ? undefined : missReason?.slice(0, 80); this.persist();
+  }
+  recordCompletedSpan(traceId: string | undefined, input: { stage: PerformanceStage; operation: string; durationMs: number }): void {
+    const trace = this.state.traces.find(item => item.id === traceId);
+    if (!trace || !Number.isFinite(input.durationMs) || input.durationMs < 0) return;
+    const endedAt = Date.now();
+    trace.spans.push({ id: randomUUID(), traceId: trace.id, stage: input.stage, operation: identifier(input.operation) ?? 'unknown', status: 'completed',
+      startedAt: new Date(endedAt - input.durationMs).toISOString(), endedAt: new Date(endedAt).toISOString(), durationMs: input.durationMs });
+    if (trace.spans.length > MAX_SPANS) trace.spans.splice(0, trace.spans.length - MAX_SPANS);
+    this.persist();
+  }
+  markFirstUiRender(traceId: string | undefined): void {
+    const trace = this.state.traces.find(item => item.id === traceId); if (!trace || trace.firstAssistantDeltaMs === undefined || trace.firstUiRenderMs !== undefined) return;
+    const started = this.clocks.get(trace.id); if (started === undefined) return;
+    trace.firstUiRenderMs = Math.max(0, this.now() - started); this.persist();
   }
   setContextStats(traceId: string | undefined, stats: PerformanceTrace['context']): void {
     const trace = this.state.traces.find(item => item.id === traceId); if (trace) { trace.context = structuredClone(stats); this.persist(); }
