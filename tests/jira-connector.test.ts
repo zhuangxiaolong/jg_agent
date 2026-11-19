@@ -88,11 +88,11 @@ test('最近任务通过真实HTTP省去日报条件，保留项目、负责人�
   try {
     const connector = new JiraConnector({ baseUrl: service.baseUrl, account: 'fixture', password });
     const recent = await connector.searchIssues({ date: '2026-11-04', scope: 'recent' });
-    assert.equal(recent.jql, 'project = "NEWDEVGROUP" ORDER BY updated DESC, key ASC');
+    assert.equal(recent.jql, 'project = "NEWDEVGROUP" AND status NOT IN ("已完成", "关闭") ORDER BY updated DESC, key ASC');
     assert.equal(recent.issues.length, 1);
     assert.equal(recent.isLast, true);
     const mine = await connector.searchIssues({ date: '2026-11-04', scope: 'recent', onlyMine: true });
-    assert.equal(mine.jql, 'project = "NEWDEVGROUP" AND assignee = currentUser() ORDER BY updated DESC, key ASC');
+    assert.equal(mine.jql, 'project = "NEWDEVGROUP" AND status NOT IN ("已完成", "关闭") AND assignee = currentUser() ORDER BY updated DESC, key ASC');
     const daily = await connector.searchIssues({ date: '2026-11-04' });
     const explicitDaily = await connector.searchIssues({ date: '2026-11-04', scope: 'daily' });
     assert.equal(daily.jql, explicitDaily.jql);
@@ -141,9 +141,9 @@ test('合成CD日报任务与跨项目分页：本次项目筛选不修改实例
     const second = await connector.searchIssues({ date: '2026-11-04', projectKey: '*', startAt: 2 });
     assert.equal(second.issues[0].key, 'CD-434');
     assert.equal(second.isLast, true);
-    assert.equal((await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent' })).jql, 'ORDER BY updated DESC, key ASC');
+    assert.equal((await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent' })).jql, 'status NOT IN ("已完成", "关闭") ORDER BY updated DESC, key ASC');
     const priorityOrdered = await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent', onlyMine: true, priorityFirst: true });
-    assert.equal(priorityOrdered.jql, 'assignee = currentUser() ORDER BY priority DESC, updated DESC, key ASC');
+    assert.equal(priorityOrdered.jql, 'status NOT IN ("已完成", "关闭") AND assignee = currentUser() ORDER BY priority DESC, updated DESC, key ASC');
     assert.equal((await connector.getIssue('CD-435', '*')).key, 'CD-435');
     assert.equal((await connector.getIssue('CD-435', 'CD')).key, 'CD-435');
     await assert.rejects(connector.getIssue('OTHER-1', '*'), /访问权限/);
