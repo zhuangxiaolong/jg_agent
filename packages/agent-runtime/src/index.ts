@@ -38,6 +38,11 @@ export interface RuntimeEvent {
 }
 
 export interface RuntimeToolInvocation { toolName: string; arguments: unknown; threadId: string; turnId: string; requestId: string | number }
+export interface RuntimeSkillToolDefinition { type: 'function'; name: string; description: string; inputSchema: Record<string, unknown> }
+export interface RuntimeSkillToolProvider {
+  definitions: RuntimeSkillToolDefinition[];
+  call(request: RuntimeToolInvocation): Promise<Record<string, unknown>>;
+}
 export interface RuntimeModelRequest { threadId: string; turnId: string; requestId: string }
 export type RuntimeLifecycleEvent = 'app_server_spawn_start' | 'app_server_spawned' | 'app_server_initialize_start' | 'app_server_initialized';
 
@@ -75,6 +80,8 @@ export interface RuntimeOptions {
   onLifecycle?: (event: RuntimeLifecycleEvent) => void;
   /** 原生模式只覆盖动态工具；受控分析模式的全部工具均通过此网关。 */
   toolGateway?: (request: RuntimeToolInvocation, execute: () => Promise<Record<string, unknown>>) => Promise<Record<string, unknown>>;
+  /** 仅 Jinggong Runtime 按需暴露 Skill 元数据、正文和安全资源读取工具。 */
+  skillTools?: RuntimeSkillToolProvider;
   /** 资料解析工具的读取策略；每次调用动态读取，不代表原生 Runtime 的文件访问权限。 */
   authorizedDirectories?: () => AuthorizedDirectoryPolicy;
   requestDirectoryAccess?: () => Promise<Record<string, unknown>>;
@@ -314,7 +321,7 @@ export class CodexRuntime {
   async startSession(cwd: string): Promise<string> {
     await this.start();
     const broker = await this.createBroker(cwd);
-    const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : [])];
+    const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : []), ...(this.options.skillTools?.definitions ?? [])];
     const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
     this.assertExecutionEnvironment(result, cwd);
     const id = result?.thread?.id;
@@ -345,7 +352,7 @@ export class CodexRuntime {
     }
     let result;
     try {
-      const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : [])];
+      const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : []), ...(this.options.skillTools?.definitions ?? [])];
       result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), dynamicTools });
     } catch (error) {
       // Codex 在首个 turn 前不生成 rollout；SQLite 中的空会话仍然有效。
@@ -670,13 +677,16 @@ export class CodexRuntime {
       const broker = threadId ? this.readBrokers.get(threadId) : undefined;
       const authorizedBroker = threadId ? this.authorizedDirectoryBrokers.get(threadId) : undefined;
       const authorizedTool = AUTHORIZED_DIRECTORY_TOOLS.some(tool => tool.name === params.tool);
+      const skillTool = this.options.skillTools?.definitions.some(tool => tool.name === params.tool) ?? false;
       if ((!broker && !authorizedBroker) || !threadId || typeof params.turnId !== 'string' || !this.active.has(threadId) || this.active.get(threadId) !== params.turnId || ![null, undefined, 'functions'].includes(params.namespace)) throw new Error('文件工具未绑定当前会话与活动任务');
-      if (!['list_project_files', 'read_project_file', 'write_project_file', 'delete_project_file', 'publish_change_plan', 'search_dictionary', 'read_dictionary', ...AUTHORIZED_DIRECTORY_TOOLS.map(tool => tool.name)].includes(params.tool)) throw new Error('未授权的项目或目录工具');
+      if (!skillTool && !['list_project_files', 'read_project_file', 'write_project_file', 'delete_project_file', 'publish_change_plan', 'search_dictionary', 'read_dictionary', ...AUTHORIZED_DIRECTORY_TOOLS.map(tool => tool.name)].includes(params.tool)) throw new Error('未授权的项目或目录工具');
       if (authorizedTool && !authorizedBroker) throw new Error('当前会话没有启用授权目录读取');
       if (!authorizedTool && !broker) throw new Error('项目工具未绑定当前项目');
       const dictionaryTool = params.tool === 'search_dictionary' || params.tool === 'read_dictionary';
       const executeTool = async (): Promise<Record<string, unknown>> => {
-      if (params.tool === 'publish_change_plan') {
+      if (skillTool) {
+        result = await this.options.skillTools!.call({ toolName: params.tool, arguments: params.arguments, threadId, turnId: params.turnId, requestId: id });
+      } else if (params.tool === 'publish_change_plan') {
         const plan = parseChangePlan(params.arguments);
         // 方案仅写入会话记录，不参与后续文件操作的授权判断。
         this.emit({ threadId, type: 'message', text: renderChangePlan(plan), requestId: id });

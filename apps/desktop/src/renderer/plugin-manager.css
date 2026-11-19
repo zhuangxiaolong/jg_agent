@@ -38,6 +38,11 @@
 .plugin-skill-row>div, .plugin-mcp-row>div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .plugin-skill-row strong, .plugin-mcp-row strong { color: var(--text); font-size: 9px; overflow-wrap: anywhere; }
 .plugin-skill-row p, .plugin-muted { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.6; overflow-wrap: anywhere; }
+.plugin-skill-scope { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--muted); font-size: 8px; }
+.plugin-skill-scope select { min-height: 24px; max-width: 220px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--text); font: inherit; }
+.plugin-skill-events article { display: grid; gap: 3px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-1); }
+.plugin-skill-events article strong { color: var(--text); font-size: 8px; overflow-wrap: anywhere; }
+.plugin-skill-events article small, .plugin-skill-events article p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; overflow-wrap: anywhere; }
 .plugin-skill-row small, .plugin-mcp-row small { color: var(--muted); font-size: 8px; overflow-wrap: anywhere; }
 .plugin-skill-row .secondary-button, .plugin-mcp-row .secondary-button { flex: 0 0 auto; min-height: 24px; padding: 3px 7px; font-size: 8px; }
 .plugin-mcp-row code { color: var(--text-secondary); font-size: 8px; overflow-wrap: anywhere; white-space: pre-wrap; }

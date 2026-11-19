@@ -1,16 +1,17 @@
 import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from 'sql.js';
 import { applyTaskLifecycleTransition, assertTaskGraph, assertTaskSafeMetadata, executionStatusOf, legacyTaskStatus, reconcileTaskStates, taskContentHash, taskDependenciesSatisfied, validateTaskContract, validateTaskEvidence, verifyTaskLifecycleEventChain } from '../../agent-orchestrator/src';
 import type { TaskAuditAppend, TaskAuditSnapshot, TaskContract, TaskContractRecord, TaskEvidenceRecord, TaskLifecycleEvent, TaskLifecycleTransition, VerificationExecutionRecord } from '../../domain/src/engineering';
+import type { LearningCandidate, LearningFeedback } from '../../domain/src/learning';
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 14;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -94,6 +95,24 @@ function safePluginRecord(record: PluginRecord): PluginRecord {
   };
   if (record.sourcePath !== undefined) value.sourcePath = pluginText(record.sourcePath, '插件来源路径', 2048);
   if (record.author !== undefined) value.author = safePluginAuthor(record.author);
+  if (record.origin !== undefined) {
+    if (!['external', 'builtin', 'learned'].includes(record.origin)) throw new Error('插件来源标记无效');
+    value.origin = record.origin;
+  }
+  if (record.sourceCandidateId !== undefined) value.sourceCandidateId = pluginId(record.sourceCandidateId, '学习候选');
+  if (record.sourceTaskIds !== undefined) {
+    if (!Array.isArray(record.sourceTaskIds) || record.sourceTaskIds.length > 100) throw new Error('来源任务数量超出限制');
+    value.sourceTaskIds = record.sourceTaskIds.map(id => pluginId(id, '来源任务'));
+    if (new Set(value.sourceTaskIds).size !== value.sourceTaskIds.length) throw new Error('来源任务不能重复');
+  }
+  if (record.createdBy !== undefined) value.createdBy = pluginText(record.createdBy, '发布人', 200);
+  if (record.publishedAt !== undefined) value.publishedAt = pluginTimestamp(record.publishedAt, '发布时间');
+  if (record.previousVersionPluginId !== undefined) value.previousVersionPluginId = pluginId(record.previousVersionPluginId, '前序插件版本');
+  if (record.systemScope !== undefined) {
+    if (!Array.isArray(record.systemScope) || !record.systemScope.length || record.systemScope.length > 4 || record.systemScope.some(scope => !['MES5', 'MES6', 'WMS', 'GENERAL'].includes(scope)) || new Set(record.systemScope).size !== record.systemScope.length) throw new Error('插件适用系统范围无效');
+    value.systemScope = [...record.systemScope];
+  }
+  if (value.origin === 'learned' && (!value.sourceCandidateId || !value.sourceTaskIds?.length || !value.publishedAt)) throw new Error('学习插件来源信息不完整');
   return value;
 }
 
@@ -125,6 +144,41 @@ function safePluginSkill(record: PluginSkillRecord): PluginSkillRecord {
     value.metadata = metadata;
   }
   return value;
+}
+
+function safeSkillScope(record: SkillScopeRecord): SkillScopeRecord {
+  if (!record || typeof record !== 'object' || !['disabled', 'global', 'project'].includes(record.scope)) throw new Error('Skill 范围记录无效');
+  if (record.scope === 'project' && !record.projectId || record.scope !== 'project' && record.projectId !== undefined) throw new Error('Skill 项目范围无效');
+  return {
+    skillId: pluginId(record.skillId, 'Skill'), scope: record.scope,
+    ...(record.projectId ? { projectId: pluginId(record.projectId, '项目') } : {}),
+    updatedAt: pluginTimestamp(record.updatedAt, 'Skill 范围'),
+  };
+}
+
+function safeSkillUsageEvent(record: SkillUsageEvent): SkillUsageEvent {
+  const eventTypes: SkillUsageEvent['eventType'][] = ['skill.recommended', 'skill.selected', 'skill.load_requested', 'skill.loaded', 'skill.load_failed', 'skill.resource_read', 'skill.skipped'];
+  if (!record || typeof record !== 'object' || !eventTypes.includes(record.eventType) || !['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp'].includes(record.runtimeKind) || !['scope', 'manual', 'automatic'].includes(record.selectionSource) || !PLUGIN_HASH_PATTERN.test(record.pluginHash) || !PLUGIN_HASH_PATTERN.test(record.skillHash)) throw new Error('Skill 使用事件格式无效');
+  const detail: NonNullable<SkillUsageEvent['detailRedacted']> = {};
+  if (record.detailRedacted !== undefined) {
+    if (!record.detailRedacted || typeof record.detailRedacted !== 'object' || Array.isArray(record.detailRedacted) || Object.keys(record.detailRedacted).some(key => !['reason', 'score', 'resourcePath', 'errorCode'].includes(key))) throw new Error('Skill 使用事件明细无效');
+    if (record.detailRedacted.reason !== undefined) detail.reason = pluginText(record.detailRedacted.reason, 'Skill 事件原因', 100, true);
+    if (record.detailRedacted.score !== undefined) {
+      if (!Number.isFinite(record.detailRedacted.score) || record.detailRedacted.score < 0 || record.detailRedacted.score > 10000) throw new Error('Skill 事件分数无效');
+      detail.score = record.detailRedacted.score;
+    }
+    if (record.detailRedacted.resourcePath !== undefined) {
+      const resourcePath = pluginText(record.detailRedacted.resourcePath, 'Skill 资源路径', 1024);
+      if (resourcePath.includes('\\') || resourcePath.includes(':') || resourcePath.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Skill 事件资源路径无效');
+      detail.resourcePath = resourcePath;
+    }
+    if (record.detailRedacted.errorCode !== undefined) detail.errorCode = pluginText(record.detailRedacted.errorCode, 'Skill 错误代码', 80);
+  }
+  return {
+    id: pluginId(record.id, 'Skill 事件'), sessionId: pluginId(record.sessionId, '会话'), turnId: pluginId(record.turnId, 'Runtime Turn'), skillId: pluginId(record.skillId, 'Skill'), pluginId: pluginId(record.pluginId, '插件'),
+    runtimeKind: record.runtimeKind, eventType: record.eventType, pluginVersion: pluginText(record.pluginVersion, '插件版本', 100), pluginHash: record.pluginHash.toLowerCase(), skillHash: record.skillHash.toLowerCase(),
+    selectionSource: record.selectionSource, ...(Object.keys(detail).length ? { detailRedacted: detail } : {}), createdAt: pluginTimestamp(record.createdAt, 'Skill 事件'),
+  };
 }
 
 function safeCredentialRefs(refs: unknown): string[] {
@@ -209,16 +263,25 @@ function safeSnapshot(snapshot: SessionPluginSnapshot): SessionPluginSnapshot {
     };
   });
   if (new Set(plugins.map(entry => entry.pluginId)).size !== plugins.length) throw new Error('Session Plugin Snapshot 插件不能重复');
+  let skillEntries: NonNullable<SessionPluginSnapshot['skillEntries']> | undefined;
+  if (snapshot.skillEntries !== undefined) {
+    if (!Array.isArray(snapshot.skillEntries) || snapshot.skillEntries.length > 2000) throw new Error('Session Skill Snapshot 项无效');
+    skillEntries = snapshot.skillEntries.map(entry => {
+      if (!entry || typeof entry !== 'object' || !PLUGIN_HASH_PATTERN.test(entry.pluginHash) || !PLUGIN_HASH_PATTERN.test(entry.skillHash) || !['scope', 'manual'].includes(entry.selectionSource) || !['global', 'project'].includes(entry.scope) || entry.scope === 'project' && !entry.projectId || entry.scope === 'global' && entry.projectId !== undefined) throw new Error('Session Skill Snapshot 项无效');
+      return { skillId: pluginId(entry.skillId, 'Skill'), pluginId: pluginId(entry.pluginId, '插件'), pluginVersion: pluginText(entry.pluginVersion, '插件版本', 100), pluginHash: entry.pluginHash.toLowerCase(), skillHash: entry.skillHash.toLowerCase(), selectionSource: entry.selectionSource, scope: entry.scope, ...(entry.projectId ? { projectId: pluginId(entry.projectId, '项目') } : {}) };
+    });
+    if (new Set(skillEntries.map(entry => entry.skillId)).size !== skillEntries.length || JSON.stringify(ids(snapshot.skillIds, 'Skill', 2000).slice().sort()) !== JSON.stringify(skillEntries.map(entry => entry.skillId).slice().sort())) throw new Error('Session Skill Snapshot 与 Skill ID 不一致');
+  }
   return {
     sessionId: pluginId(snapshot.sessionId, '会话'), profileId: pluginId(snapshot.profileId, 'Runtime Profile'),
     profileRevision: snapshot.profileRevision, runtimeKind: snapshot.runtimeKind, effectiveScope: snapshot.effectiveScope,
-    pluginIds: ids(snapshot.pluginIds, '插件', 500), skillIds: ids(snapshot.skillIds, 'Skill', 2000), plugins,
+    pluginIds: ids(snapshot.pluginIds, '插件', 500), skillIds: ids(snapshot.skillIds, 'Skill', 2000), plugins, ...(skillEntries ? { skillEntries } : {}),
     snapshotHash: snapshot.snapshotHash.toLowerCase(), createdAt: pluginTimestamp(snapshot.createdAt, 'Session Snapshot')
   };
 }
 
 function safePluginAudit(record: PluginAuditRecord): PluginAuditRecord {
-  const actions: PluginAuditAction[] = ['import', 'trust', 'install', 'uninstall', 'enable', 'disable', 'mcp-test', 'mcp-enable', 'mcp-disable', 'mcp-credential-save', 'mcp-credential-clear', 'runtime-sync', 'session-selection'];
+  const actions: PluginAuditAction[] = ['import', 'trust', 'install', 'uninstall', 'enable', 'disable', 'mcp-test', 'mcp-enable', 'mcp-disable', 'mcp-credential-save', 'mcp-credential-clear', 'runtime-sync', 'session-selection', 'skill-scope'];
   if (!record || typeof record !== 'object' || !actions.includes(record.action) || !['success', 'failure', 'cancelled'].includes(record.result) || !record.detailRedacted || typeof record.detailRedacted !== 'object' || Array.isArray(record.detailRedacted) || !['jinggong', 'codex', 'claude_agent_sdk', undefined].includes(record.runtimeKind)) throw new Error('插件审计记录格式无效');
   const sanitize = (value: unknown, depth: number): unknown => {
     if (depth > 8) throw new Error('插件审计明细层级超出限制');
@@ -571,6 +634,26 @@ export class LocalStore {
             PRAGMA user_version = 12;
           `);
         });
+      }
+      if (version <= 12) {
+        store.transaction(() => {
+          store.db.run(`
+            CREATE TABLE IF NOT EXISTS skill_scopes (skill_id TEXT PRIMARY KEY REFERENCES plugin_skills(id) ON DELETE CASCADE, scope TEXT NOT NULL, project_id TEXT, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS skill_scopes_project ON skill_scopes(scope, project_id);
+            CREATE TABLE IF NOT EXISTS skill_usage_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, turn_id TEXT NOT NULL, skill_id TEXT NOT NULL, plugin_id TEXT NOT NULL, event_type TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS skill_usage_events_session ON skill_usage_events(session_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS skill_usage_events_skill ON skill_usage_events(skill_id, created_at DESC);
+            PRAGMA user_version = 13;
+          `);
+        });
+      }
+      if (version <= 13) {
+        store.transaction(() => store.db.run(`
+          CREATE TABLE IF NOT EXISTS learning_candidates (id TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS learning_candidates_status ON learning_candidates(status, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS learning_skill_feedback (event_id TEXT PRIMARY KEY, feedback TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          PRAGMA user_version = 14;
+        `));
       }
       if (options.recoverUnfinished !== false) {
         const pendingTools = new Map(store.listAgentTasks().filter(task => task.contractVersion).map(task => [task.id, store.getTaskAuditSnapshot(task.sessionId, task.id).pendingToolCalls]));
@@ -1515,6 +1598,60 @@ export class LocalStore {
   }
 
   deletePluginSkill(id: string): void { this.transaction(() => this.db.run('DELETE FROM plugin_skills WHERE id = ?', [pluginId(id, 'Skill')])); }
+
+  listSkillScopes(): SkillScopeRecord[] { return this.rows<SkillScopeRecord>('SELECT value FROM skill_scopes ORDER BY updated_at DESC, skill_id'); }
+
+  getSkillScope(skillId: string): SkillScopeRecord | undefined { return this.rows<SkillScopeRecord>('SELECT value FROM skill_scopes WHERE skill_id = ?', [pluginId(skillId, 'Skill')])[0]; }
+
+  saveSkillScope(record: SkillScopeRecord): void {
+    const value = safeSkillScope(record);
+    if (!this.getPluginSkill(value.skillId)) throw new Error('Skill 不存在');
+    if (value.projectId && !this.listProjects().some(project => project.id === value.projectId)) throw new Error('Skill 所属项目不存在');
+    this.transaction(() => this.db.run('INSERT INTO skill_scopes(skill_id, scope, project_id, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(skill_id) DO UPDATE SET scope=excluded.scope, project_id=excluded.project_id, updated_at=excluded.updated_at, value=excluded.value', [value.skillId, value.scope, value.projectId ?? null, value.updatedAt, JSON.stringify(value)]));
+  }
+
+  appendSkillUsageEvent(record: SkillUsageEvent): void {
+    const value = safeSkillUsageEvent(record);
+    if (!this.getSession(value.sessionId)) throw new Error('Skill 使用事件会话不存在');
+    const skill = this.getPluginSkill(value.skillId);
+    if (!skill || skill.pluginId !== value.pluginId) throw new Error('Skill 使用事件关联无效');
+    this.transaction(() => this.db.run('INSERT INTO skill_usage_events(id, session_id, turn_id, skill_id, plugin_id, event_type, created_at, value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [value.id, value.sessionId, value.turnId, value.skillId, value.pluginId, value.eventType, value.createdAt, JSON.stringify(value)]));
+  }
+
+  listSkillUsageEvents(limit = 100): SkillUsageEvent[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('Skill 使用事件数量无效');
+    return this.rows<SkillUsageEvent>('SELECT value FROM skill_usage_events ORDER BY created_at DESC, rowid DESC LIMIT ?', [limit]);
+  }
+
+  listLearningCandidates(sessionId?: string): LearningCandidate[] {
+    const candidates = this.rows<LearningCandidate>('SELECT value FROM learning_candidates ORDER BY updated_at DESC, id');
+    return sessionId === undefined ? candidates : candidates.filter(candidate => candidate.sessionId === sessionId);
+  }
+
+  getLearningCandidate(id: string): LearningCandidate | undefined {
+    return this.rows<LearningCandidate>('SELECT value FROM learning_candidates WHERE id = ?', [pluginId(id, '学习候选')])[0];
+  }
+
+  saveLearningCandidate(candidate: LearningCandidate, expectedRevision?: number): void {
+    if (!candidate || !/^[A-Za-z0-9_-]{1,128}$/.test(candidate.id) || !Number.isSafeInteger(candidate.revision) || candidate.revision < 1 || candidate.title.length > 200 || candidate.description.length > 4000 || candidate.draftSkillMarkdown.length > 100000 || candidate.evidence.length > 100 || candidate.safetyFindings.length > 100 || !['draft', 'needs_review', 'approved', 'published', 'rejected', 'superseded'].includes(candidate.status)) throw new Error('学习候选格式无效');
+    this.transaction(() => {
+      const current = this.getLearningCandidate(candidate.id);
+      if (expectedRevision === undefined ? !!current : !current || current.revision !== expectedRevision) throw new Error('学习候选版本已变化，请刷新后重试');
+      if (current && candidate.revision !== current.revision + 1 || !current && candidate.revision !== 1) throw new Error('学习候选 revision 无效');
+      this.db.run('INSERT INTO learning_candidates(id, status, updated_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [candidate.id, candidate.status, candidate.updatedAt, JSON.stringify(candidate)]);
+    });
+  }
+
+  saveLearningFeedback(eventId: string, feedback: LearningFeedback, createdAt: string): void {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(eventId) || !['helpful', 'not_helpful', 'incorrect'].includes(feedback) || !Number.isFinite(Date.parse(createdAt))) throw new Error('Skill 反馈格式无效');
+    const event = this.rows<SkillUsageEvent>('SELECT value FROM skill_usage_events WHERE id = ?', [eventId])[0];
+    if (!event) throw new Error('Skill 使用事件不存在');
+    this.transaction(() => this.db.run('INSERT INTO learning_skill_feedback(event_id, feedback, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET feedback=excluded.feedback, created_at=excluded.created_at, value=excluded.value', [eventId, feedback, createdAt, JSON.stringify({ eventId, feedback, createdAt })]));
+  }
+
+  listLearningFeedbacks(): Array<{ eventId: string; feedback: LearningFeedback }> {
+    return this.rows<{ eventId: string; feedback: LearningFeedback }>('SELECT value FROM learning_skill_feedback ORDER BY created_at DESC');
+  }
 
   listPluginMcpServers(pluginIdValue?: string): PluginMcpServerRecord[] {
     const params: SqlValue[] = pluginIdValue === undefined ? [] : [pluginId(pluginIdValue, '插件')];

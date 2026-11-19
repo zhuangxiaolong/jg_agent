@@ -28,7 +28,12 @@ import type {
   SessionPluginSnapshot,
   PluginAuditRecord,
   CodexPluginImportSummary,
+  SkillScope,
+  SkillUsageEvent,
+  SkillUsageEventType,
 } from '../../../../packages/domain/src';
+import { skillCompatibilityStatus } from '../../../../packages/domain/src/skill-intelligence';
+import { matchSkills, type SkillMatcherCandidate } from '../../../../packages/plugin-manager/src/skill-matcher';
 import type { LocalStore } from '../../../../packages/storage/src';
 import type { CredentialVault } from './credentials';
 
@@ -36,6 +41,8 @@ type RuntimeEnvironment = (home: string, apiKey?: string) => NodeJS.ProcessEnv;
 
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MAX_SKILL_PREVIEW = 128 * 1024;
+const MAX_SKILL_RUNTIME_CONTENT = 64 * 1024;
+const MAX_SKILL_RESOURCE_CONTENT = 32 * 1024;
 const MARKETPLACE_NAME = 'jinggong-local';
 const profileLocks = new Map<string, Promise<void>>();
 
@@ -71,6 +78,18 @@ function hasRedactedValue(value: unknown): boolean {
 function safeError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/(Bearer\s+)[^\s"']+/gi, '$1[已脱敏]').slice(0, 1000);
 }
+function skillText(bytes: Uint8Array, maximum: number, label: string): string {
+  if (bytes.byteLength > maximum) throw new Error(`${label}超过动态加载大小限制`);
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (text.includes('\0')) throw new Error(`${label}包含无效控制字符`);
+  return text;
+}
+function safeSkillResourcePath(value: unknown): string {
+  if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\') || value.includes(':') || /[\x00-\x1f]/.test(value) || value.startsWith('/') || /^[A-Za-z]:/.test(value)) throw new Error('Skill 资源路径无效');
+  const segments = value.split('/');
+  if (segments.some(segment => !segment || segment === '.' || segment === '..')) throw new Error('Skill 资源路径越界');
+  return segments.join('/');
+}
 
 export interface PluginManagerServiceOptions {
   store: LocalStore;
@@ -102,6 +121,7 @@ export class PluginManagerService {
   private readonly credentialVault?: CredentialVault;
   private readonly commandRunner?: PluginManagerServiceOptions['commandRunner'];
   private readonly codexHomes: string[];
+  private readonly loadedSkillTurns = new Set<string>();
 
   constructor(options: PluginManagerServiceOptions) {
     this.store = options.store;
@@ -175,6 +195,25 @@ export class PluginManagerService {
     if (!inside(managedStore, root)) throw new Error('插件安装目录真实路径不在精工管理的 Store 内');
     return root;
   }
+  private async verifiedSkillFiles(entry: NonNullable<SessionPluginSnapshot['skillEntries']>[number]): Promise<{ skill: PluginSkillRecord; descriptor: PluginPackageInspection['skills'][number]; files: PluginPackageInspection['files'] }> {
+    const plugin = this.getPlugin(entry.pluginId);
+    const skill = this.store.getPluginSkill(entry.skillId);
+    if (!plugin.enabled || plugin.trustStatus !== 'trusted' || !this.hasTrust(plugin.id, 'install') || plugin.version !== entry.pluginVersion || plugin.contentHash !== entry.pluginHash) throw new Error('Skill 插件与会话快照不一致');
+    if (!skill || !skill.enabled || skill.pluginId !== plugin.id || skill.contentHash !== entry.skillHash) throw new Error('Skill 与会话快照不一致');
+    const inspection = await this.inspect(plugin);
+    if (hashFiles(inspection.files) !== entry.pluginHash) throw new Error('Skill 插件内容 Hash 已变化');
+    const descriptor = inspection.skills.find(item => item.skillFile === skill.skillFile && item.contentHash === entry.skillHash);
+    if (!descriptor) throw new Error('Skill 元数据或正文 Hash 已变化');
+    return { skill, descriptor, files: inspection.files };
+  }
+  private rememberLoadedSkill(sessionId: string, turnId: string, skillId: string): void {
+    const key = `${sessionId}\0${turnId}\0${skillId}`;
+    this.loadedSkillTurns.add(key);
+    while (this.loadedSkillTurns.size > 5000) this.loadedSkillTurns.delete(this.loadedSkillTurns.values().next().value!);
+  }
+  private isLoadedSkill(sessionId: string, turnId: string, skillId: string): boolean {
+    return this.loadedSkillTurns.has(`${sessionId}\0${turnId}\0${skillId}`);
+  }
   private getPlugin(id: string): PluginRecord {
     const plugin = this.store.getPlugin(id);
     if (!plugin) throw new Error('插件不存在');
@@ -201,7 +240,7 @@ export class PluginManagerService {
     if (mcp.some(server => server.credentialRefs.length || hasRedactedValue(server.configRedacted))) throw new Error('插件 MCP 含凭据引用或脱敏凭据；当前版本尚未接入凭据库，已阻止安装');
   }
 
-  async importPlugin(input: { path: string; sourceType: 'zip' | 'folder' | 'local_marketplace' }): Promise<PluginImportResult> {
+  async importPlugin(input: { path: string; sourceType: 'zip' | 'folder' | 'local_marketplace'; provenance?: Pick<PluginRecord, 'origin' | 'sourceCandidateId' | 'sourceTaskIds' | 'createdBy' | 'publishedAt' | 'previousVersionPluginId' | 'systemScope'> }): Promise<PluginImportResult> {
     const managedStore = await this.ensureManagedDirectory('plugins', 'store');
     const source = path.resolve(input.path);
     const inspection = input.sourceType === 'zip'
@@ -240,6 +279,7 @@ export class PluginManagerService {
       description: inspection.manifest.description,
       ...(inspection.manifest.author ? { author: inspection.manifest.author } : {}),
       sourceType: input.sourceType,
+      ...(input.provenance ?? {}),
       sourcePath: source,
       manifestPath: path.join(installPath, inspection.manifest.sourceManifest === 'portable' ? 'plugin.json' : '.codex-plugin/plugin.json'),
       installPath,
@@ -389,6 +429,122 @@ export class PluginManagerService {
     this.audit(audit(pluginId, enabled ? 'enable' : 'disable', 'success', { enabled }));
   }
   async listSkills(pluginId?: string): Promise<PluginSkillRecord[]> { return this.store.listPluginSkills(pluginId); }
+  async listSkillScopes() { return this.store.listSkillScopes(); }
+  async listSkillUsageEvents(limit = 100): Promise<SkillUsageEvent[]> { return this.store.listSkillUsageEvents(limit); }
+  async setSkillScope(input: { skillId: string; scope: SkillScope; projectId?: string }) {
+    const skill = this.store.getPluginSkill(input.skillId); if (!skill) throw new Error('Skill 不存在');
+    if (!['disabled', 'global', 'project'].includes(input.scope) || input.scope === 'project' && !input.projectId || input.scope !== 'project' && input.projectId !== undefined) throw new Error('Skill 推荐范围无效');
+    if (input.scope !== 'disabled') {
+      const plugin = this.getPlugin(skill.pluginId);
+      if (!skill.enabled || !plugin.enabled || plugin.trustStatus !== 'trusted' || !this.hasTrust(plugin.id, 'install')) throw new Error('只有已启用并信任的 Skill 才能加入推荐范围');
+    }
+    const scope = { skillId: skill.id, scope: input.scope, ...(input.projectId ? { projectId: input.projectId } : {}), updatedAt: timestamp() };
+    this.store.saveSkillScope(scope);
+    this.audit(audit(skill.pluginId, 'skill-scope', 'success', { scope: scope.scope, ...(scope.projectId ? { projectId: scope.projectId } : {}) }, skill.id, 'jinggong'));
+    return scope;
+  }
+  async createJinggongSessionSnapshot(sessionId: string, projectId?: string): Promise<SessionPluginSnapshot> {
+    const existing = this.store.getSessionPluginSnapshot(sessionId);
+    if (existing) return existing;
+    const scopes = new Map(this.store.listSkillScopes().map(scope => [scope.skillId, scope]));
+    const pluginsById = new Map(this.store.listPlugins().map(plugin => [plugin.id, plugin]));
+    const selected = this.store.listPluginSkills().flatMap(skill => {
+      const scope = scopes.get(skill.id);
+      const plugin = pluginsById.get(skill.pluginId);
+      if (!scope || scope.scope === 'disabled' || !plugin || !plugin.enabled || plugin.trustStatus !== 'trusted' || !this.hasTrust(plugin.id, 'install') || !skill.enabled) return [];
+      if (scope.scope === 'project' && (!projectId || scope.projectId !== projectId)) return [];
+      return [{ skill, plugin, scope }];
+    });
+    const pluginIds = [...new Set(selected.map(item => item.plugin.id))].sort();
+    const skillIds = selected.map(item => item.skill.id).sort();
+    const skillEntries = selected.map(({ skill, plugin, scope }) => ({ skillId: skill.id, pluginId: plugin.id, pluginVersion: plugin.version, pluginHash: plugin.contentHash, skillHash: skill.contentHash, selectionSource: 'scope' as const, scope: scope.scope as 'global' | 'project', ...(scope.projectId ? { projectId: scope.projectId } : {}) }));
+    const plugins = pluginIds.map(id => {
+      const plugin = pluginsById.get(id)!;
+      const skills = selected.filter(item => item.plugin.id === id).map(item => item.skill);
+      return { pluginId: id, name: plugin.name, version: plugin.version, contentHash: plugin.contentHash, skillIds: skills.map(skill => skill.id), skillNames: skills.map(skill => skill.name), mcpServerIds: [] };
+    });
+    const body = { pluginIds, skillIds, plugins, skillEntries };
+    const snapshot: SessionPluginSnapshot = {
+      sessionId, profileId: `session-${sessionId}`, profileRevision: 1, runtimeKind: 'jinggong', effectiveScope: 'session',
+      pluginIds, skillIds, plugins, skillEntries,
+      snapshotHash: createHash('sha256').update(JSON.stringify(body)).digest('hex'), createdAt: timestamp(),
+    };
+    this.store.saveSessionPluginSnapshot(snapshot);
+    return snapshot;
+  }
+  async handleSkillTool(input: { toolName: string; arguments: unknown; sessionId: string; threadId: string; turnId: string; userPrompt: string; projectId?: string; projectSystem?: string }): Promise<Record<string, unknown>> {
+    const session = this.store.getSession(input.sessionId);
+    if (!session || session.runtimeKind !== 'jinggong' || session.runtimeThreadId !== input.threadId || session.status !== 'running') throw new Error('Skill 工具未绑定当前 Jinggong 会话');
+    if (!input.turnId || input.turnId.length > 128) throw new Error('Skill 工具 Runtime Turn 无效');
+    const snapshot = this.store.getSessionPluginSnapshot(input.sessionId);
+    if (!snapshot || snapshot.runtimeKind !== 'jinggong' || snapshot.effectiveScope !== 'session' || !snapshot.skillEntries) throw new Error('当前会话没有有效的 Jinggong Skill 快照');
+    const args = input.arguments;
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Skill 工具参数无效');
+    const allowedEntries = snapshot.skillEntries.filter(entry => entry.scope === 'global' || !!input.projectId && entry.projectId === input.projectId);
+    const candidates: SkillMatcherCandidate[] = allowedEntries.flatMap(entry => {
+      const plugin = this.store.getPlugin(entry.pluginId);
+      const skill = this.store.getPluginSkill(entry.skillId);
+      if (!plugin || !skill || plugin.contentHash !== entry.pluginHash || plugin.version !== entry.pluginVersion || skill.contentHash !== entry.skillHash || skill.pluginId !== plugin.id) return [];
+      return [{
+        skillId: skill.id, pluginId: plugin.id, name: skill.name, description: skill.description, tags: skill.metadata?.tags,
+        pluginEnabled: plugin.enabled, trusted: plugin.trustStatus === 'trusted' && this.hasTrust(plugin.id, 'install'), skillEnabled: skill.enabled,
+        compatibility: skillCompatibilityStatus('jinggong', skill.enabled, plugin.enabled, plugin.trustStatus === 'trusted'),
+        scope: entry.scope, projectId: entry.projectId,
+      }];
+    });
+    const recommendations = matchSkills({ candidates, userPrompt: input.userPrompt, projectSystem: input.projectSystem, projectId: input.projectId, limit: 3 });
+    const entryById = new Map(allowedEntries.map(entry => [entry.skillId, entry]));
+    const appendEvent = (entry: NonNullable<SessionPluginSnapshot['skillEntries']>[number], eventType: SkillUsageEventType, selectionSource: SkillUsageEvent['selectionSource'], detailRedacted?: SkillUsageEvent['detailRedacted']) => {
+      this.store.appendSkillUsageEvent({ id: randomUUID(), sessionId: input.sessionId, turnId: input.turnId, skillId: entry.skillId, pluginId: entry.pluginId, runtimeKind: 'jinggong', eventType, pluginVersion: entry.pluginVersion, pluginHash: entry.pluginHash, skillHash: entry.skillHash, selectionSource, ...(detailRedacted ? { detailRedacted } : {}), createdAt: timestamp() });
+    };
+    if (input.toolName === 'list_available_skills') {
+      if (Object.keys(args).length) throw new Error('Skill 查询不接受参数');
+      for (const item of recommendations) {
+        const entry = entryById.get(item.skillId);
+        if (entry) appendEvent(entry, 'skill.recommended', item.selectionSource, { reason: item.reason, score: item.score });
+      }
+      return { recommendations };
+    }
+    const skillId = typeof (args as Record<string, unknown>).skillId === 'string' ? (args as Record<string, string>).skillId : '';
+    const recommended = recommendations.find(item => item.skillId === skillId);
+    const entry = entryById.get(skillId);
+    if (!entry || !recommended) {
+      if (entry) appendEvent(entry, 'skill.skipped', 'automatic', { reason: 'not-recommended' });
+      throw new Error('Skill 不在当前任务的推荐集合中');
+    }
+    const selectionSource = recommended.selectionSource;
+    if (input.toolName === 'load_skill') {
+      if (Object.keys(args).some(key => key !== 'skillId')) throw new Error('Skill 加载参数无效');
+      appendEvent(entry, 'skill.selected', selectionSource);
+      appendEvent(entry, 'skill.load_requested', selectionSource);
+      try {
+        const { skill, descriptor, files } = await this.verifiedSkillFiles(entry);
+        const file = files.find(item => item.path === descriptor.skillFile);
+        if (!file || createHash('sha256').update(file.bytes).digest('hex') !== skill.contentHash) throw new Error('Skill 内容 Hash 校验失败');
+        const content = skillText(file.bytes, MAX_SKILL_RUNTIME_CONTENT, 'Skill 正文');
+        this.rememberLoadedSkill(input.sessionId, input.turnId, skill.id);
+        appendEvent(entry, 'skill.loaded', selectionSource);
+        return { skillId, name: skill.name, content, resources: descriptor.resources.filter(resource => resource.kind !== 'script').map(resource => ({ kind: resource.kind, path: resource.relativePath })), scriptsExecutable: false };
+      } catch {
+        appendEvent(entry, 'skill.load_failed', selectionSource, { errorCode: 'SKILL_CONTENT_UNAVAILABLE' });
+        throw new Error('Skill 加载失败：内容校验或大小限制未通过');
+      }
+    }
+    if (input.toolName === 'read_skill_resource') {
+      if (Object.keys(args).some(key => !['skillId', 'resourcePath'].includes(key))) throw new Error('Skill 资源读取参数无效');
+      const resourcePath = safeSkillResourcePath((args as Record<string, unknown>).resourcePath);
+      if (!this.isLoadedSkill(input.sessionId, input.turnId, skillId)) throw new Error('必须先在当前任务中加载 Skill 才能读取资源');
+      const { descriptor, files } = await this.verifiedSkillFiles(entry);
+      const resource = descriptor.resources.find(item => item.relativePath === resourcePath && item.kind !== 'script');
+      if (!resource) throw new Error('Skill 资源未登记或不允许读取');
+      const file = files.find(item => item.path === `${descriptor.skillDir}/${resourcePath}`);
+      if (!file) throw new Error('Skill 资源文件不存在');
+      const content = skillText(file.bytes, MAX_SKILL_RESOURCE_CONTENT, 'Skill 资源');
+      appendEvent(entry, 'skill.resource_read', selectionSource, { resourcePath });
+      return { skillId, resourcePath, content, executable: false };
+    }
+    throw new Error('未授权的 Skill 工具');
+  }
   async previewSkill(skillId: string): Promise<PluginSkillPreview> {
     const skill = this.store.getPluginSkill(skillId); if (!skill) throw new Error('Skill 不存在');
     const plugin = this.getPlugin(skill.pluginId); const root = this.pluginRoot(plugin); const file = path.resolve(root, skill.skillFile);

@@ -8,6 +8,20 @@ async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   return result.value;
 }
 const api: DesktopApi = {
+  learningEngine: {
+    eligibility: (sessionId, taskId) => invoke('learning:eligibility', sessionId, taskId),
+    listCandidates: sessionId => invoke('learning:candidates', sessionId),
+    createCandidate: input => invoke('learning:create', input),
+    updateCandidate: input => invoke('learning:update', input),
+    listAiProviders: () => invoke('learning:ai-providers'),
+    generateAiDraft: input => invoke('learning:ai-draft', input),
+    validateCandidate: candidateId => invoke('learning:validate', candidateId),
+    approveCandidate: input => invoke('learning:approve', input),
+    publishCandidate: input => invoke('learning:publish', input),
+    rejectCandidate: input => invoke('learning:reject', input),
+    listUsage: sessionId => invoke('learning:usage', sessionId),
+    submitFeedback: input => invoke('learning:feedback', input),
+  },
   impactReview: {
     list: target => invoke('impact-review:list', target),
     analyze: target => invoke('impact-review:analyze', target),
@@ -47,6 +61,9 @@ const api: DesktopApi = {
     uninstallFromCodex: (id, profileId) => invoke('plugin:uninstall', id, profileId),
     enablePlugin: (id, enabled) => invoke('plugin:enable', id, enabled),
     listSkills: pluginId => invoke('plugin:skills', pluginId),
+    listSkillScopes: () => invoke('plugin:skill-scopes'),
+    setSkillScope: input => invoke('plugin:skill-scope-set', input),
+    listSkillUsageEvents: limit => invoke('plugin:skill-events', limit),
     previewSkill: id => invoke('plugin:skill-preview', id),
     listMcpServers: pluginId => invoke('plugin:mcp-list', pluginId),
     setMcpServerEnabled: (id, enabled) => invoke('plugin:mcp-enable', id, enabled),

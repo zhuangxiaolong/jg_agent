@@ -69,7 +69,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
         {tab === 'profile' && <ProfileSettings preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'runtime' && <RuntimeSettings pending={pending} api={api} onRuntimeChecked={onRuntimeChecked} />}
-        {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
+        {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} projects={projects} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
          {tab === 'sessions' && <SessionDataSettings sessions={sessions} projects={projects} currentProjectId={currentProjectId} onImportCompleted={onImportCompleted} pending={pending} act={act} api={api} />}
         {tab === 'wecom' && <WeComSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'updates' && <Updates snapshot={snapshot} pending={pending} act={act} api={api} />}

@@ -4,12 +4,15 @@ export * from './grok';
 export * from './iteration-07';
 export * from './iteration-governance';
 export * from './delivery';
+export * from './skill-intelligence';
+export * from './learning';
 import type { DeliveryApi } from './delivery';
 import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
 import type { RecoveryStatus, TaskCheckpoint, TaskPlan, TaskPlanStep, TaskPlanStepStatus } from './iteration-governance';
 import type { FieldMapping, MappingConversionResult, MappingJobSelection, MappingJobView, MappingSourcePreview, MappingSuggestion, ProjectContextSnapshot, ProjectDecision, ProjectFact, ProjectResourceLink, ProjectWorkspaceContext } from './iteration-07';
 import type { GrokManagerApi, GrokSettingsSnapshot } from './grok';
 import type { TaskEngineeringApi } from './task-api';
+import type { LearningEngineApi } from './learning';
 import type { TaskAcceptanceRecord, TaskAcceptanceStatus, TaskDependencyCondition, TaskExecutionStatus, TaskVerificationStatus } from './engineering';
 export type SessionStatus = 'idle' | 'running' | 'waiting-approval' | 'completed' | 'failed' | 'interrupted';
 export interface Project { id: string; name: string; path: string; branch: string; collapsed?: boolean }
@@ -36,6 +39,8 @@ export interface PluginRecord {
   sourceType: PluginSourceType; sourcePath?: string; manifestPath: string; installPath: string;
   manifestFormat: PluginManifestFormat; contentHash: string; status: PluginStatus;
   trustStatus: PluginTrustStatus; enabled: boolean; createdAt: string; updatedAt: string;
+  origin?: 'external' | 'builtin' | 'learned'; sourceCandidateId?: string; sourceTaskIds?: string[];
+  createdBy?: string; publishedAt?: string; previousVersionPluginId?: string; systemScope?: Array<'MES5' | 'MES6' | 'WMS' | 'GENERAL'>;
 }
 export interface PluginVersionRecord { id: string; pluginId: string; version: string; installPath: string; contentHash: string; installedAt: string; isActive: boolean }
 /** Skills 仅存发现元数据及摘要；文件正文由插件目录读取，不写入 SQLite。 */
@@ -65,12 +70,12 @@ export interface SessionPluginSnapshotEntry {
 export interface SessionPluginSnapshot {
   sessionId: string; profileId: string; profileRevision: number; runtimeKind: RuntimeKind;
   effectiveScope: SessionPluginEffectiveScope; pluginIds: string[]; skillIds: string[];
-  plugins: SessionPluginSnapshotEntry[]; snapshotHash: string; createdAt: string;
+  plugins: SessionPluginSnapshotEntry[]; skillEntries?: import('./skill-intelligence').SessionSkillSnapshotEntry[]; snapshotHash: string; createdAt: string;
 }
 
 export interface SessionReadDirectoryGrant { id: string; path: string }
 export interface SessionReadAccess { mode: 'full' | 'restricted'; directories: SessionReadDirectoryGrant[] }
-export type PluginAuditAction = 'import' | 'trust' | 'install' | 'uninstall' | 'enable' | 'disable' | 'mcp-test' | 'mcp-enable' | 'mcp-disable' | 'mcp-credential-save' | 'mcp-credential-clear' | 'runtime-sync' | 'session-selection';
+export type PluginAuditAction = 'import' | 'trust' | 'install' | 'uninstall' | 'enable' | 'disable' | 'mcp-test' | 'mcp-enable' | 'mcp-disable' | 'mcp-credential-save' | 'mcp-credential-clear' | 'runtime-sync' | 'session-selection' | 'skill-scope';
 export interface PluginAuditRecord {
   id: string; action: PluginAuditAction; pluginId?: string; runtimeKind?: RuntimeKind;
   actor: string; target?: string; result: PluginAuditResult; detailRedacted: Record<string, unknown>; createdAt: string;
@@ -111,6 +116,9 @@ export interface PluginManagerApi {
   uninstallFromCodex(pluginId: string, profileId: string): Promise<void>;
   enablePlugin(pluginId: string, enabled: boolean): Promise<void>;
   listSkills(pluginId?: string): Promise<PluginSkillRecord[]>;
+  listSkillScopes(): Promise<import('./skill-intelligence').SkillScopeRecord[]>;
+  setSkillScope(input: { skillId: string; scope: import('./skill-intelligence').SkillScope; projectId?: string }): Promise<import('./skill-intelligence').SkillScopeRecord>;
+  listSkillUsageEvents(limit?: number): Promise<import('./skill-intelligence').SkillUsageEvent[]>;
   previewSkill(skillId: string): Promise<PluginSkillPreview>;
   listMcpServers(pluginId?: string): Promise<PluginMcpServerRecord[]>;
   setMcpServerEnabled(serverId: string, enabled: boolean): Promise<void>;
@@ -341,6 +349,7 @@ export interface TaskGovernanceRecoveryAssessment {
   reasons: string[];
 }
 export interface DesktopApi {
+  learningEngine?: LearningEngineApi;
   delivery?: DeliveryApi;
   impactReview?: ImpactReviewApi;
   iteration?: IterationApi;

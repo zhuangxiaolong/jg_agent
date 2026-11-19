@@ -1,6 +1,7 @@
 import { useTransientError } from './use-transient-error';
 import { useEffect, useState } from 'react';
-import type { PluginDetail, PluginManagerApi, PluginRecord, PluginSkillRecord } from '../../../../packages/domain/src';
+import type { PluginDetail, PluginManagerApi, PluginRecord, PluginSkillRecord, Project, SkillScopeRecord, SkillUsageEvent } from '../../../../packages/domain/src';
+import { skillCompatibilityStatus } from '../../../../packages/domain/src/skill-intelligence';
 import { Icon } from './ui';
 import './plugin-manager.css';
 
@@ -9,8 +10,14 @@ const statusNames: Record<PluginRecord['status'], string> = { imported: '已导�
 const trustNames: Record<PluginRecord['trustStatus'], string> = { untrusted: '未信任', reviewed: '已检查', trusted: '已信任', revoked: '已撤销' };
 const healthNames: Record<PluginDetail['mcpServers'][number]['healthStatus'], string> = { unknown: '未检查', healthy: '可用', unhealthy: '连接失败', 'auth-required': '需要认证', unavailable: '运行时未接入' };
 
-export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
+const skillEventNames: Record<SkillUsageEvent['eventType'], string> = {
+  'skill.recommended': '已推荐', 'skill.selected': '已选择', 'skill.load_requested': '请求加载', 'skill.loaded': '已加载', 'skill.load_failed': '加载失败', 'skill.resource_read': '读取资源', 'skill.skipped': '未推荐而请求',
+};
+
+export function PluginManagerPanel({ api, projects }: { api: PluginManagerApi; projects: Project[] }) {
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
+  const [skillScopes, setSkillScopes] = useState<SkillScopeRecord[]>([]);
+  const [skillEvents, setSkillEvents] = useState<SkillUsageEvent[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<PluginDetail | null>(null);
   const [preview, setPreview] = useState<{ skill: PluginSkillRecord; content: string } | null>(null);
@@ -22,7 +29,9 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
   const [notice, setNotice] = useState('');
 
   async function refresh(nextId = selectedId) {
-    const rows = await api.listPlugins();
+    const [rows, scopes, events] = await Promise.all([api.listPlugins(), api.listSkillScopes(), api.listSkillUsageEvents(50)]);
+    setSkillScopes(scopes);
+    setSkillEvents(events);
     setPlugins(rows);
     const id = rows.some(plugin => plugin.id === nextId) ? nextId : rows[0]?.id ?? '';
     setSelectedId(id);
@@ -87,6 +96,20 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
     finally { setBusy(''); }
   }
 
+  function setScope(skillId: string, value: string) {
+    const input = value === 'global'
+      ? { skillId, scope: 'global' as const }
+      : value.startsWith('project:')
+        ? { skillId, scope: 'project' as const, projectId: value.slice('project:'.length) }
+        : { skillId, scope: 'disabled' as const };
+    void run(`skill-scope:${skillId}`, () => api.setSkillScope(input), 'Skill 推荐范围已更新。');
+  }
+
+  function scopeValue(skillId: string): string {
+    const saved = skillScopes.find(item => item.skillId === skillId);
+    return saved?.scope === 'global' ? 'global' : saved?.scope === 'project' && saved.projectId ? `project:${saved.projectId}` : 'disabled';
+  }
+
   function trust(plugin: PluginRecord, scope: 'install' | 'execute_mcp') {
     if (!detail || detail.plugin.id !== plugin.id || detail.review.contentHash !== plugin.contentHash) {
       setError('插件审阅资料已过期，请刷新后重新检查。');
@@ -113,7 +136,7 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
 
   return <section className="plugin-manager" aria-label="插件管理">
     <header className="plugin-manager-heading"><div><h3>插件管理</h3><p>导入 Codex 插件、检查能力并管理受控 Codex 配置。</p></div><div className="plugin-manager-heading-actions"><button type="button" className="secondary-button" disabled={!!busy} onClick={() => void importCodexPlugins()}>{busy === 'import-codex' ? '扫描中…' : '从 Codex 加载插件'}</button><button type="button" className="icon-button" aria-label="刷新插件列表" title="刷新插件列表" disabled={!!busy} onClick={() => void run('refresh', () => refresh(), '插件列表已刷新。', false)}><Icon name="refresh" /></button></div></header>
-    <div className="plugin-manager-note"><Icon name="shield" /><p>插件默认不受信任。启用或安装不会运行 Hooks；Skills 仅在 Codex Runtime 中按所选 Profile 提供。Profile 插件集合与会话快照关联，用户级 Skills/Marketplace 仍可能被 Codex 发现。</p></div>
+    <div className="plugin-manager-note"><Icon name="shield" /><p>插件默认不受信任。Jinggong Runtime 对已信任 Skill 按需推荐和加载；Codex 当前按插件粒度生效（非单 Skill 隔离）；Claude/Grok 仅识别元数据。禁用范围可阻止新会话推荐；快照内选择不会被后续设置修改。</p></div>
 
     <form className="plugin-import-form" onSubmit={event => void importPlugin(event)}>
       <label>来源类型<select value={sourceType} disabled={!!busy} onChange={event => setSourceType(event.target.value as typeof sourceType)}><option value="zip">ZIP 压缩包</option><option value="folder">本地目录</option></select></label>
@@ -130,7 +153,7 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
         {!plugins.length && <p className="settings-empty">尚未导入插件。</p>}
         {plugins.map(plugin => <button key={plugin.id} type="button" className={`plugin-list-row${selectedId === plugin.id ? ' selected' : ''}`} onClick={() => void select(plugin.id)} disabled={!!busy}>
           <span className="plugin-list-title"><Icon name="box" /><strong>{plugin.name}</strong></span>
-          <small>{plugin.version} · {statusNames[plugin.status]} · {trustNames[plugin.trustStatus]}</small>
+          <small>{plugin.origin === 'learned' ? '学习沉淀' : plugin.sourceType} · {plugin.version} · {statusNames[plugin.status]} · {trustNames[plugin.trustStatus]}</small>
         </button>)}
       </nav>
 
@@ -138,7 +161,8 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
         {!detail && <p className="settings-empty">选择一个插件查看详情。</p>}
         {detail && <>
           <header className="plugin-detail-heading"><div><h4>{detail.plugin.name}</h4><p>{detail.plugin.description || '未提供说明'}</p></div><span className={`plugin-status plugin-status-${detail.plugin.trustStatus}`}>{trustNames[detail.plugin.trustStatus]}</span></header>
-          <dl className="plugin-metadata"><div><dt>版本</dt><dd>{detail.plugin.version}</dd></div><div><dt>来源</dt><dd>{detail.plugin.sourceType}</dd></div><div><dt>能力</dt><dd>{detail.skills.length} 个 Skill · {detail.mcpServers.length} 个 MCP · Hooks 不执行（P1）</dd></div><div><dt>SHA-256</dt><dd>{detail.plugin.contentHash}</dd></div></dl>
+          <dl className="plugin-metadata"><div><dt>版本</dt><dd>{detail.plugin.version}</dd></div><div><dt>来源</dt><dd>{detail.plugin.origin === 'learned' ? 'Agent Learning Engine' : detail.plugin.sourceType}</dd></div><div><dt>能力</dt><dd>{detail.skills.length} 个 Skill · {detail.mcpServers.length} 个 MCP · Hooks 不执行（P1）</dd></div><div><dt>SHA-256</dt><dd>{detail.plugin.contentHash}</dd></div></dl>
+          {detail.plugin.origin === 'learned' && <section className="plugin-subsection"><h5>学习来源与版本</h5><p className="plugin-muted">候选：{detail.plugin.sourceCandidateId ?? '未知'} · 来源任务：{detail.plugin.sourceTaskIds?.join('、') ?? '未知'} · 适用系统：{detail.plugin.systemScope?.join('、') ?? 'GENERAL'} · 发布人：{detail.plugin.createdBy ?? '未知'} · 发布时间：{detail.plugin.publishedAt ? new Date(detail.plugin.publishedAt).toLocaleString() : '未知'}</p><p className="plugin-muted">版本链：{plugins.filter(item => item.origin === 'learned' && item.sourceCandidateId === detail.plugin.sourceCandidateId).sort((left, right) => left.version.localeCompare(right.version)).map(item => `${item.version}${item.id === detail.plugin.id ? '（当前）' : ''}`).join(' → ') || detail.plugin.version}</p></section>}
           <section className="plugin-subsection plugin-review" aria-label="信任审阅资料"><h5>信任前审阅</h5><p className="plugin-muted">以下资料来自受控 Store 的重新扫描，已脱敏；确认信任前请核对来源、Manifest、命令和资源清单。审阅 Hash 变化后必须重新检查。</p><dl className="plugin-metadata"><div><dt>来源路径</dt><dd>{detail.review.sourcePath || '未提供'}</dd></div><div><dt>Manifest</dt><dd>{detail.review.manifest.format} · {detail.review.manifest.path} · {detail.review.manifest.sha256}</dd></div><div><dt>Hooks</dt><dd>{detail.review.hooks.length ? detail.review.hooks.join('、') : '未发现（P0 不执行）'}</dd></div><div><dt>可执行资源</dt><dd>{detail.review.executableResources.length ? detail.review.executableResources.join('、') : '未发现'}</dd></div></dl><details><summary>查看脱敏 Manifest</summary><pre className="plugin-review-json">{JSON.stringify(detail.review.manifest.raw, null, 2)}</pre></details>{detail.review.diagnostics.length > 0 && <ul className="plugin-review-diagnostics">{detail.review.diagnostics.map(item => <li key={`${item.code}:${item.message}`}><strong>{item.severity === 'error' ? '错误' : '警告'} · {item.code}</strong> {item.message}</li>)}</ul>}<div className="plugin-review-skill-list">{detail.review.skills.map(skill => <article key={skill.id}><strong>{skill.name}</strong><small>{skill.skillFile} · {skill.contentHash}</small><span>{skill.resources.length ? `资源：${skill.resources.map(resource => `${resource.kind}:${resource.relativePath}`).join('、')}` : '无关联资源'}</span></article>)}</div></section>
           <div className="plugin-actions">
             <button type="button" className="secondary-button" disabled={!!busy || detail.plugin.trustStatus === 'revoked'} onClick={() => trust(detail.plugin, 'install')}>信任安装</button>
@@ -151,7 +175,11 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
           {!!detail.plugin.author?.name && <p className="plugin-muted">作者：{detail.plugin.author.name}</p>}
           <section className="plugin-subsection"><h5>Skills <span>{detail.skills.length}</span></h5>
             {!detail.skills.length && <p className="plugin-muted">没有发现 Skill。</p>}
-            {detail.skills.map(skill => <div className="plugin-skill-row" key={skill.id}><div><strong>{skill.name}</strong><p>{skill.description || '未提供说明'}</p><small>{skill.skillDir}</small></div><button type="button" className="secondary-button" disabled={!!busy} onClick={() => void showSkill(skill)}>预览</button></div>)}
+            {detail.skills.map(skill => {
+              const currentScope = scopeValue(skill.id);
+              const status = skillCompatibilityStatus('jinggong', skill.enabled, detail.plugin.enabled, detail.plugin.trustStatus === 'trusted');
+              return <div className="plugin-skill-row" key={skill.id}><div><strong>{skill.name}</strong><p>{skill.description || '未提供说明'}</p><small>{skill.skillDir} · Jinggong {status} · Codex Partial（插件粒度） · Claude/Grok MetadataOnly</small><label className="plugin-skill-scope">推荐范围<select value={currentScope} disabled={!!busy} onChange={event => setScope(skill.id, event.target.value)}><option value="disabled">不推荐</option><option value="global">全部项目</option>{projects.map(project => <option key={project.id} value={`project:${project.id}`}>{project.name}（仅此项目）</option>)}{currentScope.startsWith('project:') && !projects.some(project => `project:${project.id}` === currentScope) && <option value={currentScope}>已配置项目（不可用）</option>}</select></label></div><button type="button" className="secondary-button" disabled={!!busy} onClick={() => void showSkill(skill)}>预览</button></div>;
+            })}
           </section>
           <section className="plugin-subsection"><h5>MCP Server <span>{detail.mcpServers.length}</span></h5>
             {detail.mcpServers.map(server => <article className="plugin-mcp-row" key={server.id}><div><strong>{server.serverName}</strong><small>{server.transport} · {healthNames[server.healthStatus]} · {server.credentialRefs.length ? `凭据 ${server.configuredCredentialRefs?.length ?? 0}/${server.credentialRefs.length} 项` : '不需要凭据'} · {server.enabled ? '管理状态：已启用' : '管理状态：已停用'}</small><code>{mcpEndpoint(server)}</code><details><summary>查看脱敏 Server 配置</summary><pre className="plugin-review-json">{JSON.stringify(server.configRedacted, null, 2)}</pre></details>{server.lastError && <p className="plugin-muted">{safeError(server.lastError)}</p>}
@@ -165,6 +193,8 @@ export function PluginManagerPanel({ api }: { api: PluginManagerApi }) {
         </>}
       </div>
     </div>
+
+    <section className="plugin-subsection plugin-skill-events" aria-label="Skill 使用记录"><h5>最近 Skill 记录 <span>{skillEvents.length}</span></h5>{!skillEvents.length && <p className="plugin-muted">暂无推荐或加载记录；记录中不保存任务正文、Skill 正文或密钥。</p>}{skillEvents.map(event => <article key={event.id}><strong>{skillEventNames[event.eventType]} · {event.skillId}</strong><small>{event.runtimeKind} · {event.createdAt} · 会话 {event.sessionId.slice(0, 8)} · Turn {event.turnId.slice(0, 8)}</small>{(event.detailRedacted?.reason || event.detailRedacted?.resourcePath) && <p>{event.detailRedacted.reason}{event.detailRedacted.score !== undefined ? ` · 分数 ${event.detailRedacted.score}` : ''}{event.detailRedacted.resourcePath ? ` · ${event.detailRedacted.resourcePath}` : ''}</p>}</article>)}</section>
 
     {preview && <div className="plugin-preview-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null); }}><section className="plugin-preview" role="dialog" aria-modal="true" aria-labelledby="plugin-preview-title"><header><div><h4 id="plugin-preview-title">{preview.skill.name}</h4><p>{preview.skill.description}</p></div><button type="button" className="icon-button" aria-label="关闭预览" title="关闭预览" onClick={() => setPreview(null)}><Icon name="close" /></button></header><pre>{preview.content}</pre></section></div>}
   </section>;

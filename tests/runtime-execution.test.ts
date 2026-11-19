@@ -250,6 +250,38 @@ test('Runtime 会话始终使用完全访问并注册开发工具', async () => 
   } finally { await runtime.close(); }
 });
 
+test('Skill 动态工具只在显式启用时注册并绑定当前会话 turn', async () => {
+  const cwd = process.cwd();
+  const calls: Array<{ toolName: string; threadId: string; turnId: string }> = [];
+  const replies: any[] = [];
+  let startParams: any;
+  const runtime = new CodexRuntime({
+    executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model',
+    skillTools: {
+      definitions: [{ type: 'function', name: 'load_skill', description: '按需加载 Skill', inputSchema: { type: 'object' } }],
+      call: async request => { calls.push({ toolName: request.toolName, threadId: request.threadId, turnId: request.turnId }); return { skillId: 'mes:release', content: '已加载' }; },
+    },
+  });
+  const state = runtime as any;
+  state.start = async () => undefined;
+  state.createBroker = async () => ({});
+  state.write = (message: any) => replies.push(message);
+  state.request = async (method: string, params: any) => {
+    if (method === 'thread/start') { startParams = params; return { thread: { id: 'skill-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' }; }
+    throw new Error(`unexpected ${method}`);
+  };
+  try {
+    const threadId = await runtime.startSession(cwd);
+    assert.equal(threadId, 'skill-thread');
+    assert.deepEqual(startParams.dynamicTools.map((tool: { name: string }) => tool.name).slice(-1), ['load_skill']);
+    state.setActive(threadId, 'skill-turn');
+    await state.handleReadTool('skill-call', { tool: 'load_skill', arguments: { skillId: 'mes:release' }, turnId: 'skill-turn', namespace: 'functions' }, threadId);
+    assert.deepEqual(calls, [{ toolName: 'load_skill', threadId, turnId: 'skill-turn' }]);
+    assert.equal(replies[0].result.success, true);
+    assert.match(replies[0].result.contentItems[0].text, /已加载/);
+  } finally { await runtime.close(); }
+});
+
 test('Runtime 浏览器工具按会话和 turn 绑定校验', async () => {
   let browserCalls = 0;
   const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model', browser: async () => { browserCalls += 1; return { text: 'ok' }; } });

@@ -3,6 +3,7 @@ import type { AgentTask, AgentTaskEvent, AgentTaskRole, DesktopApi, Session } fr
 import { mergeAgentTaskEvents, selectedAgentTask } from './agent-task-state';
 import { Icon } from './ui';
 import { TaskEngineeringPanel } from './TaskEngineeringPanel';
+import { LearningEnginePanel } from './LearningEnginePanel';
 
 const roleLabels: Record<AgentTaskRole, string> = {
   requirement: '需求分析', architecture: '架构分析', developer: '代码分析', review: '代码审查',
@@ -74,6 +75,7 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
       <details><summary>任务目标</summary><p>{selected.description}</p></details>
       {selected.result?.summary && <pre className="agent-task-result">{selected.result.summary}</pre>}{selected.error && <pre className="agent-task-error">{selected.error}</pre>}
       {api.taskEngineering && <details><summary>工程契约与证据</summary><TaskEngineeringPanel key={`${session.id}:${selected.id}`} api={api.taskEngineering} task={selected} onChange={refreshTasks} onError={text => { if (mounted.current) onErrorRef.current(text); }} /></details>}
+      {api.learningEngine && <details><summary>经验沉淀与 Skill 学习</summary><LearningEnginePanel key={`learning:${session.id}:${selected.id}`} api={api.learningEngine} sessionId={session.id} task={selected} onError={text => { if (mounted.current) onErrorRef.current(text); }} /> </details>}
       <details><summary className="agent-task-events-heading">执行日志 · {selectedEvents.length} 条</summary><div className="agent-task-events">{selectedEvents.map(event => <article key={event.id} className={`agent-task-event event-${event.type}`}><time>{new Date(event.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span>{event.type === 'user' ? '输入' : event.type === 'status' ? '状态' : event.type === 'tool' ? '工具' : event.type === 'error' ? '错误' : '输出'}</span><pre>{event.text}</pre></article>)}{!selectedEvents.length && <span className="agent-task-no-events">暂无执行日志。</span>}</div></details>
     </section>}
   </div>;

@@ -35,11 +35,11 @@ test('Grok 关系表真实持久化协议/模型与默认关闭配置，不存�
     assert.deepEqual(store.listGrokProviders(), []);
     assert.equal(store.getGrokRuntime().proxyUrl, 'http://127.0.0.1:7897');
     const sql = await initSqlJs(); const db = new sql.Database(await readFile(filename));
-    try { assert.equal(db.exec('SELECT count(*) FROM grok_model_profiles')[0].values[0][0], 0); assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 12); } finally { db.close(); }
+    try { assert.equal(db.exec('SELECT count(*) FROM grok_model_profiles')[0].values[0][0], 0); assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 14); } finally { db.close(); }
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('v10 增量升级 v12 保留项目/会话/默认 Runtime 与旧 Provider，并生成迁移前备份', async () => {
+test('v10 增量升级 v14 保留项目/会话/默认 Runtime 与旧 Provider，并生成迁移前备份', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-grok-migration-'));
   const filename = join(root, 'agent.db'); let store = await LocalStore.open(filename);
   try {
@@ -54,9 +54,9 @@ test('v10 增量升级 v12 保留项目/会话/默认 Runtime 与旧 Provider，
     store = await LocalStore.open(filename);
     assert.equal(store.getRuntimeKind(), 'jinggong'); assert.equal(store.listProjects()[0].name, '旧项目'); assert.equal(store.getSession('old')?.model, 'old-model'); assert.equal(store.listProviders()[0].name, '原模型服务');
     assert.deepEqual(store.listGrokProviders(), []);
-    const backups = (await readdir(root)).filter(name => name.includes('.pre-v12-from-v10-'));
+    const backups = (await readdir(root)).filter(name => name.includes('.pre-v14-from-v10-'));
     assert.equal(backups.length, 1); assert.deepEqual(await readFile(join(root, backups[0])), Buffer.from(before));
-    store.close(); store = await LocalStore.open(filename); assert.equal((await readdir(root)).filter(name => name.includes('.pre-v12-from-v10-')).length, 1);
+    store.close(); store = await LocalStore.open(filename); assert.equal((await readdir(root)).filter(name => name.includes('.pre-v14-from-v10-')).length, 1);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

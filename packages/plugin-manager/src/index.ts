@@ -558,3 +558,5 @@ export function buildCodexPluginCommand(action: CodexPluginAction, value?: strin
     case 'plugin-remove': return { action, args: ['plugin', 'remove', requiredValue(), '--json'], pluginName: value };
   }
 }
+
+export * from './skill-matcher';

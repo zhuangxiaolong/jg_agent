@@ -42,6 +42,40 @@ test('PluginManagerService 将目录导入受控 Store 并记录 Skill 预览', 
   }
 });
 
+test('Jinggong Skill 快照按需加载正文与引用资源并记录最小事件', async () => {
+  const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-skill-loader-'));
+  const store = await LocalStore.open(join(root, 'agent.db'));
+  try {
+    const service = new PluginManagerService({ store, dataRoot: join(root, 'data'), executable: process.execPath, environment: home => ({ ...process.env, CODEX_HOME: home }) });
+    const source = await makePlugin(root);
+    const imported = await service.importPlugin({ path: source, sourceType: 'folder' });
+    await service.trustPlugin(imported.plugin.id, 'install');
+    await service.enablePlugin(imported.plugin.id, true);
+    const skill = (await service.listSkills(imported.plugin.id))[0];
+    await service.setSkillScope({ skillId: skill.id, scope: 'global' });
+    const project = { id: 'skill-project', name: 'Skill 项目', path: root, branch: 'main' };
+    store.saveProject(project);
+    store.saveSession({ id: 'skill-session', projectId: project.id, title: 'Skill 加载会话', workspacePath: root, branch: 'main', status: 'running', createdAt: new Date().toISOString(), model: 'test-model', runtimeKind: 'jinggong', runtimeThreadId: 'skill-thread' });
+    const snapshot = await service.createJinggongSessionSnapshot('skill-session', project.id);
+    assert.deepEqual(snapshot.skillIds, [skill.id]);
+    await service.setSkillScope({ skillId: skill.id, scope: 'disabled' });
+    const context = { sessionId: 'skill-session', threadId: 'skill-thread', turnId: 'turn-1', userPrompt: 'review files', projectId: project.id };
+    const listed = await service.handleSkillTool({ ...context, toolName: 'list_available_skills', arguments: {} });
+    assert.equal((listed.recommendations as Array<{ skillId: string }>)[0].skillId, skill.id);
+    const loaded = await service.handleSkillTool({ ...context, toolName: 'load_skill', arguments: { skillId: skill.id } });
+    assert.match(String(loaded.content), /Read-only review instructions/);
+    assert.equal(loaded.scriptsExecutable, false);
+    const resource = await service.handleSkillTool({ ...context, toolName: 'read_skill_resource', arguments: { skillId: skill.id, resourcePath: 'references/checklist.md' } });
+    assert.equal(resource.content, 'checklist');
+    assert.equal(resource.executable, false);
+    assert.deepEqual(store.listSkillUsageEvents(20).map(event => event.eventType), ['skill.resource_read', 'skill.loaded', 'skill.load_requested', 'skill.selected', 'skill.recommended']);
+    assert.equal(JSON.stringify(store.listSkillUsageEvents(20)).includes('review files'), false);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('PluginManagerService 默认扫描并导入 Codex 缓存插件', async () => {
   const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-service-codex-'));
   const store = await LocalStore.open(join(root, 'agent.db'));
