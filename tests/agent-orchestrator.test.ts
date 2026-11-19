@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAgentTask, assertTaskGraph, nextRunnableTasks, reconcileTaskStates, schedulableAgentTasks, terminalTaskStatus, transitionAgentTask } from '../packages/agent-orchestrator/src';
+import { certifiedControlledAnalysisCapabilities, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, assertTaskGraph, nextRunnableTasks, reconcileTaskStates, schedulableAgentTasks, terminalTaskStatus, transitionAgentTask } from '../packages/agent-orchestrator/src';
 import type { AgentTask } from '../packages/domain/src';
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return createAgentTask({ id, sessionId: 'session', projectId: 'project', name: id, role: 'custom', description: `${id} task`, ...overrides });
 }
+
+test('受控子 Agent 认证必须匹配 Runtime 版本、测试套件、实测批次和证据', () => {
+  const capabilities = ['tool_permission_interception', 'model_request_interception', 'independent_agent_context', 'event_stream'] as const;
+  const base = capabilities.map(capability => ({ runtimeKind: 'codex' as const, runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capability, testStatus: 'passed' as const, testRunId: 'run-1', testedAt: '2026-11-19T00:00:00.000Z', evidenceRef: 'report.json' }));
+  assert.equal(certifiedControlledAnalysisCapabilities(base, { runtimeKind: 'codex', runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses' }).size, 4);
+  assert.equal(certifiedControlledAnalysisCapabilities(base.map(item => ({ ...item, runtimeVersion: 'other' })), { runtimeKind: 'codex', runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses' }).size, 0);
+  assert.equal(certifiedControlledAnalysisCapabilities(base.map(item => ({ ...item, evidenceRef: undefined })), { runtimeKind: 'codex', runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses' }).size, 0);
+});
 
 test('任务图按依赖关系给出等待、阻塞和可运行任务', () => {
   const a = task('a');

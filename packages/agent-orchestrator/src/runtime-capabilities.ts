@@ -1,12 +1,24 @@
-import type { RuntimeKind } from '../../domain/src';
+import type { RuntimeCapabilityCertification, RuntimeKind } from '../../domain/src';
 
 export type RuntimeCapabilityName = 'native_subagents' | 'independent_agent_context' | 'pause_resume' | 'session_recovery' | 'token_usage' | 'cost_usage' | 'tool_permission_interception' | 'worktree_support' | 'event_stream' | 'structured_result' | 'model_request_interception';
 export interface RuntimeGovernanceCapability { readonly supported: boolean | 'partial'; readonly enforcementLayer: 'platform' | 'runtime' | 'adapter' | 'none'; readonly notes: string }
 export type RuntimeTestStatus = 'passed' | 'failed' | 'not_run' | 'unsupported' | 'unknown';
+export const CONTROLLED_ANALYSIS_TEST_SUITE_VERSION = 'agent-orchestration-p0-1';
 export interface RuntimeCapabilityObservation { readonly testStatus: RuntimeTestStatus; readonly lastTestedAt?: string; readonly testRunId?: string; readonly detail?: string }
 export interface RuntimeCapabilityView extends RuntimeGovernanceCapability { readonly observation: RuntimeCapabilityObservation }
 export type RuntimeGovernanceCapabilities = Readonly<Record<RuntimeCapabilityName, RuntimeGovernanceCapability>>;
 function capability(supported: boolean | 'partial', enforcementLayer: RuntimeGovernanceCapability['enforcementLayer'], notes: string): RuntimeGovernanceCapability { return Object.freeze({ supported, enforcementLayer, notes }); }
+
+export function certifiedControlledAnalysisCapabilities(certifications: readonly RuntimeCapabilityCertification[], identity: { runtimeKind: RuntimeKind; runtimeVersion: string; providerId: string; modelId: string; wireApi: string }): ReadonlySet<RuntimeCapabilityName> {
+  const matching = certifications.filter(item => item.runtimeKind === identity.runtimeKind && item.runtimeVersion === identity.runtimeVersion && item.providerId === identity.providerId && item.modelId === identity.modelId && item.wireApi === identity.wireApi && item.testSuiteVersion === CONTROLLED_ANALYSIS_TEST_SUITE_VERSION && item.testStatus === 'passed' && item.testRunId && item.evidenceRef?.trim() && Number.isFinite(Date.parse(item.testedAt)) && Date.parse(item.testedAt) <= Date.now());
+  const runs = new Map<string, Set<RuntimeCapabilityName>>();
+  for (const item of matching) {
+    const set = runs.get(item.testRunId) ?? new Set<RuntimeCapabilityName>();
+    set.add(item.capability);
+    runs.set(item.testRunId, set);
+  }
+  return [...runs.values()].find(set => ['tool_permission_interception', 'model_request_interception', 'independent_agent_context', 'event_stream'].every(name => set.has(name as RuntimeCapabilityName))) ?? new Set<RuntimeCapabilityName>();
+}
 
 /** 依据当前适配器已接入的协议声明能力，不把上游产品能力当成本平台能力。 */
 export function runtimeCapabilityMatrix(kind: RuntimeKind, executionMode: 'native' | 'controlled_analysis' = 'native'): RuntimeGovernanceCapabilities {

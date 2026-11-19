@@ -227,7 +227,7 @@ export function App() {
   const jiraAssociationId = data?.projects.some(item => item.id === jiraLocalProjectId) ? jiraLocalProjectId : projectId;
   const session = data?.sessions.find(item => item.id === sessionId);
   const agentTasks = useSessionAgentTasks(api, sessionId, text => setError(message(text)));
-  const hasAgentTasks = agentTasks.tasks.length > 0;
+  const hasAgentTasks = !!session;
   const currentInspector = inspector === 'agents' && !hasAgentTasks ? 'jira' : inspector;
   const revealedAgentTasks = useRef(new Set<string>());
   const browserState = browserStates[sessionId];

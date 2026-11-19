@@ -37,11 +37,16 @@ export interface RuntimeEvent {
   performance?: { callId: string; phase: 'started' | 'completed'; operation: string; stage: 'tool' | 'search' | 'read' | 'command' | 'test' | 'build'; exitCode?: number | null };
 }
 
-export interface RuntimeToolInvocation { toolName: string; arguments: unknown; threadId: string; turnId: string; requestId: string | number }
+export interface RuntimeToolInvocation { toolName: string; arguments: unknown; threadId: string; turnId: string; requestId: string | number; toolCallId?: string }
 export interface RuntimeSkillToolDefinition { type: 'function'; name: string; description: string; inputSchema: Record<string, unknown> }
 export interface RuntimeSkillToolProvider {
   definitions: RuntimeSkillToolDefinition[];
   call(request: RuntimeToolInvocation): Promise<Record<string, unknown>>;
+}
+export interface RuntimePlatformToolDefinition { type: string; name: string; description: string; inputSchema: Record<string, unknown> }
+export interface RuntimePlatformToolProvider {
+  listTools(): RuntimePlatformToolDefinition[];
+  execute(request: RuntimeToolInvocation): Promise<Record<string, unknown>>;
 }
 export interface RuntimeModelRequest { threadId: string; turnId: string; requestId: string }
 export type RuntimeLifecycleEvent = 'app_server_spawn_start' | 'app_server_spawned' | 'app_server_initialize_start' | 'app_server_initialized';
@@ -82,6 +87,10 @@ export interface RuntimeOptions {
   toolGateway?: (request: RuntimeToolInvocation, execute: () => Promise<Record<string, unknown>>) => Promise<Record<string, unknown>>;
   /** 仅 Jinggong Runtime 按需暴露 Skill 元数据、正文和安全资源读取工具。 */
   skillTools?: RuntimeSkillToolProvider;
+  /** 仅主会话可绑定；受控分析子 Runtime 不注册平台委派工具。 */
+  platformToolProvider?: RuntimePlatformToolProvider;
+  /** 将 Runtime 已确认的活动轮次绑定到主进程 Run Ticket。 */
+  onTurnStarted?: (threadId: string, turnId: string) => void;
   /** 资料解析工具的读取策略；每次调用动态读取，不代表原生 Runtime 的文件访问权限。 */
   authorizedDirectories?: () => AuthorizedDirectoryPolicy;
   requestDirectoryAccess?: () => Promise<Record<string, unknown>>;
@@ -206,6 +215,8 @@ export class CodexRuntime {
     this.options.authorizedDirectories = options.authorizedDirectories;
     this.options.requestDirectoryAccess = options.requestDirectoryAccess;
     this.options.modelRequestGateway = options.modelRequestGateway;
+    this.options.platformToolProvider = options.platformToolProvider;
+    this.options.onTurnStarted = options.onTurnStarted;
     this.options.executionRulesVersion = options.executionRulesVersion;
     this.options.onLifecycle = options.onLifecycle;
     this.options.maxParallelDictionaryReads = options.maxParallelDictionaryReads;
@@ -321,7 +332,7 @@ export class CodexRuntime {
   async startSession(cwd: string): Promise<string> {
     await this.start();
     const broker = await this.createBroker(cwd);
-    const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : []), ...(this.options.skillTools?.definitions ?? [])];
+    const dynamicTools = this.dynamicTools();
     const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
     this.assertExecutionEnvironment(result, cwd);
     const id = result?.thread?.id;
@@ -352,7 +363,7 @@ export class CodexRuntime {
     }
     let result;
     try {
-      const dynamicTools = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : []), ...(this.options.skillTools?.definitions ?? [])];
+      const dynamicTools = this.dynamicTools();
       result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), dynamicTools });
     } catch (error) {
       // Codex 在首个 turn 前不生成 rollout；SQLite 中的空会话仍然有效。
@@ -546,6 +557,7 @@ export class CodexRuntime {
         const id = message.id;
         if (params.tool === 'browser_action') { this.runTool(() => this.handleBrowserTool(id, params, threadId)); return; }
         if (params.tool === 'computer_action' || params.tool === 'computer') { this.runTool(() => this.handleComputerTool(id, params, threadId)); return; }
+        if (this.options.platformToolProvider?.listTools().some(tool => tool.name === params.tool)) { this.runTool(() => this.handlePlatformTool(id, params, threadId)); return; }
         this.runTool(() => this.handleReadTool(id, params, threadId));
         return;
       }
@@ -608,6 +620,7 @@ export class CodexRuntime {
     if (this.active.get(threadId) === turnId) return;
     this.clearActive(threadId);
     this.active.set(threadId, turnId);
+    this.options.onTurnStarted?.(threadId, turnId);
     this.turnAbortControllers.set(turnId, new AbortController());
   }
   private runTool(execute: () => Promise<void>): void {
@@ -706,6 +719,34 @@ export class CodexRuntime {
       this.emit({ threadId, type: 'tool', text: `已拒绝文件或目录访问：${result.error}` });
     }
     if (child !== this.child || this.closing || (success && this.active.get(threadId!) !== params.turnId)) return;
+    try { this.write({ id, result: { contentItems: [{ type: 'inputText', text: this.modelContent(JSON.stringify(result)) }], success } }); }
+    catch { /* 取消或关闭后不再向已断开的通道发送工具结果。 */ }
+  }
+  private dynamicTools(): RuntimePlatformToolDefinition[] {
+    const existing = [...PROJECT_READ_TOOLS, ...(this.options.beforeWrite ? PROJECT_WRITE_TOOLS : []), CHANGE_PLAN_TOOL, ...DICTIONARY_TOOLS, ...(this.options.authorizedDirectories ? AUTHORIZED_DIRECTORY_TOOLS : []), ...(this.options.browser ? [BROWSER_TOOL] : []), ...(this.options.computer ? [COMPUTER_TOOL] : []), ...(this.options.skillTools?.definitions ?? [])];
+    const platform = this.options.platformToolProvider?.listTools() ?? [];
+    if (platform.length > 10 || platform.some(tool => tool.type !== 'function' || !/^platform_[a-z0-9_]{1,60}$/.test(tool.name) || !tool.description || tool.description.length > 1000 || !tool.inputSchema || typeof tool.inputSchema !== 'object' || JSON.stringify(tool.inputSchema).length > 16000) || new Set(platform.map(tool => tool.name)).size !== platform.length) throw new Error('平台注册工具定义无效');
+    const names = new Set(existing.map(tool => tool.name));
+    if (platform.some(tool => names.has(tool.name))) throw new Error('平台注册工具与 Runtime 内置工具重名');
+    return [...existing, ...platform];
+  }
+  private async handlePlatformTool(id: string | number, params: Record<string, any>, threadId?: string): Promise<void> {
+    const child = this.child;
+    const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+    const provider = this.options.platformToolProvider;
+    let success = false;
+    let result: Record<string, unknown>;
+    try {
+      if (!provider || !threadId || !this.sessions.has(threadId) || this.active.get(threadId) !== turnId || this.terminalTurns.has(turnId) || ![null, undefined, 'functions'].includes(params.namespace)) throw new Error('平台工具未绑定当前会话或活动任务');
+      const definition = provider.listTools().find(tool => tool.name === params.tool);
+      if (!definition) throw new Error('未授权的平台工具');
+      result = await provider.execute({ toolName: definition.name, arguments: params.arguments, threadId, turnId, requestId: id, toolCallId: typeof params.callId === 'string' ? params.callId : typeof params.itemId === 'string' ? params.itemId : String(id) });
+      success = true;
+    } catch (error) {
+      result = { error: this.clean((error as Error).message) };
+      this.emit({ threadId, type: 'tool', text: `平台工具调用已拒绝：${result.error}`, requestId: id });
+    }
+    if (child !== this.child || this.closing || !threadId || (success && this.active.get(threadId) !== turnId)) return;
     try { this.write({ id, result: { contentItems: [{ type: 'inputText', text: this.modelContent(JSON.stringify(result)) }], success } }); }
     catch { /* 取消或关闭后不再向已断开的通道发送工具结果。 */ }
   }

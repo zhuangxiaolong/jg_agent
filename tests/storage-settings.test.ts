@@ -44,7 +44,7 @@ test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，�
     for (const invalid of [-1, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => store!.saveSession({ ...store!.getSession(session.id)!, runtimeExecutionRulesVersion: invalid }), /执行指引版本无效/);
     assert.equal(store.getSession(session.id)?.runtimeExecutionRulesVersion, 1);
     const upgraded = new sql.Database(await readFile(filename));
-    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 14); upgraded.close();
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 16); upgraded.close();
     store.deleteModelProvider(LEGACY_PROVIDER_ID); store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.listProviders(), [], '删除旧 Provider 后不会在重启时被旧配置复活');
   } finally { store?.close(); await rm(root, { recursive: true, force: true }); }
@@ -134,7 +134,7 @@ test('v4 升级到 v5 后可持久化无项目会话与事件，外键保持完�
     store.close(); store = undefined;
 
     const upgraded = new sql.Database(await readFile(filename));
-    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 14);
+    assert.equal(upgraded.exec('PRAGMA user_version')[0].values[0][0], 16);
     assert.deepEqual(upgraded.exec('PRAGMA foreign_key_check'), []);
     const nullProject = upgraded.exec('SELECT project_id FROM sessions WHERE id = \'standalone-session\'');
     assert.equal(nullProject[0].values[0][0], null);
@@ -216,7 +216,7 @@ test('Jira旧配置不补写默认，新项目及日期字段真实重开保留�
     assert.deepEqual(store.getJira(), configured);
     assert.equal((await readFile(filename)).includes(Buffer.from(secret)), false);
     const sql = await initSqlJs(); const db = new sql.Database(await readFile(filename));
-    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 14); db.close();
+    assert.equal(db.exec('PRAGMA user_version')[0].values[0][0], 16); db.close();
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

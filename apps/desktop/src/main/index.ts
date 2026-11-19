@@ -10,12 +10,12 @@ import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
 import { jiraSnapshot, LocalStore } from '../../../../packages/storage/src';
 import { GitConnector } from '../../../../packages/git-connector/src';
-import { RUNTIME_CAPABILITIES_VERSION, runtimeEnvironment, createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, createGrokBuildRuntimeAdapter, createRuntimeManager, grokRuntimeReuseKey, GROK_BUILD_RUNTIME_VERSION, JINGGONG_RUNTIME_VERSION, type RuntimeOptions, type GrokRuntimeOptions } from '../../../../packages/agent-runtime/src';
+import { CODEX_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, runtimeEnvironment, createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, createGrokBuildRuntimeAdapter, createRuntimeManager, grokRuntimeReuseKey, GROK_BUILD_RUNTIME_VERSION, JINGGONG_RUNTIME_VERSION, type RuntimeOptions, type GrokRuntimeOptions } from '../../../../packages/agent-runtime/src';
 import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/src';
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
-import type { AgentEvent, AgentTaskEvent, ConversationAttachment, JiraIssue, RequirementAdmission, RequirementResolutionAction, RuntimeKind, Session, UpdateMode, UpdateStatus, VerificationRunSummary } from '../../../../packages/domain/src';
+import type { AgentEvent, AgentOrchestrationAvailability, AgentTaskEvent, ConversationAttachment, JiraIssue, RequirementAdmission, RequirementResolutionAction, RuntimeKind, Session, UpdateMode, UpdateStatus, VerificationRunSummary } from '../../../../packages/domain/src';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { JiraConnector } from '../../../../packages/jira-connector/src';
 import { importDocumentFile, readDocumentTextFile, SUPPORTED_DOCUMENT_TEXT_EXTENSIONS } from '../../../../packages/knowledge/src';
@@ -26,6 +26,7 @@ import { resolveGrokSessionBinding } from './grok-session-binding';
 import { DpapiCredentialVault } from './credentials';
 import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionConversationImageSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
 import { RunLifecycle, type RunTicket } from './lifecycle';
+import { createAgentOrchestrationProvider } from './agent-orchestration';
 import { SessionRuntimes } from './session-runtimes';
 import { SessionGitService } from './session-git';
 import { SessionFollowups } from './session-followups';
@@ -56,7 +57,7 @@ import { jiraExecutionInstructions, requiresRequirementAdmission } from '../../.
 import { PluginManagerService } from './plugin-manager';
 import { migrateLegacyDataRoot } from './data-migration';
 import { AgentTaskRunner, AUTOMATIC_AGENT_TASK_PREFIX, automaticAgentTaskSummary, inferAutomaticAgentTaskPlan } from './agent-tasks';
-import { automaticAgentTaskAvailability, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash } from '../../../../packages/agent-orchestrator/src';
+import { automaticAgentTaskAvailability, certifiedControlledAnalysisCapabilities, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash } from '../../../../packages/agent-orchestrator/src';
 import { TaskEngineeringService } from './task-engineering';
 import { LearningEngineService } from './learning-engine';
 import { TaskWorkspaceService } from './task-workspaces';
@@ -659,9 +660,30 @@ function emit(sessionId: string, type: AgentEvent['type'], text: string, request
   if (!window.isDestroyed()) window.webContents.send('agent:event', event);
 }
 
+function certifiedAgentCapabilities(session: Session, runtimeVersion = session.runtimeVersion ?? ((session.runtimeKind ?? store.getRuntimeKind()) === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION)): ReadonlySet<string> {
+  const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+  if ((runtimeKind !== 'codex' && runtimeKind !== 'jinggong') || !session.projectId || !agentTaskRunner) return new Set();
+  const provider = settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? settings.profiles()[0] : undefined);
+  return certifiedControlledAnalysisCapabilities(store.listRuntimeCapabilityCertifications(), { runtimeKind, runtimeVersion, providerId: provider?.id ?? '', modelId: session.model, wireApi: 'responses' });
+}
+
+function agentOrchestrationAvailability(session: Session): AgentOrchestrationAvailability {
+  const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+  const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : runtimeKind === 'codex' ? CODEX_RUNTIME_VERSION : session.runtimeVersion ?? 'unknown';
+  const provider = settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? settings.profiles()[0] : undefined);
+  const identity = { runtimeKind, runtimeVersion, providerId: provider?.id ?? '', modelId: session.model, wireApi: 'responses' };
+  const capabilities = store.listRuntimeCapabilityCertifications().filter(item => item.runtimeKind === runtimeKind && item.runtimeVersion === runtimeVersion && item.providerId === identity.providerId && item.modelId === identity.modelId && item.wireApi === identity.wireApi && item.testSuiteVersion === CONTROLLED_ANALYSIS_TEST_SUITE_VERSION).sort((left, right) => Date.parse(right.testedAt) - Date.parse(left.testedAt));
+  const latest: AgentOrchestrationAvailability['capabilities'] = {};
+  for (const item of capabilities) if (latest[item.capability] === undefined) latest[item.capability] = item.testStatus;
+  const supportedRuntime = runtimeKind === 'codex' || runtimeKind === 'jinggong';
+  const certified = certifiedAgentCapabilities(session, runtimeVersion).size === 4;
+  return { status: !supportedRuntime ? 'unsupported' : certified ? 'available' : 'uncertified', reason: certified ? '当前 Runtime、Provider、Model 和受控分析测试套件已通过认证。' : !supportedRuntime ? `${runtimeKind} Runtime 暂不支持受控只读子 Agent。` : '受控子 Agent 尚未完成当前 Runtime/Provider/Model 的真实认证；能力保持失败关闭。', runtimeKind, runtimeVersion, ...(provider ? { providerId: provider.id } : {}), modelId: session.model, wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capabilities: latest, ...(capabilities[0] ? { testRunId: capabilities[0].testRunId, testedAt: capabilities[0].testedAt, evidenceRef: capabilities[0].evidenceRef } : {}) };
+}
+
 /** 会话发送前按需求工作面自动生成分析子 Agent，由调度器并行执行并汇总。 */
 function createAutomaticAgentTasks(session: Session, prompt: string): string[] {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+  if (certifiedAgentCapabilities(session).size === 4) return [];
   if (!agentTaskRunner || !session.projectId || !automaticAgentTaskAvailability(runtimeKind).available) return [];
   const plans = inferAutomaticAgentTaskPlan(prompt);
   if (!plans.length) return [];
@@ -875,7 +897,19 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     else if (event === 'app_server_initialize_start') lifecycleSpans.set('initialize', performanceService?.telemetry.startSpan(traceId, { stage: 'runtime.initialize', operation: `${kind}.app_server_initialize` }));
     else if (event === 'app_server_initialized') performanceService?.telemetry.endSpan(lifecycleSpans.get('initialize'), 'completed');
   };
+  const agentCapabilities = certifiedAgentCapabilities(session, kind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION);
+  const orchestrationProvider = agentCapabilities.size === 4 && agentTaskRunner && provider && (kind === 'codex' || kind === 'jinggong') ? createAgentOrchestrationProvider({
+    store, runner: agentTaskRunner, session, orchestrationId: ticket.orchestrationId, runtimeKind: kind,
+    assertCurrent: request => {
+      runs.assertCurrent(ticket);
+      const current = store.getSession(session.id);
+      const currentProvider = current && (settings.profiles().find(item => item.id === (current.providerId ?? '')) ?? (!current.providerId ? settings.profiles()[0] : undefined));
+      if (!current || ticket.runtimeThreadId !== request.threadId || ticket.activeTurnId !== request.turnId || current.runtimeThreadId !== request.threadId || current.projectId !== session.projectId || (current.runtimeKind ?? 'codex') !== kind || current.model !== session.model || currentProvider?.id !== provider.id || certifiedAgentCapabilities(current, kind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION).size !== 4) throw new Error('平台编排工具已脱离当前会话、活动轮次或认证范围');
+    },
+    audit: (toolName, requestHash, resultHash, success) => emit(session.id, 'tool', `平台编排工具 ${toolName} 已${success ? '完成' : '拒绝'}（参数摘要 ${requestHash.slice(0, 12)}；结果摘要 ${resultHash.slice(0, 12)}）`),
+  }) : undefined;
   const runtimeOptions: RuntimeOptions = { executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
+    ...(orchestrationProvider ? { platformToolProvider: orchestrationProvider, onTurnStarted: (threadId: string, turnId: string) => runs.bindActiveTurn(ticket, threadId, turnId) } : {}),
     ...(kind === 'jinggong' ? { skillTools: { definitions: SKILL_RUNTIME_TOOL_DEFINITIONS, call: async request => {
       runs.assertCurrent(ticket);
       const current = store.getSession(session.id);
@@ -1574,6 +1608,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     return { ...plan, warnings: [...plan.warnings, ...warnings] };
   });
   handle('agent-task:list', (value: unknown) => store.listAgentTasks(sessionById(value).id));
+  handle('agent-task:availability', (value: unknown) => agentOrchestrationAvailability(sessionById(value)));
   handle('agent-task:events', (value: unknown, taskValue: unknown) => {
     const session = sessionById(value);
     return store.listAgentTaskEvents(session.id, idSchema.parse(taskValue));
@@ -1628,6 +1663,10 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('agent-task:cancel', async (value: unknown, taskValue: unknown) => {
     const session = sessionById(value);
     await agentTaskRunner?.cancel(session.id, idSchema.parse(taskValue));
+  });
+  handle('agent-task:cancel-orchestration', async (value: unknown, orchestrationValue: unknown) => {
+    const session = sessionById(value);
+    await agentTaskRunner?.cancelForOrchestration(session.id, idSchema.parse(orchestrationValue));
   });
   handle('session:read', (value: unknown, completionValue: unknown) => store.markSessionRead(sessionById(value).id, idSchema.parse(completionValue)));
   handle('session:rename', (value: unknown, aliasValue: unknown) => {
@@ -1874,6 +1913,7 @@ if (primaryInstance) app.whenReady().then(async () => {
         session.runtimeCapabilitiesVersion = RUNTIME_CAPABILITIES_VERSION;
       }
       else session.runtimeThreadId = await agent.resumeSession(session.runtimeThreadId, session.workspacePath, session.runtimeNativeSessionId);
+      runs.bindRuntimeThread(ticket, session.runtimeThreadId);
       session.runtimeKind = session.runtimeKind ?? 'codex';
       if (session.runtimeKind !== 'grok_build_acp') session.grokBinding = undefined;
       session.runtimeVersion = agent.version;
@@ -1922,7 +1962,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     followups.stop(session.id, '用户已停止任务');
     runtimeEventBuffers.get(session.id)?.flush();
     if (mainTicket) runs.cancel(mainTicket);
-    await agentTaskRunner?.cancelForSession(session.id);
+    if (mainTicket) await agentTaskRunner?.cancelForOrchestration(session.id, mainTicket.orchestrationId);
+    else await agentTaskRunner?.cancelForSession(session.id);
     if (!mainTicket) return;
     const candidate = runtimes.getForTicket(mainTicket);
     try { if (candidate && session.runtimeThreadId) await candidate.cancelRun(session.runtimeThreadId); }

@@ -34,6 +34,24 @@ test('工作区会话无需项目，分组重启保留且删除工作区后成�
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('编排工具调用按 orchestration 和 toolCallId 幂等，未知结果禁止重放', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-orchestration-idempotency-'));
+  const filename = join(root, 'agent.db');
+  const store = await LocalStore.open(filename);
+  try {
+    const project: Project = { id: 'orchestration-project', path: join(root, 'project'), name: '编排测试', branch: 'main' };
+    store.saveProject(project);
+    store.saveSession({ id: 'orchestration-session', projectId: project.id, title: '编排测试', workspacePath: project.path, status: 'idle', createdAt: '2026-11-19T00:00:00.000Z', model: 'model', runtimeKind: 'codex' });
+    const requestHash = 'a'.repeat(64);
+    assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'started' });
+    store.completeOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', requestHash, result: { tasks: [] } });
+    assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'completed', result: { tasks: [] } });
+    assert.throws(() => store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', toolName: 'platform_agent_get_task', requestHash }), /不同请求占用/);
+    assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'started' });
+    assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'unknown_outcome' });
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('SQLite 项目、会话、事件与模型元数据落盘，重启恢复中断状态并可备份', async () => {
   const root = await mkdtemp(join(tmpdir(), '精工 SQLite '));
   const path = join(root, '数据库', 'agent.db');

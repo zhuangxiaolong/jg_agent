@@ -25,6 +25,52 @@ test('共享查询指引按实际 Shell 提供兼容建议并保留原任务', (
   assert.doesNotMatch(buildRuntimeExecutionInstructions('原始业务要求', 'linux'), /Windows Shell|wttr.in\/Nanjing/);
 });
 
+test('平台子 Agent 工具随 Runtime start/resume 注册并绑定当前会话轮次', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'jinggong-platform-tools-'));
+  const definition = { type: 'function' as const, name: 'platform_agent_list_tasks', description: '列出本轮任务', inputSchema: { type: 'object', properties: {}, additionalProperties: false } };
+  const invocations: unknown[] = [];
+  const platformToolProvider = { listTools: () => [definition], execute: async (request: unknown) => { invocations.push(request); return { tasks: [] }; } };
+  const startCalls: Array<{ method: string; params: any }> = [];
+  const replies: any[] = [];
+  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model', platformToolProvider, rpcTimeoutMs: 100 });
+  const state = runtime as any;
+  state.start = async () => { state.initialized = true; };
+  state.createBroker = async () => ({});
+  state.write = (message: unknown) => replies.push(message);
+  state.request = async (method: string, params: any) => {
+    startCalls.push({ method, params });
+    if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: method === 'thread/start' ? 'platform-thread' : 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+    if (method === 'thread/inject_items') return {};
+    throw new Error(`不应调用 ${method}`);
+  };
+  try {
+    const adapter = new CodexRuntimeAdapter(runtime);
+    await adapter.startSession(root);
+    const registeredOnStart = startCalls.find(call => call.method === 'thread/start')?.params.dynamicTools as Array<{ name: string }>;
+    assert.ok(registeredOnStart.some(tool => tool.name === definition.name));
+    state.receive({ method: 'turn/started', params: { threadId: 'platform-thread', turn: { id: 'platform-turn' } } });
+    state.receive({ id: 'platform-call', method: 'item/tool/call', params: { tool: definition.name, threadId: 'platform-thread', turnId: 'platform-turn', namespace: 'functions', callId: 'stable-call-id', arguments: {} } });
+    await waitFor(() => replies.some(reply => reply.id === 'platform-call'));
+    assert.deepEqual(invocations, [{ toolName: definition.name, arguments: {}, threadId: 'platform-thread', turnId: 'platform-turn', requestId: 'platform-call', toolCallId: 'stable-call-id' }]);
+    assert.equal(replies.find(reply => reply.id === 'platform-call').result.success, true);
+
+    const resumed = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model', platformToolProvider, rpcTimeoutMs: 100 });
+    const resumedState = resumed as any;
+    resumedState.start = async () => { resumedState.initialized = true; };
+    resumedState.createBroker = async () => ({});
+    resumedState.request = async (method: string, params: any) => {
+      startCalls.push({ method, params });
+      if (method === 'thread/resume') return { thread: { id: 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+      if (method === 'thread/inject_items') return {};
+      throw new Error(`不应调用 ${method}`);
+    };
+    await new CodexRuntimeAdapter(resumed).resumeSession('resumed-platform-thread', root);
+    const registeredOnResume = startCalls.find(call => call.method === 'thread/resume')?.params.dynamicTools as Array<{ name: string }>;
+    assert.ok(registeredOnResume.some(tool => tool.name === definition.name));
+    await Promise.all([runtime.close(), resumed.close()]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('Codex 与精工旧会话补入一次持久化执行指引，保留线程、用户任务及推理档位', async () => {
   const cwd = process.cwd();
   for (const Adapter of [CodexRuntimeAdapter, JinggongRuntimeAdapter]) {

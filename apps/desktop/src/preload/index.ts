@@ -141,6 +141,7 @@ const api: DesktopApi = {
   prewarmSession: id => invoke('session:prewarm', id),
   getConversationImage: (sessionId, attachmentId, fullSize = false) => invoke('session:conversation-image', { sessionId, attachmentId, fullSize }),
   listAgentTasks: id => invoke('agent-task:list', id),
+  getAgentOrchestrationAvailability: id => invoke('agent-task:availability', id),
   taskEngineering: {
     detail: (sessionId, taskId) => invoke('agent-task:engineering-detail', sessionId, taskId),
     revise: input => invoke('agent-task:contract-revise', input),
@@ -155,6 +156,7 @@ const api: DesktopApi = {
   listAgentTaskEvents: (sessionId, taskId) => invoke('agent-task:events', sessionId, taskId),
   createAgentTask: input => invoke('agent-task:create', input),
   cancelAgentTask: (sessionId, taskId) => invoke('agent-task:cancel', sessionId, taskId),
+  cancelAgentOrchestration: (sessionId, orchestrationId) => invoke('agent-task:cancel-orchestration', sessionId, orchestrationId),
   sendTurn: (id, prompt, attachmentIds) => invoke('session:send', id, { prompt, attachmentIds: attachmentIds ?? [] }),
   refreshRequirementAdmission: id => invoke('session:requirement-refresh', id),
   resolveRequirementItem: (id, itemId, action, valueText, reason) => invoke('session:requirement-resolve', id, { itemId, action, valueText, reason }),

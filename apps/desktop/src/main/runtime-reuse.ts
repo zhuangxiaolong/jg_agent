@@ -30,7 +30,7 @@ async function codexIdentity(options: RuntimeOptions, cwd: string, includeTurnCo
     shellToolEnabled: options.shellToolEnabled ?? true, pluginsEnabled: options.pluginsEnabled ?? false, rpcTimeoutMs: options.rpcTimeoutMs ?? null,
     executionMode: options.executionMode ?? 'native', ...(includeTurnContext ? { executionRulesVersion: options.executionRulesVersion ?? null } : {}),
     ...(includeTurnContext ? { developerInstructions: options.developerInstructions ?? '', dictionaries, readAccess: undefined } : {}),
-    toolset: includeTurnContext ? { capabilitiesVersion: RUNTIME_CAPABILITIES_VERSION, beforeWrite: !!options.beforeWrite, browser: !!options.browser, computer: !!options.computer, authorizedDirectories: !!options.authorizedDirectories, requestDirectoryAccess: !!options.requestDirectoryAccess, toolGateway: !!options.toolGateway, modelRequestGateway: !!options.modelRequestGateway } : undefined,
+    toolset: includeTurnContext ? { capabilitiesVersion: RUNTIME_CAPABILITIES_VERSION, beforeWrite: !!options.beforeWrite, browser: !!options.browser, computer: !!options.computer, authorizedDirectories: !!options.authorizedDirectories, requestDirectoryAccess: !!options.requestDirectoryAccess, toolGateway: !!options.toolGateway, modelRequestGateway: !!options.modelRequestGateway, platformToolProvider: options.platformToolProvider?.listTools().map(tool => tool.name).sort() ?? [] } : undefined,
     relevantEnv,
   });
 }

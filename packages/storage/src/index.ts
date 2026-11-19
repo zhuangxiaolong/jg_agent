@@ -5,13 +5,13 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 16;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -655,6 +655,25 @@ export class LocalStore {
           PRAGMA user_version = 14;
         `));
       }
+      if (version <= 14) {
+        store.transaction(() => {
+          const taskColumns = store.db.exec('PRAGMA table_info(agent_tasks)')[0]?.values ?? [];
+          if (!taskColumns.some(column => column[1] === 'orchestration_id')) store.db.run('ALTER TABLE agent_tasks ADD COLUMN orchestration_id TEXT');
+          store.db.run(`
+            CREATE INDEX IF NOT EXISTS agent_tasks_orchestration ON agent_tasks(session_id, orchestration_id, created_at, id);
+            CREATE TABLE IF NOT EXISTS runtime_capability_certifications (id TEXT PRIMARY KEY, runtime_kind TEXT NOT NULL, provider_id TEXT NOT NULL, model_id TEXT NOT NULL, wire_api TEXT NOT NULL, capability TEXT NOT NULL, tested_at TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS runtime_capability_certifications_scope ON runtime_capability_certifications(runtime_kind, provider_id, model_id, wire_api);
+            PRAGMA user_version = 15;
+          `);
+        });
+      }
+      if (version <= 15) {
+        store.transaction(() => store.db.run(`
+          CREATE TABLE IF NOT EXISTS orchestration_tool_calls (session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, orchestration_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, tool_name TEXT NOT NULL, request_hash TEXT NOT NULL, state TEXT NOT NULL, result_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(session_id, orchestration_id, tool_call_id));
+          CREATE INDEX IF NOT EXISTS orchestration_tool_calls_state ON orchestration_tool_calls(state, updated_at);
+          PRAGMA user_version = 16;
+        `));
+      }
       if (options.recoverUnfinished !== false) {
         const pendingTools = new Map(store.listAgentTasks().filter(task => task.contractVersion).map(task => [task.id, store.getTaskAuditSnapshot(task.sessionId, task.id).pendingToolCalls]));
         const unfinishedTasks = store.listAgentTasks().filter(task => task.status === 'RUNNING' || task.verificationStatus === 'RUNNING' || pendingTools.get(task.id)?.length);
@@ -721,6 +740,17 @@ export class LocalStore {
       statement.bind(params);
       const result: T[] = [];
       while (statement.step()) result.push(JSON.parse(String(statement.getAsObject().value)) as T);
+      return result;
+    } finally { statement.free(); }
+  }
+
+  private records<T extends Record<string, unknown>>(query: string, params: SqlValue[] = []): T[] {
+    this.assertOpen();
+    const statement = this.db.prepare(query);
+    try {
+      statement.bind(params);
+      const result: T[] = [];
+      while (statement.step()) result.push(statement.getAsObject() as T);
       return result;
     } finally { statement.free(); }
   }
@@ -883,16 +913,69 @@ export class LocalStore {
 
   listSessions(): Session[] { return this.rows<Session>('SELECT value FROM sessions ORDER BY created_at DESC, rowid DESC').map(normalizeSession); }
 
-  listAgentTasks(sessionId?: string): AgentTask[] {
+  listAgentTasks(sessionId?: string, orchestrationId?: string): AgentTask[] {
+    if (sessionId === undefined && orchestrationId !== undefined) throw new Error('按运行分组查询任务时必须指定会话');
+    if (orchestrationId !== undefined) return this.rows<AgentTask>('SELECT value FROM agent_tasks WHERE session_id = ? AND orchestration_id = ? ORDER BY created_at, id', [sessionId!, orchestrationId]);
     return sessionId === undefined
       ? this.rows<AgentTask>('SELECT value FROM agent_tasks ORDER BY created_at, id')
       : this.rows<AgentTask>('SELECT value FROM agent_tasks WHERE session_id = ? ORDER BY created_at, id', [sessionId]);
   }
 
   private writeAgentTask(task: AgentTask): void {
-    this.db.run(`INSERT INTO agent_tasks(id, session_id, project_id, status, created_at, value)
-      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, status = excluded.status, value = excluded.value`,
-      [task.id, task.sessionId, task.projectId ?? null, task.status, task.createdAt, JSON.stringify(task)]);
+    this.db.run(`INSERT INTO agent_tasks(id, session_id, project_id, status, created_at, orchestration_id, value)
+      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, status = excluded.status, orchestration_id = excluded.orchestration_id, value = excluded.value`,
+      [task.id, task.sessionId, task.projectId ?? null, task.status, task.createdAt, task.orchestrationId ?? null, JSON.stringify(task)]);
+  }
+
+  listRuntimeCapabilityCertifications(scope?: { runtimeKind?: RuntimeKind; providerId?: string; modelId?: string; wireApi?: string }): RuntimeCapabilityCertification[] {
+    const rows = this.rows<RuntimeCapabilityCertification>('SELECT value FROM runtime_capability_certifications ORDER BY tested_at DESC');
+    return rows.filter(item => (!scope?.runtimeKind || item.runtimeKind === scope.runtimeKind) && (!scope?.providerId || item.providerId === scope.providerId) && (!scope?.modelId || item.modelId === scope.modelId) && (!scope?.wireApi || item.wireApi === scope.wireApi));
+  }
+
+  saveRuntimeCapabilityCertification(certification: RuntimeCapabilityCertification): void {
+    const capabilities = ['tool_permission_interception', 'model_request_interception', 'independent_agent_context', 'event_stream'];
+    const statuses = ['passed', 'failed', 'not_run', 'unsupported', 'unknown'];
+    if (!['codex', 'jinggong'].includes(certification.runtimeKind) || !certification.runtimeVersion || certification.runtimeVersion.length > 120 || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(certification.providerId) || !/^[A-Za-z0-9._:/-]{1,160}$/.test(certification.modelId) || !/^[a-z0-9_:-]{1,80}$/.test(certification.wireApi) || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(certification.testSuiteVersion) || !capabilities.includes(certification.capability) || !statuses.includes(certification.testStatus) || !/^[A-Za-z0-9_-]{1,128}$/.test(certification.testRunId) || Number.isNaN(Date.parse(certification.testedAt)) || !certification.evidenceRef?.trim() || certification.evidenceRef.length > 500 || (certification.notes?.length ?? 0) > 2000) throw new Error('Runtime 能力认证记录无效');
+    const id = createHash('sha256').update([certification.runtimeKind, certification.runtimeVersion, certification.providerId, certification.modelId, certification.wireApi, certification.capability].join('\0')).digest('hex');
+    this.transaction(() => this.db.run(`INSERT INTO runtime_capability_certifications(id, runtime_kind, provider_id, model_id, wire_api, capability, tested_at, value)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET tested_at = excluded.tested_at, value = excluded.value`, [id, certification.runtimeKind, certification.providerId, certification.modelId, certification.wireApi, certification.capability, certification.testedAt, JSON.stringify(certification)]));
+  }
+
+  beginOrchestrationToolCall(input: { sessionId: string; orchestrationId: string; toolCallId: string; toolName: string; requestHash: string }): { state: 'started' | 'completed' | 'unknown_outcome'; result?: Record<string, unknown> } {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.sessionId) || !/^[A-Za-z0-9_-]{1,128}$/.test(input.orchestrationId) || !input.toolCallId || input.toolCallId.length > 128 || !/^platform_[a-z0-9_]{1,60}$/.test(input.toolName) || !/^[a-f0-9]{64}$/i.test(input.requestHash)) throw new Error('编排工具调用标识无效');
+    let outcome: { state: 'started' | 'completed' | 'unknown_outcome'; result?: Record<string, unknown> } = { state: 'started' };
+    this.transaction(() => {
+      const row = this.records<{ tool_name: string; request_hash: string; state: string; result_json?: string }>('SELECT tool_name, request_hash, state, result_json FROM orchestration_tool_calls WHERE session_id = ? AND orchestration_id = ? AND tool_call_id = ?', [input.sessionId, input.orchestrationId, input.toolCallId])[0];
+      const now = new Date().toISOString();
+      if (!row) {
+        this.db.run('INSERT INTO orchestration_tool_calls(session_id, orchestration_id, tool_call_id, tool_name, request_hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [input.sessionId, input.orchestrationId, input.toolCallId, input.toolName, input.requestHash.toLowerCase(), 'started', now, now]);
+        return;
+      }
+      if (row.tool_name !== input.toolName || row.request_hash !== input.requestHash.toLowerCase()) throw new Error('工具调用 ID 已被不同请求占用');
+      if (row.state === 'completed' && row.result_json) {
+        const parsed: unknown = JSON.parse(row.result_json);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('工具调用缓存结果损坏');
+        outcome = { state: 'completed', result: parsed as Record<string, unknown> };
+        return;
+      }
+      if (row.state === 'started') this.db.run("UPDATE orchestration_tool_calls SET state = 'unknown_outcome', updated_at = ? WHERE session_id = ? AND orchestration_id = ? AND tool_call_id = ?", [now, input.sessionId, input.orchestrationId, input.toolCallId]);
+      outcome = { state: 'unknown_outcome' };
+    });
+    return outcome;
+  }
+
+  completeOrchestrationToolCall(input: { sessionId: string; orchestrationId: string; toolCallId: string; requestHash: string; result: Record<string, unknown> }): void {
+    const serialized = JSON.stringify(input.result);
+    if (serialized.length > 262144) throw new Error('编排工具结果超出持久化限制');
+    this.transaction(() => {
+      this.db.run("UPDATE orchestration_tool_calls SET state = 'completed', result_json = ?, updated_at = ? WHERE session_id = ? AND orchestration_id = ? AND tool_call_id = ? AND request_hash = ? AND state = 'started'", [serialized, new Date().toISOString(), input.sessionId, input.orchestrationId, input.toolCallId, input.requestHash.toLowerCase()]);
+      const row = this.records<{ state: string }>('SELECT state FROM orchestration_tool_calls WHERE session_id = ? AND orchestration_id = ? AND tool_call_id = ? AND request_hash = ?', [input.sessionId, input.orchestrationId, input.toolCallId, input.requestHash.toLowerCase()])[0];
+      if (row?.state !== 'completed') throw new Error('工具调用状态已变化，结果标记为未知');
+    });
+  }
+
+  markOrchestrationToolCallUnknown(input: { sessionId: string; orchestrationId: string; toolCallId: string; requestHash: string }): void {
+    this.transaction(() => this.db.run("UPDATE orchestration_tool_calls SET state = 'unknown_outcome', updated_at = ? WHERE session_id = ? AND orchestration_id = ? AND tool_call_id = ? AND request_hash = ? AND state = 'started'", [new Date().toISOString(), input.sessionId, input.orchestrationId, input.toolCallId, input.requestHash.toLowerCase()]));
   }
 
   private appendTaskLifecycleEvent(task: AgentTask, eventType: string, actor: string, inputPayload: Record<string, unknown>, correlationId: string = randomUUID()): TaskLifecycleEvent {
@@ -1103,7 +1186,7 @@ export class LocalStore {
         if (task.contractVersion && !previous?.contractVersion) throw new Error('请通过任务契约接口创建工程任务');
         if (!previous?.contractVersion && (task.verificationStatus && task.verificationStatus !== 'NOT_STARTED' || task.acceptanceStatus && task.acceptanceStatus !== 'NOT_SUBMITTED' || task.evidenceIds?.length || task.acceptance)) throw new Error('历史任务没有任务契约，不能补造验证或验收结果');
         if (previous?.contractVersion) {
-          const protectedKeys = ['contractVersion', 'verificationStatus', 'acceptanceStatus', 'evidenceIds', 'acceptance', 'verificationReason', 'acceptanceReason', 'dependencyConditions', 'name', 'description', 'input', 'model', 'parentTaskId', 'dependencyIds', 'runtimeKind', 'workspaceMode', 'workspacePath', 'maxAttempts', 'timeoutMs'] as const;
+          const protectedKeys = ['contractVersion', 'verificationStatus', 'acceptanceStatus', 'evidenceIds', 'acceptance', 'verificationReason', 'acceptanceReason', 'dependencyConditions', 'orchestrationId', 'name', 'description', 'input', 'model', 'parentTaskId', 'dependencyIds', 'runtimeKind', 'workspaceMode', 'workspacePath', 'maxAttempts', 'timeoutMs'] as const;
           for (const key of protectedKeys) if (taskContentHash({ value: task[key] }) !== taskContentHash({ value: previous[key] })) throw new Error(`工程任务 ${key} 必须通过契约或状态接口修改`);
           if ((task.stateVersion ?? 0) !== (previous.stateVersion ?? 0)) throw new Error('任务状态版本已变化，请刷新后重试');
           if (task.status !== legacyTaskStatus(executionStatusOf(task))) throw new Error('任务兼容状态与执行状态不一致');

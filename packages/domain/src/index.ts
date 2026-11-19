@@ -150,11 +150,21 @@ export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'del
 export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'WAITING' | 'BLOCKED';
 export type AgentTaskRole = 'requirement' | 'architecture' | 'developer' | 'review' | 'testing' | 'documentation' | 'custom';
 export type AgentTaskWorkspaceMode = 'read' | 'worktree';
+export interface AgentTaskStructuredResult {
+  schemaVersion: 1;
+  outcome: 'completed' | 'partial' | 'blocked' | 'failed';
+  summary: string;
+  findings: Array<{ title: string; detail: string; severity?: 'info' | 'low' | 'medium' | 'high' | 'critical'; evidence: Array<{ path: string; sha256: string; lineStart?: number; lineEnd?: number; excerptHash?: string }> }>;
+  risks: string[];
+  unresolved: string[];
+  recommendedNextSteps: string[];
+}
 export interface AgentTaskResult {
   summary?: string;
   changedFiles?: string[];
   testSummary?: string;
   unresolved?: string[];
+  structuredResult?: AgentTaskStructuredResult;
   error?: string;
   logRef?: string;
 }
@@ -162,6 +172,7 @@ export interface AgentTask {
   id: string;
   sessionId: string;
   projectId?: string;
+  orchestrationId?: string;
   parentTaskId?: string;
   name: string;
   role: AgentTaskRole;
@@ -192,6 +203,34 @@ export interface AgentTask {
   completedAt?: string;
   result?: AgentTaskResult;
   error?: string;
+}
+export interface RuntimeCapabilityCertification {
+  runtimeKind: RuntimeKind;
+  runtimeVersion: string;
+  providerId: string;
+  modelId: string;
+  wireApi: string;
+  testSuiteVersion: string;
+  capability: 'tool_permission_interception' | 'model_request_interception' | 'independent_agent_context' | 'event_stream';
+  testStatus: 'passed' | 'failed' | 'not_run' | 'unsupported' | 'unknown';
+  testRunId: string;
+  testedAt: string;
+  evidenceRef?: string;
+  notes?: string;
+}
+export interface AgentOrchestrationAvailability {
+  status: 'available' | 'uncertified' | 'unsupported';
+  reason: string;
+  runtimeKind: RuntimeKind;
+  runtimeVersion: string;
+  providerId?: string;
+  modelId: string;
+  wireApi: string;
+  testSuiteVersion: string;
+  capabilities: Partial<Record<RuntimeCapabilityCertification['capability'], RuntimeCapabilityCertification['testStatus']>>;
+  testRunId?: string;
+  testedAt?: string;
+  evidenceRef?: string;
 }
 export interface AgentTaskEvent { id: string; taskId: string; sessionId: string; type: AgentEvent['type']; text: string; createdAt: string; requestId?: number | string }
 export interface ConversationAttachment { id: string; name: string; mimeType: string; size: number; kind: 'image' | 'file' }
@@ -392,10 +431,12 @@ export interface DesktopApi {
   getEvents(sessionId: string): Promise<AgentEvent[]>;
   prewarmSession(sessionId: string): Promise<void>;
   listAgentTasks(sessionId: string): Promise<AgentTask[]>;
+  getAgentOrchestrationAvailability(sessionId: string): Promise<AgentOrchestrationAvailability>;
   taskEngineering?: TaskEngineeringApi;
   listAgentTaskEvents(sessionId: string, taskId: string): Promise<AgentTaskEvent[]>;
   createAgentTask(input: { sessionId: string; name: string; role: AgentTaskRole; description: string; input?: string; workspaceMode?: AgentTaskWorkspaceMode; outputExpectations?: string[]; acceptanceCriteria?: string[]; dependencyIds?: string[]; timeoutMs?: number; maxAttempts?: number }): Promise<AgentTask>;
   cancelAgentTask(sessionId: string, taskId: string): Promise<void>;
+  cancelAgentOrchestration(sessionId: string, orchestrationId: string): Promise<void>;
   sendTurn(sessionId: string, prompt: string, attachmentIds?: string[]): Promise<void | { queued: boolean; steered?: boolean }>;
   refreshRequirementAdmission(sessionId: string): Promise<Session>;
   resolveRequirementItem(sessionId: string, itemId: string, action: RequirementResolutionAction, valueText?: string, reason?: string): Promise<Session>;

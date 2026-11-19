@@ -5,10 +5,10 @@ import { GovernanceError, runtimeCapabilityMatrix, type RuntimeCapabilityName } 
 export * from './runtime-capabilities';
 
 export interface RuntimeGovernanceRequirements { strictModelRequests?: boolean; strictTools?: boolean; strictTokenUsage?: boolean; strictCostUsage?: boolean }
-export function assertRuntimeGovernance(kind: RuntimeKind, requirements: RuntimeGovernanceRequirements, executionMode: 'native' | 'controlled_analysis' = 'native'): void {
+export function assertRuntimeGovernance(kind: RuntimeKind, requirements: RuntimeGovernanceRequirements, executionMode: 'native' | 'controlled_analysis' = 'native', certifiedCapabilities: ReadonlySet<RuntimeCapabilityName> = new Set()): void {
   const capabilities = runtimeCapabilityMatrix(kind, executionMode);
   const checks: Array<[boolean | undefined, RuntimeCapabilityName]> = [[requirements.strictModelRequests, 'model_request_interception'], [requirements.strictTools, 'tool_permission_interception'], [requirements.strictTokenUsage, 'token_usage'], [requirements.strictCostUsage, 'cost_usage']];
-  for (const [strict, key] of checks) if (strict && capabilities[key].supported !== true) throw new GovernanceError(`unsupported_strict_${key}`);
+  for (const [strict, key] of checks) if (strict && capabilities[key].supported !== true && !(executionMode === 'controlled_analysis' && certifiedCapabilities.has(key))) throw new GovernanceError(`unsupported_strict_${key}`);
 }
 
 export type BudgetSource = 'project' | 'parent' | 'task';

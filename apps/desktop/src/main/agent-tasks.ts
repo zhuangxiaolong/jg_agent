@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, classifyRetryFailure, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type RetryFailure, type ResolvedTaskBudget } from '../../../../packages/agent-orchestrator/src';
-import { createCodexRuntimeAdapter, createJinggongRuntimeAdapter, type RuntimeAdapter } from '../../../../packages/agent-runtime/src';
+import { createHash, randomUUID } from 'node:crypto';
+import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, certifiedControlledAnalysisCapabilities, classifyRetryFailure, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type RetryFailure, type ResolvedTaskBudget, type RuntimeCapabilityName } from '../../../../packages/agent-orchestrator/src';
+import { CODEX_RUNTIME_VERSION, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, JINGGONG_RUNTIME_VERSION, type RuntimeAdapter } from '../../../../packages/agent-runtime/src';
 import type { RuntimeEvent, RuntimeOptions } from '../../../../packages/agent-runtime/src';
-import type { AgentTask, AgentTaskEvent, AgentTaskStatus, RuntimeKind, Session, TaskBudgetPolicy, TaskContract } from '../../../../packages/domain/src';
+import type { AgentTask, AgentTaskEvent, AgentTaskStatus, AgentTaskStructuredResult, RuntimeKind, Session, TaskBudgetPolicy, TaskContract } from '../../../../packages/domain/src';
 import { applicableDocuments, buildDeveloperContext } from '../../../../packages/policy/src';
 import { sessionMemories } from './session-memory';
 import { normalizeMemorySettings } from '../../../../packages/memory-engine/src';
@@ -84,10 +84,11 @@ interface ActiveTask {
   retryFailure?: RetryFailure;
   submittedTurn?: boolean;
   budget?: TaskBudgetGuard;
+  observedEvidence: Map<string, { hash: string; segments: Array<{ startLine: number; endLine: number; content: string }> }>;
 }
 
 /** 工具权限由平台固定路由决定；不能由模型参数指定 requiredPermission 或跳过路径检查。 */
-export function createAgentTaskToolGateway(options: { store: LocalStore; task: AgentTask; workspacePath: string; budget: TaskBudgetGuard; assertActive?: () => void }): NonNullable<RuntimeOptions['toolGateway']> {
+export function createAgentTaskToolGateway(options: { store: LocalStore; task: AgentTask; workspacePath: string; budget: TaskBudgetGuard; assertActive?: () => void; observeRead?: (relativePath: string, result: Record<string, unknown>) => void }): NonNullable<RuntimeOptions['toolGateway']> {
   // 兼容模型把绝对目录包在反引号或引号中的历史任务记录，避免 realpath 将标记当作目录名。
   const workspacePath = options.workspacePath.trim().replace(/^[`'\"]+|[`'\"]+$/g, '').trim();
   const contract = options.store.getAgentTaskContractVersions(options.task.sessionId, options.task.id).at(-1)?.contract;
@@ -141,7 +142,10 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
       assertCurrent();
       if (canonicalTaskArgumentsHash(request.arguments) !== argumentsHash) throw new GovernanceError('arguments_changed_after_authorization');
       const result = await operation();
-      if (request.toolName === 'read_project_file' && typeof result.path === 'string') assertTaskPathAllowed(contract, result.path);
+      if (request.toolName === 'read_project_file' && typeof result.path === 'string') {
+        assertTaskPathAllowed(contract, result.path);
+        if (typeof result.hash === 'string' && /^[a-f0-9]{64}$/i.test(result.hash)) options.observeRead?.(result.path, result);
+      }
       if (request.toolName === 'list_project_files') {
         if (!Array.isArray(result.files) || result.files.some(file => typeof file !== 'string')) throw new GovernanceError('invalid_tool_result');
         const files = result.files.filter(file => { try { assertTaskPathAllowed(contract, file); return true; } catch { return false; } });
@@ -153,6 +157,47 @@ export function createAgentTaskToolGateway(options: { store: LocalStore; task: A
 }
 
 function terminal(status: AgentTaskStatus): boolean { return ['COMPLETED', 'CANCELLED', 'BLOCKED'].includes(status); }
+
+function structuredResult(text: string, observedEvidence: ReadonlyMap<string, { hash: string; segments: Array<{ startLine: number; endLine: number; content: string }> }>): NonNullable<AgentTask['result']>['structuredResult'] | undefined {
+  const source = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let value: unknown;
+  try { value = JSON.parse(source); } catch { return undefined; }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some(key => !['schemaVersion', 'outcome', 'summary', 'findings', 'risks', 'unresolved', 'recommendedNextSteps'].includes(key)) || input.schemaVersion !== 1 || !['completed', 'partial', 'blocked', 'failed'].includes(String(input.outcome)) || typeof input.summary !== 'string' || !input.summary.trim() || input.summary.length > 5000 || !Array.isArray(input.findings) || input.findings.length > 50 || !Array.isArray(input.risks) || input.risks.length > 20 || !Array.isArray(input.unresolved) || input.unresolved.length > 20 || !Array.isArray(input.recommendedNextSteps) || input.recommendedNextSteps.length > 20) return undefined;
+  const cleanList = (items: unknown[]) => items.every(item => typeof item === 'string' && item.length <= 1000 && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(item));
+  if (!cleanList(input.risks) || !cleanList(input.unresolved) || !cleanList(input.recommendedNextSteps)) return undefined;
+  const findings: AgentTaskStructuredResult['findings'] = [];
+  let verifiedEvidenceCount = 0;
+  for (const item of input.findings) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
+    const record = item as Record<string, unknown>;
+    if (Object.keys(record).some(key => !['title', 'detail', 'severity', 'evidence'].includes(key)) || typeof record.title !== 'string' || !record.title.trim() || record.title.length > 300 || typeof record.detail !== 'string' || !record.detail.trim() || record.detail.length > 2000 || record.severity !== undefined && !['info', 'low', 'medium', 'high', 'critical'].includes(String(record.severity)) || !Array.isArray(record.evidence) || record.evidence.length > 20) return undefined;
+    const evidence: Array<{ path: string; sha256: string; lineStart?: number; lineEnd?: number; excerptHash?: string }> = [];
+    for (const evidenceItem of record.evidence) {
+      if (!evidenceItem || typeof evidenceItem !== 'object' || Array.isArray(evidenceItem)) return undefined;
+      const reference = evidenceItem as Record<string, unknown>;
+      if (Object.keys(reference).some(key => !['path', 'lineStart', 'lineEnd'].includes(key)) || typeof reference.path !== 'string' || !reference.path || reference.path.length > 500 || reference.path.startsWith('/') || /^[a-zA-Z]:/.test(reference.path) || reference.path.split(/[\\/]/).some(segment => segment === '..') || reference.lineStart !== undefined && (!Number.isSafeInteger(reference.lineStart) || (reference.lineStart as number) < 1) || reference.lineEnd !== undefined && (!Number.isSafeInteger(reference.lineEnd) || (reference.lineEnd as number) < 1) || (reference.lineStart === undefined) !== (reference.lineEnd === undefined) || reference.lineStart !== undefined && (reference.lineEnd as number) < (reference.lineStart as number)) return undefined;
+      const filePath = reference.path.replaceAll('\\', '/');
+      const trusted = observedEvidence.get(process.platform === 'win32' ? filePath.toLowerCase() : filePath);
+      if (!trusted) return undefined;
+      const trustedEvidence: { path: string; sha256: string; lineStart?: number; lineEnd?: number; excerptHash?: string } = { path: filePath, sha256: trusted.hash };
+      if (reference.lineStart !== undefined && reference.lineEnd !== undefined) {
+        const segment = trusted.segments.find(range => (reference.lineStart as number) >= range.startLine && (reference.lineEnd as number) <= range.endLine);
+        if (!segment) return undefined;
+        const excerpt = segment.content.split('\n').slice((reference.lineStart as number) - segment.startLine, (reference.lineEnd as number) - segment.startLine + 1).join('\n');
+        trustedEvidence.lineStart = reference.lineStart as number;
+        trustedEvidence.lineEnd = reference.lineEnd as number;
+        trustedEvidence.excerptHash = createHash('sha256').update(excerpt, 'utf8').digest('hex');
+      }
+      evidence.push(trustedEvidence);
+      verifiedEvidenceCount += 1;
+    }
+    findings.push({ title: record.title, detail: record.detail, ...(record.severity ? { severity: record.severity as 'info' | 'low' | 'medium' | 'high' | 'critical' } : {}), evidence });
+  }
+  if (verifiedEvidenceCount === 0) return undefined;
+  return { schemaVersion: 1, outcome: input.outcome as 'completed' | 'partial' | 'blocked' | 'failed', summary: input.summary.trim(), findings, risks: input.risks as string[], unresolved: input.unresolved as string[], recommendedNextSteps: input.recommendedNextSteps as string[] };
+}
 
 /** 分析结果只作为证据交回主会话，失败和取消不能包装成已完成。 */
 export function automaticAgentTaskSummary(tasks: readonly AgentTask[]): string {
@@ -197,6 +242,38 @@ export class AgentTaskRunner {
           .filter(task => ids.has(task.id) && !['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(task.status))
           .map(task => this.cancel(sessionId, task.id))).then(check);
       }, timeoutMs);
+      check();
+    });
+  }
+
+  /** 等待编排内任务变化；到期只返回快照，不取消或重置任务。 */
+  waitForTaskUpdates(sessionId: string, orchestrationId: string, taskIds: readonly string[] = [], waitMs = 15000): Promise<AgentTask[]> {
+    if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 90000) throw new Error('等待时间必须在 0 到 90000 毫秒之间');
+    const requested = new Set(taskIds);
+    const snapshot = () => {
+      const tasks = this.options.store.listAgentTasks(sessionId, orchestrationId);
+      if ([...requested].some(id => !tasks.some(task => task.id === id))) throw new Error('等待任务不属于当前会话和编排轮次');
+      return requested.size ? tasks.filter(task => requested.has(task.id)) : tasks;
+    };
+    const initial = snapshot();
+    const initialState = new Map(initial.map(task => [task.id, `${task.status}:${task.attempt}:${task.stateVersion ?? 0}`]));
+    if (waitMs === 0 || !initial.length || initial.every(task => ['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(task.status))) return Promise.resolve(initial);
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        this.taskWaiters.delete(check);
+        if (timer) clearTimeout(timer);
+        try { resolve(snapshot()); } catch (error) { reject(error); }
+      };
+      const check = () => {
+        const current = snapshot();
+        if (this.closing || current.some(task => initialState.get(task.id) !== `${task.status}:${task.attempt}:${task.stateVersion ?? 0}`) || current.every(task => ['COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'].includes(task.status))) finish();
+      };
+      this.taskWaiters.add(check);
+      timer = setTimeout(finish, waitMs);
       check();
     });
   }
@@ -273,6 +350,17 @@ export class AgentTaskRunner {
     this.cancellingSessions.add(sessionId);
     try {
       const tasks = this.options.store.listAgentTasks(sessionId).filter(task => task.contractVersion ? !['COMPLETED', 'CANCELLED'].includes(executionStatusOf(task)) : !terminal(task.status));
+      for (const task of tasks) await this.cancel(sessionId, task.id).catch(() => undefined);
+    } finally {
+      this.cancellingSessions.delete(sessionId);
+      this.schedule();
+    }
+  }
+
+  async cancelForOrchestration(sessionId: string, orchestrationId: string): Promise<void> {
+    this.cancellingSessions.add(sessionId);
+    try {
+      const tasks = this.options.store.listAgentTasks(sessionId, orchestrationId).filter(task => task.contractVersion ? !['COMPLETED', 'CANCELLED'].includes(executionStatusOf(task)) : !terminal(task.status));
       for (const task of tasks) await this.cancel(sessionId, task.id).catch(() => undefined);
     } finally {
       this.cancellingSessions.delete(sessionId);
@@ -388,10 +476,20 @@ export class AgentTaskRunner {
     const memorySettings = normalizeMemorySettings(this.options.store.getMemorySettings());
     const memories = sessionMemories(this.options.store.listMemories(), session.projectId, `${task.name}\n${task.description}\n${task.input ?? ''}`, memorySettings, this.options.settings.memorySecrets());
     const context = contract ? documents.map(document => `【开发规范：${document.name}；${document.digest}】\n${document.content}`).join('\n\n') : buildDeveloperContext(documents, memories);
-    const developerInstructions = `${context}\n【子 Agent 任务职责】本任务由精工Agent调度，角色为${ANALYSIS_ROLES[task.role]}。负责检查当前会话项目代码与现状证据，输出分析结论、证据文件和未解决项，供主 Agent 汇总实施。任务分析与具体交付按下述契约分工完成。${contract ? `\n契约版本：${contract.contractVersion}\n目标：${contract.goal}\n期望交付：${contract.outputExpectations.join('；')}\n验收标准：${contract.acceptanceCriteria.join('；')}\n使用当前契约与显式引用的上下文，不继承父任务聊天历史或无关记忆。` : ''}`;
+    const developerInstructions = `${context}\n【子 Agent 任务职责】本任务由精工Agent调度，角色为${ANALYSIS_ROLES[task.role]}。负责检查当前会话项目代码与现状证据，输出分析结论、证据文件和未解决项，供主 Agent 汇总实施。任务分析与具体交付按下述契约分工完成。${contract ? `\n契约版本：${contract.contractVersion}\n目标：${contract.goal}\n期望交付：${contract.outputExpectations.join('；')}\n验收标准：${contract.acceptanceCriteria.join('；')}\n使用当前契约与显式引用的上下文，不继承父任务聊天历史或无关记忆。` : ''}${task.orchestrationId ? '\n最终答复必须是单个 JSON 对象且仅含 schemaVersion、outcome、summary、findings、risks、unresolved、recommendedNextSteps 字段；schemaVersion 固定为 1，outcome 为 completed/partial/blocked/failed。findings 每项包含 title、detail、可选 severity 和 evidence 数组；evidence 项只包含 path 及可选 lineStart/lineEnd，路径必须来自本任务 read_project_file 实际返回值，不得自报任何 Hash。至少引用一个本任务实际读取的文件；不输出 Markdown 代码围栏。' : ''}`;
     let gateway: RuntimeOptions['toolGateway'];
     const runtimeOptions: RuntimeOptions = { executable, home: path.join(this.options.dataRoot, 'runtime', 'agent-tasks', task.id), baseUrl: provider.baseUrl, model: task.model ?? session.model, apiKey, shellToolEnabled: false, reasoningEffort: session.reasoningEffort, developerInstructions, dictionaries: documents.filter(item => item.kind === 'dictionary'), ...(contract && active.budget ? { toolGateway: async (request, execute) => {
-      gateway ??= createAgentTaskToolGateway({ store: this.options.store, task, workspacePath: task.workspacePath ?? session.workspacePath, budget: active.budget!, assertActive: () => { if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive'); } });
+      gateway ??= createAgentTaskToolGateway({ store: this.options.store, task, workspacePath: task.workspacePath ?? session.workspacePath, budget: active.budget!, assertActive: () => { if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive'); }, observeRead: (relativePath, result) => {
+        const hash = typeof result.hash === 'string' ? result.hash : '';
+        const startLine = typeof result.startLine === 'number' ? result.startLine : 0;
+        const endLine = typeof result.endLine === 'number' ? result.endLine : 0;
+        const content = typeof result.content === 'string' ? result.content : '';
+        if (!/^[a-f0-9]{64}$/i.test(hash) || startLine < 1 || endLine < startLine) return;
+        const key = relativePath.replaceAll('\\', '/');
+        const normalizedKey = process.platform === 'win32' ? key.toLowerCase() : key;
+        const previous = active.observedEvidence.get(normalizedKey);
+        active.observedEvidence.set(normalizedKey, { hash, segments: [...(previous?.hash === hash ? previous.segments : []), { startLine, endLine, content }] });
+      } });
       return gateway(request, execute);
     }, executionMode: 'controlled_analysis', modelRequestGateway: request => {
       if (active.finished || active.cancelled || this.closing) throw new GovernanceError('task_inactive');
@@ -420,7 +518,16 @@ export class AgentTaskRunner {
         const snapshot = this.options.store.getTaskAuditSnapshot(task.sessionId, task.id);
         if (snapshot.pendingToolCalls.length || snapshot.toolEvents.some(event => event.eventType === 'tool.unknown_outcome')) throw new GovernanceError('unknown_tool_outcome_requires_manual_review');
         this.options.store.appendTaskAuditEvent(task.sessionId, task.id, { eventType: 'budget.inherited', actor: 'platform-runner', payload: { policy: inherited.policy, sources: inherited.sources } });
-        assertRuntimeGovernance(task.runtimeKind ?? 'codex', { strictModelRequests: true, strictTools: true, strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined }, 'controlled_analysis');
+        const session = this.options.store.getSession(task.sessionId);
+        const runtimeKind = task.runtimeKind ?? session?.runtimeKind ?? 'codex';
+        const certifications = this.options.store.listRuntimeCapabilityCertifications();
+        const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : session?.runtimeVersion ?? CODEX_RUNTIME_VERSION;
+        const modelId = task.model ?? session?.model ?? '';
+        const hasCertificationCandidate = certifications.some(item => item.runtimeKind === runtimeKind && item.runtimeVersion === runtimeVersion && item.modelId === modelId && item.wireApi === 'responses' && item.testSuiteVersion === CONTROLLED_ANALYSIS_TEST_SUITE_VERSION && item.testStatus === 'passed' && item.testRunId && item.evidenceRef?.trim() && Number.isFinite(Date.parse(item.testedAt)) && Date.parse(item.testedAt) <= Date.now());
+        const profiles = hasCertificationCandidate && session ? this.options.settings.profiles() : [];
+        const provider = session && (profiles.find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? profiles[0] : undefined));
+        const certified = provider ? certifiedControlledAnalysisCapabilities(certifications, { runtimeKind, runtimeVersion, providerId: provider.id, modelId, wireApi: 'responses' }) : new Set<RuntimeCapabilityName>();
+        assertRuntimeGovernance(runtimeKind, { strictModelRequests: true, strictTools: true, strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined }, 'controlled_analysis', certified);
         budget = new TaskBudgetGuard(inherited.policy, { startedAt: task.startedAt ? Date.parse(task.startedAt) : undefined, initial: { modelTurns: snapshot.budgetEvents.filter(event => event.eventType === 'model.turn_started').length, toolCalls: snapshot.toolEvents.filter(event => event.eventType === 'tool.started').length } });
         budget.check(); this.circuit(task).assertCanExecute();
       } catch (error) { if (error instanceof GovernanceError && error.code === 'circuit_open') this.deferCircuit(task); else this.blockGovernance(task, error); return; }
@@ -429,7 +536,7 @@ export class AgentTaskRunner {
       try { this.circuit(task).assertCanExecute(); } catch { this.deferCircuit(task); return; }
     }
     const running = this.saveTask(transitionAgentTask(task, { status: 'RUNNING' }, graph));
-    const active: ActiveTask = { task: running, finished: false, cancelled: false, output: '', budget };
+    const active: ActiveTask = { task: running, finished: false, cancelled: false, output: '', budget, observedEvidence: new Map() };
     this.active.set(taskId, active);
     const timeoutMs = budget ? Math.min(running.timeoutMs ?? Number.POSITIVE_INFINITY, Math.max(0, budget.policy.maxRuntimeMinutes * 60000 - budget.snapshot().elapsedMs)) : running.timeoutMs;
     if (timeoutMs !== undefined) active.timer = setTimeout(() => { void this.timeout(active); }, timeoutMs);
@@ -459,7 +566,8 @@ export class AgentTaskRunner {
     const task = this.options.store.listAgentTasks(active.task.sessionId).find(item => item.id === active.task.id) ?? active.task;
     const safeText = this.options.settings.redactContent(event.text);
     if (event.type === 'error') active.failure = safeText;
-    if (safeText && (event.type === 'message' || event.type === 'delta')) active.output = `${active.output}${safeText}`.slice(-12000);
+    if (safeText && event.type === 'delta') active.output = `${active.output}${safeText}`.slice(-12000);
+    else if (safeText && event.type === 'message') active.output = safeText.slice(-12000);
     this.record(task, event.type, safeText, event.requestId);
     if (event.type === 'status') {
       const status = event.text === 'interrupted' && task.contractVersion && !active.terminationStatus ? 'INTERRUPTED' : active.terminationStatus === 'INTERRUPTED' ? 'INTERRUPTED' : terminalTaskStatus(event.text, active.terminationStatus);
@@ -503,9 +611,11 @@ export class AgentTaskRunner {
       this.schedule(); return;
     }
     if (status === 'INTERRUPTED') status = 'FAILED';
+    const parsedResult = status === 'COMPLETED' && active.task.orchestrationId ? structuredResult(active.output, active.observedEvidence) : undefined;
+    if (status === 'COMPLETED' && active.task.orchestrationId && !parsedResult) { status = 'FAILED'; error = '结构化结果无效，或引用文件未在本任务中读取并通过 SHA-256 核验'; }
     const safeOutput = this.options.settings.redactContent(active.output).slice(-12000);
     const safeError = error ? this.options.settings.redactContent(error).slice(0, 12000) : undefined;
-    const result = status === 'COMPLETED' ? { summary: safeOutput || '任务已完成' } : { error: safeError ?? '任务执行失败', summary: safeOutput || undefined };
+    const result = status === 'COMPLETED' ? { summary: parsedResult?.summary ?? (safeOutput || '任务已完成'), ...(parsedResult ? { structuredResult: parsedResult } : {}) } : { error: safeError ?? '任务执行失败' };
     let next = transitionAgentTask(current, { status, result, error: safeError });
     next = this.saveTask(next);
     this.record(next, 'status', status === 'COMPLETED' ? '任务已完成' : safeError ?? (status === 'CANCELLED' ? '任务已取消' : '任务失败'));

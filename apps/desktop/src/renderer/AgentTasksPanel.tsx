@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentTask, AgentTaskEvent, AgentTaskRole, DesktopApi, Session } from '../../../../packages/domain/src';
+import type { AgentOrchestrationAvailability, AgentTask, AgentTaskEvent, AgentTaskRole, DesktopApi, Session } from '../../../../packages/domain/src';
 import { mergeAgentTaskEvents, selectedAgentTask } from './agent-task-state';
 import { Icon } from './ui';
 import { TaskEngineeringPanel } from './TaskEngineeringPanel';
@@ -26,7 +26,7 @@ interface AgentTasksPanelProps {
 
 export function AgentTasksPanel(props: AgentTasksPanelProps) {
   // key 使会话更换与旧选中任务一起原子卸载，避免新会话请求旧任务。
-  return props.session && props.tasks.length
+  return props.session
     ? <SessionAgentTasksPanel key={props.session.id} {...props} session={props.session} />
     : null;
 }
@@ -35,6 +35,7 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
   const [events, setEvents] = useState<AgentTaskEvent[]>([]);
   const [selectedTask, setSelectedTask] = useState(tasks[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
+  const [availability, setAvailability] = useState<AgentOrchestrationAvailability>();
   const mounted = useRef(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -47,6 +48,12 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
   useEffect(() => {
     setSelectedTask(current => selectedAgentTask(tasks, session.id, current)?.id ?? tasks[0]?.id ?? '');
   }, [tasks, session.id]);
+
+  useEffect(() => {
+    let live = true;
+    void api.getAgentOrchestrationAvailability(session.id).then(value => { if (live && mounted.current) setAvailability(value); }).catch(error => { if (live && mounted.current) onErrorRef.current(errorMessage(error)); });
+    return () => { live = false; };
+  }, [api, session.id]);
 
   const selected = selectedAgentTask(tasks, session.id, selectedTask);
   useEffect(() => {
@@ -67,13 +74,24 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
     finally { if (mounted.current) setBusy(false); }
   }
 
+  async function cancelOrchestration(orchestrationId: string) {
+    setBusy(true);
+    try { await api.cancelAgentOrchestration(session.id, orchestrationId); await refreshTasks(); }
+    catch (error) { if (mounted.current) onErrorRef.current(errorMessage(error)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+
   const selectedEvents = selected ? mergeAgentTaskEvents(events, liveEvents, session.id, selected.id).filter(event => event.type !== 'approval') : [];
+  const groups = [...new Set(tasks.map(task => task.orchestrationId ?? '历史任务'))].map(orchestrationId => ({ orchestrationId, tasks: tasks.filter(task => (task.orchestrationId ?? '历史任务') === orchestrationId) }));
   return <div className="agent-tasks-panel">
-    <div className="agent-tasks-heading"><div><strong>子 Agent</strong><span>{tasks.filter(task => task.status === 'RUNNING').length} 个运行中 · 按任务需要自动分工</span></div><button className="icon-button" type="button" title="刷新子任务" aria-label="刷新子任务" disabled={busy} onClick={() => { void refreshTasks().catch(error => { if (mounted.current) onErrorRef.current(errorMessage(error)); }); }}><Icon name="refresh" /></button></div>
-    <div className="agent-task-list" aria-label="子 Agent 任务列表">{tasks.map(task => <button type="button" key={task.id} className={`agent-task-row ${selectedTask === task.id ? 'selected' : ''}`} onClick={() => setSelectedTask(task.id)}><span className={`agent-task-dot task-${task.status.toLowerCase()}`} /><span><strong>{taskName(task)}</strong><small>{roleLabels[task.role]} · 第 {task.attempt}/{task.maxAttempts} 次</small></span><b>{statusLabels[task.status]}</b></button>)}</div>
+    <div className="agent-tasks-heading"><div><strong>子 Agent</strong><span>{tasks.filter(task => task.status === 'RUNNING').length} 个运行中 · {tasks.length ? '按编排轮次分组' : '等待主 Agent 动态委派'}</span></div><button className="icon-button" type="button" title="刷新子任务" aria-label="刷新子任务" disabled={busy} onClick={() => { void refreshTasks().catch(error => { if (mounted.current) onErrorRef.current(errorMessage(error)); }); }}><Icon name="refresh" /></button></div>
+    {availability && <section className={`agent-orchestration-gate gate-${availability.status}`} aria-label="子 Agent 能力门禁"><strong>{availability.status === 'available' ? '受控子 Agent 已认证' : availability.status === 'unsupported' ? '当前 Runtime 不支持子 Agent' : '受控子 Agent 未认证'}</strong><p>{availability.reason}</p><small>Runtime {availability.runtimeKind} {availability.runtimeVersion} · Provider {availability.providerId ?? '未配置'} · Model {availability.modelId} · 测试套件 {availability.testSuiteVersion}</small></section>}
+    {!tasks.length && <div className="agent-tasks-empty">当前没有本会话子 Agent 任务。能力未认证时不会创建或启动受控子 Agent。</div>}
+    <div className="agent-task-list" aria-label="子 Agent 任务列表">{groups.map(group => <section className="agent-task-group" key={group.orchestrationId}><div className="agent-task-group-heading"><span>编排轮次：{group.orchestrationId}</span>{group.orchestrationId !== '历史任务' && <button type="button" disabled={busy} onClick={() => { void cancelOrchestration(group.orchestrationId); }}>取消本轮</button>}</div>{group.tasks.map(task => <button type="button" key={task.id} className={`agent-task-row ${selectedTask === task.id ? 'selected' : ''}`} onClick={() => setSelectedTask(task.id)}><span className={`agent-task-dot task-${task.status.toLowerCase()}`} /><span><strong>{taskName(task)}</strong><small>{roleLabels[task.role]} · {task.runtimeKind ?? 'codex'} / {task.model ?? '未记录'} · 第 {task.attempt}/{task.maxAttempts} 次{task.parentTaskId ? ` · 修订自 ${task.parentTaskId.slice(0, 8)}` : ''}</small></span><b>{statusLabels[task.status]}</b></button>)}</section>)}</div>
     {selected && <section className="agent-task-detail" aria-label="子 Agent 任务详情"><div className="agent-task-detail-heading"><strong>{taskName(selected)}</strong>{selected.status === 'PENDING' || selected.status === 'WAITING' || selected.status === 'RUNNING' || Boolean(selected.contractVersion && !['COMPLETED', 'CANCELLED'].includes(selected.executionStatus ?? selected.status)) ? <button className="cancel-button" type="button" disabled={busy} onClick={() => { void cancel(selected.id); }}><Icon name="stop" />{selected.status === 'RUNNING' ? '停止' : '终止并保留成果'}</button> : null}</div>
       <details><summary>任务目标</summary><p>{selected.description}</p></details>
-      {selected.result?.summary && <pre className="agent-task-result">{selected.result.summary}</pre>}{selected.error && <pre className="agent-task-error">{selected.error}</pre>}
+      {selected.parentTaskId && <p className="agent-task-parent">修订自任务：{selected.parentTaskId}</p>}
+      {selected.result?.structuredResult ? <section className="agent-task-structured-result"><strong>结构化结论 · {selected.result.structuredResult.outcome}</strong><p>{selected.result.structuredResult.summary}</p><h4>发现</h4>{selected.result.structuredResult.findings.map((finding, index) => <article key={`${finding.title}-${index}`}><b>{finding.title}</b><span>{finding.detail}</span>{finding.evidence.map(evidence => <small key={`${evidence.path}-${evidence.sha256}-${evidence.lineStart ?? 0}`}>{evidence.path} · SHA256 {evidence.sha256}{evidence.lineStart ? ` · L${evidence.lineStart}${evidence.lineEnd ? `-${evidence.lineEnd}` : ''}` : ''}</small>)}</article>)}{selected.result.structuredResult.risks.length > 0 && <p><b>风险：</b>{selected.result.structuredResult.risks.join('；')}</p>}{selected.result.structuredResult.unresolved.length > 0 && <p><b>未解决：</b>{selected.result.structuredResult.unresolved.join('；')}</p>}{selected.result.structuredResult.recommendedNextSteps.length > 0 && <p><b>下一步：</b>{selected.result.structuredResult.recommendedNextSteps.join('；')}</p>}</section> : selected.result?.summary && <pre className="agent-task-result">{selected.result.summary}</pre>}{selected.error && <pre className="agent-task-error">{selected.error}</pre>}
       {api.taskEngineering && <details><summary>工程契约与证据</summary><TaskEngineeringPanel key={`${session.id}:${selected.id}`} api={api.taskEngineering} task={selected} onChange={refreshTasks} onError={text => { if (mounted.current) onErrorRef.current(text); }} /></details>}
       {api.learningEngine && <details><summary>经验沉淀与 Skill 学习</summary><LearningEnginePanel key={`learning:${session.id}:${selected.id}`} api={api.learningEngine} sessionId={session.id} task={selected} onError={text => { if (mounted.current) onErrorRef.current(text); }} /> </details>}
       <details><summary className="agent-task-events-heading">执行日志 · {selectedEvents.length} 条</summary><div className="agent-task-events">{selectedEvents.map(event => <article key={event.id} className={`agent-task-event event-${event.type}`}><time>{new Date(event.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span>{event.type === 'user' ? '输入' : event.type === 'status' ? '状态' : event.type === 'tool' ? '工具' : event.type === 'error' ? '错误' : '输出'}</span><pre>{event.text}</pre></article>)}{!selectedEvents.length && <span className="agent-task-no-events">暂无执行日志。</span>}</div></details>
