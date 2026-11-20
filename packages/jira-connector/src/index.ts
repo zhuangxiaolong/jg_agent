@@ -382,6 +382,12 @@ export class JiraConnector {
     return value.toUpperCase();
   }
 
+  issueUrl(key: string, selectedProject?: string): string {
+    const projectKey = this.queryProject(selectedProject);
+    if (typeof key !== 'string' || !ISSUE_KEY.test(key) || (projectKey !== '*' && ISSUE_KEY.exec(key)![1] !== projectKey)) throw new Error('任务 Key 无效或不属于所选 Jira 项目');
+    return `${this.baseUrl}/browse/${encodeURIComponent(key)}`;
+  }
+
   async searchIssues(input: JiraSearchInput): Promise<JiraSearchPage> {
     if (!input || typeof input.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number(input.date.slice(0, 4)) < 1000) throw new Error('请选择有效的查询日期，格式为 YYYY-MM-DD');
     const scope = input.scope === undefined ? 'daily' : input.scope;
@@ -400,7 +406,7 @@ export class JiraConnector {
       timeZone = connection.timeZone;
       dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
     } else timeZone = (await this.userMetadata()).timeZone;
-    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "关闭")'] : [])];
+    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "关闭", "挂起")'] : [])];
     const ordering = input.priorityFirst ? 'priority DESC, updated DESC, key ASC' : 'updated DESC, key ASC';
     const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY ${ordering}`;
     const query = new URLSearchParams({ jql, startAt: String(startAt), maxResults: String(PAGE_SIZE), fields: this.fields() });

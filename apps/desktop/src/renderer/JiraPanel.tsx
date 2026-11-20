@@ -11,6 +11,7 @@ import './jira-dock.css';
 
 function today() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 interface QuerySelection { date: string; onlyMine: boolean; scope: 'daily' | 'recent'; projectKey: string; projectLabel: string; priorityFirst?: boolean }
+interface JiraIssueContextMenu { key: string; projectKey: string; x: number; y: number }
 export function JiraPanel({ api, settings, projects, projectId, onProjectChange, onConfigure, onCreateIssue, creating, compact = false }: {
   api: DesktopApi; settings: JiraSettings; projects: Project[]; projectId: string;
   onProjectChange: (id: string) => void; onConfigure: () => void;
@@ -37,6 +38,7 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selected, setSelected] = useState('');
+  const [issueContextMenu, setIssueContextMenu] = useState<JiraIssueContextMenu | null>(null);
   const [issue, setIssue] = useState<JiraIssue | null>(null);
   const [error, setError] = useTransientError();
   const [detailError, setDetailError] = useTransientError();
@@ -49,6 +51,17 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
   const automaticCheck = useRef(() => {});
   const filterRevision = useRef(0);
   const cachedSelection = useRef<QuerySelection | null>(null);
+  useEffect(() => {
+    if (!issueContextMenu) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('.jira-issue-context-menu')) return;
+      setIssueContextMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setIssueContextMenu(null); };
+    window.addEventListener('pointerdown', closeOutside);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => { window.removeEventListener('pointerdown', closeOutside); window.removeEventListener('keydown', closeOnEscape); };
+  }, [issueContextMenu]);
   const projectOptions = new Map<string, string>();
   const configuredProject = settings.projectKey?.toUpperCase();
   if (configuredProject) projectOptions.set(configuredProject, `${configuredProject}（默认项目）`);
@@ -257,7 +270,8 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
     {error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}
     <div className="jira-browser">
       <section className="jira-results" aria-label="Jira 任务列表"><div className="jira-list-heading"><strong>{loading ? '正在读取 Jira' : result ? `共 ${result.total.toLocaleString('zh-CN')} 项任务` : '待抓取任务'}</strong>{result && <span>{result.issues.length ? `${result.startAt + 1}–${result.startAt + result.issues.length}` : '0'} / {result.total}</span>}</div>
-        {loading && !result ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在抓取任务</strong><p>通过已保存的 Jira 连接查询真实数据。</p></div> : result?.issues.length ? <div className="jira-issue-list">{result.issues.map(item => <button key={item.id || item.key} className={`jira-issue-row ${selected === item.key ? 'selected' : ''}`} aria-label={`查看 Jira 任务 ${item.key}`} aria-pressed={selected === item.key} disabled={changed || loading} onClick={() => read(item.key)}><div><strong>{item.key}</strong><span>{item.status}</span></div><b>{item.summary}</b><small>项目 {item.key.replace(/-\d+$/, '')} · {item.issueType} · {item.assignee || '未分配'} · 报告人：{item.reporter || '未提供'}{item.priority ? ` · ${item.priority}` : ''}</small></button>)}</div> : <div className="jira-empty"><Icon name="file" /><strong>{result ? searched?.scope === 'daily' ? '该日期没有匹配任务' : '当前条件没有匹配任务' : '选择查询范围后抓取 Jira 任务'}</strong><p>{result ? '请检查项目范围、日期和负责人条件，调整后重新抓取。' : '无需先添加本地项目，即可查看需求。'}</p></div>}
+        {loading && !result ? <div className="jira-empty" role="status"><Icon name="refresh" /><strong>正在抓取任务</strong><p>通过已保存的 Jira 连接查询真实数据。</p></div> : result?.issues.length ? <div className="jira-issue-list">{result.issues.map(item => <button key={item.id || item.key} className={`jira-issue-row ${selected === item.key ? 'selected' : ''}`} aria-label={`查看 Jira 任务 ${item.key}`} aria-pressed={selected === item.key} disabled={changed || loading} onClick={() => read(item.key)} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelected(item.key); setIssueContextMenu({ key: item.key, projectKey: searched?.projectKey ?? jiraProjectKey, x: event.clientX, y: event.clientY }); }}><div><strong>{item.key}</strong><span>{item.status}</span></div><b>{item.summary}</b><small>项目 {item.key.replace(/-\d+$/, '')} · {item.issueType} · {item.assignee || '未分配'} · 报告人：{item.reporter || '未提供'}{item.priority ? ` · ${item.priority}` : ''}</small></button>)}</div> : <div className="jira-empty"><Icon name="file" /><strong>{result ? searched?.scope === 'daily' ? '该日期没有匹配任务' : '当前条件没有匹配任务' : '选择查询范围后抓取 Jira 任务'}</strong><p>{result ? '请检查项目范围、日期和负责人条件，调整后重新抓取。' : '无需先添加本地项目，即可查看需求。'}</p></div>}
+        {issueContextMenu && <div className="file-context-menu jira-issue-context-menu" role="menu" aria-label={`Jira 任务 ${issueContextMenu.key} 操作`} style={{ left: Math.min(issueContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(issueContextMenu.y, Math.max(8, window.innerHeight - 90)) }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><div className="file-context-heading">{issueContextMenu.key}</div><button type="button" role="menuitem" onClick={() => { const target = issueContextMenu; setIssueContextMenu(null); void api.openJiraIssue(target.key, target.projectKey).catch(reason => setError(readableError(reason))); }}><Icon name="arrow" />打开 Jira</button></div>}
         {result && <div className="jira-pagination"><button className="secondary-button" aria-label="Jira 任务上一页" disabled={loading || changed || result.startAt <= 0} onClick={() => search(Math.max(0, result.startAt - result.maxResults), searched?.priorityFirst ?? false)}>上一页</button><span>每页 {result.maxResults} 项</span><button className="secondary-button" aria-label="Jira 任务下一页" disabled={loading || changed || result.isLast || result.startAt + result.issues.length >= result.total} onClick={() => search(result.startAt + result.maxResults, searched?.priorityFirst ?? false)}>下一页</button></div>}
       </section>
       <section className="jira-detail-panel" aria-label="任务详情与本地项目">

@@ -5,7 +5,7 @@ import { requiresRequirementAdmission } from '../../../../packages/domain/src/ji
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon, Mark } from './ui';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
-import { MarkdownContent } from './MarkdownContent';
+import { JiraInlineImagePreview, jiraWikiImageAttachments, MarkdownContent } from './MarkdownContent';
 import { ConversationImagePreview } from './ConversationImagePreview';
 import { ConversationFilePreview } from './ConversationFilePreview';
 import { playCompletionSound } from './completion-sound';
@@ -226,6 +226,7 @@ export function App() {
   const project = data?.projects.find(item => item.id === projectId);
   const jiraAssociationId = data?.projects.some(item => item.id === jiraLocalProjectId) ? jiraLocalProjectId : projectId;
   const session = data?.sessions.find(item => item.id === sessionId);
+  const jiraDraftImageAttachments = session?.jiraIssue ? jiraWikiImageAttachments(prompt, session.jiraIssue) : [];
   const agentTasks = useSessionAgentTasks(api, sessionId, text => setError(message(text)));
   const hasAgentTasks = !!session;
   const currentInspector = inspector === 'agents' && !hasAgentTasks ? 'jira' : inspector;
@@ -1106,6 +1107,7 @@ export function App() {
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send} onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
                 <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
+                {jiraDraftImageAttachments.length > 0 && <div className="composer-jira-image-previews" aria-label="Jira 正文图片预览">{jiraDraftImageAttachments.map(attachment => <JiraInlineImagePreview key={attachment.id} issueKey={session!.jiraIssue!.key} attachment={attachment} sessionId={sessionId} />)}</div>}
                 {conversationAttachments.length > 0 && <div className="composer-attachments" aria-label="待发送附件">{conversationAttachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} onRemove={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))} /> : <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name="file" /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}</div>}
                <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
               </form>

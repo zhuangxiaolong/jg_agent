@@ -5,7 +5,7 @@ import { Icon } from './ui';
 
 function isDevelopmentWarning(line: string): boolean { return /需求不完整[，,:：、\s]*暂不修改/.test(line); }
 
-function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { issueKey: string; attachment: JiraAttachment; sessionId: string }) {
+export function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { issueKey: string; attachment: JiraAttachment; sessionId: string }) {
   const [source, setSource] = useState(''), [error, setError] = useState('');
   useEffect(() => {
     let alive = true;
@@ -20,6 +20,22 @@ function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { issueKey:
   return <span className="markdown-jira-image-preview" data-jira-attachment-id={attachment.id}>
     {source ? <img src={source} alt={attachment.name} onError={() => setError('图片缓存不是受支持的图片。')} /> : error ? <span className="markdown-jira-image-error" role="alert">图片预览不可用：{error}</span> : <span role="status">正在加载图片预览…</span>}
   </span>;
+}
+
+function jiraImageAttachment(markup: string, issue?: JiraIssue): JiraAttachment | undefined {
+  const reference = /^!([^!]+)!$/.exec(markup);
+  if (!reference || !issue) return undefined;
+  const name = reference[1].split('|', 1)[0].trim().replace(/^.*[\\/]/, '').toLocaleLowerCase();
+  return issue.attachments.find(item => item.name.toLocaleLowerCase() === name && (/^image\/(?:png|jpeg|gif|webp)$/i.test(item.mimeType) || /\.(?:png|jpe?g|gif|webp)$/i.test(item.name)));
+}
+
+export function jiraWikiImageAttachments(text: string, issue?: JiraIssue): JiraAttachment[] {
+  const found = new Map<string, JiraAttachment>();
+  for (const match of text.matchAll(/![^!\r\n]+!/g)) {
+    const attachment = jiraImageAttachment(match[0], issue);
+    if (attachment) found.set(attachment.id, attachment);
+  }
+  return [...found.values()];
 }
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
@@ -48,8 +64,7 @@ function inline(value: string, keyPrefix: string, onFilePath?: (path: string) =>
     const jiraImage = /^!([^!]+)!$/.exec(token);
     const markdownLink = /^\[([^\]]+)\]\((?:<([^>]+)>|([^\s)]+))\)$/.exec(token);
     if (jiraImage) {
-      const name = jiraImage[1].split('|', 1)[0].trim().replace(/^.*[\\/]/, '').toLocaleLowerCase();
-      const attachment = jiraIssue?.attachments.find(item => item.name.toLocaleLowerCase() === name && (/^image\/(?:png|jpeg|gif|webp)$/i.test(item.mimeType) || /\.(?:png|jpe?g|gif|webp)$/i.test(item.name)));
+      const attachment = jiraImageAttachment(token, jiraIssue);
       output.push(jiraIssue && attachment && sessionId ? <JiraInlineImagePreview key={`${keyPrefix}-${index}`} issueKey={jiraIssue.key} attachment={attachment} sessionId={sessionId} /> : token);
     }
     else if (markdownLink) {

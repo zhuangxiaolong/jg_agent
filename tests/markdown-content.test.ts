@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JiraIssue } from '../packages/domain/src';
-import { MarkdownContent } from '../apps/desktop/src/renderer/MarkdownContent';
+import { jiraWikiImageAttachments, MarkdownContent } from '../apps/desktop/src/renderer/MarkdownContent';
 
 test('会话 Markdown 中文链接显示可读标题并解码文件路径', () => {
   const html = renderToStaticMarkup(createElement(MarkdownContent, {
@@ -33,6 +33,7 @@ test('Jira wiki 图片语法按附件名显示会话图片预览组件，而不�
   const markup = renderToStaticMarkup(createElement(MarkdownContent, { text: '需求图片：!image-2026-09-19-10-17-25-285.png!', jiraIssue: issue, sessionId: 'session-1' }));
   assert.match(markup, /data-jira-attachment-id="25"/);
   assert.doesNotMatch(markup, /!image-2026-09-19-10-17-25-285\.png!/);
+  assert.deepEqual(jiraWikiImageAttachments('正文：!image-2026-09-19-10-17-25-285.png!\n重复：!image-2026-09-19-10-17-25-285.png!', issue), issue.attachments);
 });
 
 test('未关联到 Jira 图片附件的 wiki 标记保持纯文本，不加载任意图片地址', () => {

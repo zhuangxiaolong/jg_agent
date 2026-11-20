@@ -494,6 +494,7 @@ export interface DesktopApi {
   saveRequirement(input: { id?: string; title: string; content: string; system: ProductSystem }): Promise<ManagedDocument>;
   testJiraConnection(): Promise<JiraConnectionResult>;
   listJiraProjects(): Promise<JiraProject[]>;
+  openJiraIssue(key: string, projectKey?: string): Promise<void>;
   searchJiraIssues(input: JiraSearchInput): Promise<JiraSearchPage>;
   listJiraQueries(): Promise<JiraSavedQuery[]>;
   getJiraIssue(key: string, projectKey?: string): Promise<JiraIssue>;

@@ -31,6 +31,14 @@ test('Jira 页面地址还原真实 Base URL、contextpath 与项目 Key，拒�
   for (const location of ['file:///tmp/jira', 'javascript:alert(1)', 'ftp://jira.example.invalid', 'http://user:password@jira.example.invalid', 'http://jira.example.invalid/a%2fb/projects/KEY', 'not-a-url']) assert.throws(() => normalizeJiraUrl(location));
 });
 
+test('打开 Jira 任务链接只生成配置站点内的合法任务地址', () => {
+  const connector = new JiraConnector({ baseUrl: 'https://jira.example.invalid/team', projectKey: 'NEWDEVGROUP', account: 'fixture', password });
+  assert.equal(connector.issueUrl('NEWDEVGROUP-25'), 'https://jira.example.invalid/team/browse/NEWDEVGROUP-25');
+  assert.equal(connector.issueUrl('OTHER-25', '*'), 'https://jira.example.invalid/team/browse/OTHER-25');
+  assert.throws(() => connector.issueUrl('OTHER-25'), /所选 Jira 项目/);
+  assert.throws(() => connector.issueUrl('NEWDEVGROUP-25?url=https://evil.invalid'), /所选 Jira 项目/);
+});
+
 test('合成 HTTP REST2：读取用户/日期字段、日期任务分页及详情，只发送 GET 与独立Basic认证', async () => {
   const requests: { url: URL; method?: string; auth?: string }[] = [];
   let base = '';
@@ -88,11 +96,11 @@ test('最近任务通过真实HTTP省去日报条件，保留项目、负责人�
   try {
     const connector = new JiraConnector({ baseUrl: service.baseUrl, account: 'fixture', password });
     const recent = await connector.searchIssues({ date: '2026-11-04', scope: 'recent' });
-    assert.equal(recent.jql, 'project = "NEWDEVGROUP" AND status NOT IN ("完成", "关闭") ORDER BY updated DESC, key ASC');
+    assert.equal(recent.jql, 'project = "NEWDEVGROUP" AND status NOT IN ("完成", "关闭", "挂起") ORDER BY updated DESC, key ASC');
     assert.equal(recent.issues.length, 1);
     assert.equal(recent.isLast, true);
     const mine = await connector.searchIssues({ date: '2026-11-04', scope: 'recent', onlyMine: true });
-    assert.equal(mine.jql, 'project = "NEWDEVGROUP" AND assignee = currentUser() AND status NOT IN ("完成", "关闭") ORDER BY updated DESC, key ASC');
+    assert.equal(mine.jql, 'project = "NEWDEVGROUP" AND assignee = currentUser() AND status NOT IN ("完成", "关闭", "挂起") ORDER BY updated DESC, key ASC');
     const daily = await connector.searchIssues({ date: '2026-11-04' });
     const explicitDaily = await connector.searchIssues({ date: '2026-11-04', scope: 'daily' });
     assert.equal(daily.jql, explicitDaily.jql);
@@ -117,13 +125,13 @@ test('抓取所有本人任务不依赖日报字段，并保留状态过滤与�
     if (url.pathname.endsWith('/search')) {
       const jql = url.searchParams.get('jql')!;
       if (jql.includes('"已关闭"')) return Response.json({ errorMessages: ['status 中不存在“已关闭”'] }, { status: 400 });
-      if (!jql.includes('status NOT IN ("完成", "关闭")')) return Response.json({ errorMessages: ['未按 Jira 当前状态名过滤'] }, { status: 400 });
+      if (!jql.includes('status NOT IN ("完成", "关闭", "挂起")')) return Response.json({ errorMessages: ['未按 Jira 当前状态名过滤'] }, { status: 400 });
       return Response.json({ startAt: 0, maxResults: 50, total: 0, issues: [] });
     }
     return Response.json({ errorMessages: ['日报字段不可访问'] }, { status: 400 });
   });
   const result = await connector.searchIssues({ date: '2026-11-04', scope: 'recent', projectKey: '*', onlyMine: true, priorityFirst: true });
-  assert.equal(result.jql, 'assignee = currentUser() AND status NOT IN ("完成", "关闭") ORDER BY priority DESC, updated DESC, key ASC');
+  assert.equal(result.jql, 'assignee = currentUser() AND status NOT IN ("完成", "关闭", "挂起") ORDER BY priority DESC, updated DESC, key ASC');
   assert.equal(result.timeZone, user.timeZone);
   assert.deepEqual(requests.map(url => url.pathname), ['/rest/api/2/myself', '/rest/api/2/search']);
   assert.equal(requests[1].searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment');
@@ -173,9 +181,9 @@ test('合成CD日报任务与跨项目分页：本次项目筛选不修改实例
     const second = await connector.searchIssues({ date: '2026-11-04', projectKey: '*', startAt: 2 });
     assert.equal(second.issues[0].key, 'CD-434');
     assert.equal(second.isLast, true);
-    assert.equal((await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent' })).jql, 'status NOT IN ("完成", "关闭") ORDER BY updated DESC, key ASC');
+    assert.equal((await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent' })).jql, 'status NOT IN ("完成", "关闭", "挂起") ORDER BY updated DESC, key ASC');
     const priorityOrdered = await connector.searchIssues({ date: '2026-11-04', projectKey: '*', scope: 'recent', onlyMine: true, priorityFirst: true });
-    assert.equal(priorityOrdered.jql, 'assignee = currentUser() AND status NOT IN ("完成", "关闭") ORDER BY priority DESC, updated DESC, key ASC');
+    assert.equal(priorityOrdered.jql, 'assignee = currentUser() AND status NOT IN ("完成", "关闭", "挂起") ORDER BY priority DESC, updated DESC, key ASC');
     assert.equal((await connector.getIssue('CD-435', '*')).key, 'CD-435');
     assert.equal((await connector.getIssue('CD-435', 'CD')).key, 'CD-435');
     await assert.rejects(connector.getIssue('OTHER-1', '*'), /访问权限/);

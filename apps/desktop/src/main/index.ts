@@ -2135,6 +2135,11 @@ if (primaryInstance) app.whenReady().then(async () => {
     const scope = jiraCacheScope(), connector = jiraConnector();
     const result = await connector.listProjects(); assertJiraScope(scope); settings.assertCleanValue(result); return result;
   });
+  handle('jira:open-issue', async (value: unknown, projectValue?: unknown) => {
+    const connector = jiraConnector();
+    const url = connector.issueUrl(jiraIssueKeySchema.parse(value), jiraProjectScopeSchema.parse(projectValue));
+    await shell.openExternal(url);
+  });
   handle('jira:issue', async (value: unknown, projectValue?: unknown) => {
     const key = allowedJiraKey(value, projectValue), scope = jiraCacheScope();
     const cached = store.getCachedJiraIssue(scope, key);

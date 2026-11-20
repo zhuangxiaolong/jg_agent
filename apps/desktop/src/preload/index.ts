@@ -225,6 +225,7 @@ const api: DesktopApi = {
   saveRequirement: input => invoke('settings:requirement-save', input),
   testJiraConnection: () => invoke('jira:test'),
   listJiraProjects: () => invoke('jira:projects'),
+  openJiraIssue: (key, projectKey) => invoke('jira:open-issue', key, projectKey),
   searchJiraIssues: input => invoke('jira:search', input),
   listJiraQueries: () => invoke('jira:history'),
   getJiraIssue: (key, projectKey) => invoke('jira:issue', key, projectKey),
