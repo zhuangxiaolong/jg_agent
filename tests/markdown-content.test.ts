@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JiraIssue } from '../packages/domain/src';
-import { jiraWikiImageAttachments, MarkdownContent } from '../apps/desktop/src/renderer/MarkdownContent';
+import { jiraWikiImageAttachments, JiraInlineImagePreview, MarkdownContent, removeJiraWikiImageAttachment } from '../apps/desktop/src/renderer/MarkdownContent';
 
 test('会话 Markdown 中文链接显示可读标题并解码文件路径', () => {
   const html = renderToStaticMarkup(createElement(MarkdownContent, {
@@ -34,6 +34,15 @@ test('Jira wiki 图片语法按附件名显示会话图片预览组件，而不�
   assert.match(markup, /data-jira-attachment-id="25"/);
   assert.doesNotMatch(markup, /!image-2026-09-19-10-17-25-285\.png!/);
   assert.deepEqual(jiraWikiImageAttachments('正文：!image-2026-09-19-10-17-25-285.png!\n重复：!image-2026-09-19-10-17-25-285.png!', issue), issue.attachments);
+  assert.equal(removeJiraWikiImageAttachment('保留 !image-2026-09-19-10-17-25-285.png|thumbnail! 与 !other.png!', issue, '25'), '保留  与 !other.png!');
+});
+
+test('Jira 图片卡片支持点击放大并在输入区移除', () => {
+  const attachment: JiraIssue['attachments'][number] = { id: '25', name: '需求截图.png', mimeType: 'image/png', size: 128, url: 'https://jira.example.invalid/image.png' };
+  const markup = renderToStaticMarkup(createElement(JiraInlineImagePreview, { issueKey: 'YSG-387', attachment, sessionId: 'session-1', onRemove: () => undefined }));
+  assert.match(markup, /class="conversation-image-card composer-image-card"/);
+  assert.match(markup, /aria-label="放大图片 需求截图\.png"/);
+  assert.match(markup, /aria-label="移除附件 需求截图\.png"/);
 });
 
 test('未关联到 Jira 图片附件的 wiki 标记保持纯文本，不加载任意图片地址', () => {

@@ -38,6 +38,7 @@ export function ConversationImagePreview({ sessionId, attachment, onRemove }: Pr
   }, [expanded]);
 
   async function openFullImage() {
+    if (expanded || loading) return;
     setExpanded(true);
     setLoading(true);
     setFullImage('');
@@ -54,7 +55,7 @@ export function ConversationImagePreview({ sessionId, attachment, onRemove }: Pr
   return <figure className={'conversation-image-card' + (onRemove ? ' composer-image-card' : ' message-image-card')}>
     {error
       ? <div className="conversation-image-error" role="alert"><span>图片加载失败：{error}</span><button type="button" className="text-button" onClick={() => setRevision(value => value + 1)}>重试图片</button></div>
-      : <button type="button" className="conversation-image-trigger" aria-label={'放大图片 ' + attachment.name} title="双击放大图片" onDoubleClick={event => { event.preventDefault(); void openFullImage(); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openFullImage(); } }}>
+      : <button type="button" className="conversation-image-trigger" aria-label={'放大图片 ' + attachment.name} title="点击放大图片" onClick={() => { void openFullImage(); }}>
           {preview ? <img src={preview} alt={attachment.name} /> : <span className="conversation-image-loading">正在加载图片…</span>}
           <span className="conversation-image-name">{attachment.name}</span>
         </button>}

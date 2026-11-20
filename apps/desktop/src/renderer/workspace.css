@@ -420,14 +420,7 @@ html[data-style="minimal"] .brand-mark { opacity: .8; }
 .messages-jump { display: inline-flex; align-items: center; gap: 6px; height: 31px; margin-top: -42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel, #202722); color: var(--accent); box-shadow: 0 3px 15px var(--shadow, #0005); font-size: 10px; pointer-events: auto; }
 .messages-jump .icon { width: 12px; height: 12px; transform: rotate(90deg); }
 .markdown-content { white-space: normal; overflow-wrap: anywhere; }
-.markdown-jira-image-preview { display: inline-block; max-width: 100%; margin: 6px 0; vertical-align: middle; }
-.markdown-jira-image-preview img { display: block; max-width: min(480px, 100%); max-height: 360px; border: 1px solid var(--line); border-radius: 6px; object-fit: contain; }
-.markdown-jira-image-preview>[role="status"], .markdown-jira-image-error { color: var(--muted); font-size: 10px; }
-.markdown-jira-image-error { color: var(--danger, #d88f80); }
-.composer-jira-image-previews { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-height: 180px; overflow: auto; margin: 0 12px 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-0); }
-.composer-jira-image-previews::before { content: "Jira 正文图片预览"; flex: 0 0 100%; color: var(--muted); font-size: 10px; }
-.composer-jira-image-previews .markdown-jira-image-preview { flex: 0 0 auto; margin: 0; }
-.composer-jira-image-previews .markdown-jira-image-preview img { max-width: min(240px, 100%); max-height: 140px; }
+.markdown-content-paragraph { margin: 6px 0; }
 .markdown-content>*:first-child { margin-top: 0; }
 .markdown-content>*:last-child { margin-bottom: 0; }
 .markdown-content p { margin: 6px 0; }

@@ -5,8 +5,9 @@ import { Icon } from './ui';
 
 function isDevelopmentWarning(line: string): boolean { return /需求不完整[，,:：、\s]*暂不修改/.test(line); }
 
-export function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { issueKey: string; attachment: JiraAttachment; sessionId: string }) {
+export function JiraInlineImagePreview({ issueKey, attachment, sessionId, onRemove }: { issueKey: string; attachment: JiraAttachment; sessionId: string; onRemove?: () => void }) {
   const [source, setSource] = useState(''), [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(false), [revision, setRevision] = useState(0);
   useEffect(() => {
     let alive = true;
     setSource(''); setError('');
@@ -16,10 +17,30 @@ export function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { is
       if (alive) setSource(value);
     }).catch(reason => { if (alive) setError(readableError(reason)); });
     return () => { alive = false; };
-  }, [issueKey, attachment.id, attachment.localImage?.sha256, attachment.imageWarning, sessionId]);
-  return <span className="markdown-jira-image-preview" data-jira-attachment-id={attachment.id}>
-    {source ? <img src={source} alt={attachment.name} onError={() => setError('图片缓存不是受支持的图片。')} /> : error ? <span className="markdown-jira-image-error" role="alert">图片预览不可用：{error}</span> : <span role="status">正在加载图片预览…</span>}
-  </span>;
+  }, [issueKey, attachment.id, attachment.localImage?.sha256, attachment.imageWarning, sessionId, revision]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [expanded]);
+
+  return <figure className={'conversation-image-card ' + (onRemove ? 'composer-image-card' : 'message-image-card')} data-jira-attachment-id={attachment.id}>
+    {error
+      ? <div className="conversation-image-error" role="alert"><span>图片预览不可用：{error}</span><button type="button" className="text-button" onClick={() => setRevision(value => value + 1)}>重试图片</button></div>
+      : <button type="button" className="conversation-image-trigger" aria-label={'放大图片 ' + attachment.name} title="点击放大图片" onClick={() => setExpanded(true)}>
+          {source ? <img src={source} alt={attachment.name} onError={() => setError('图片缓存不是受支持的图片。')} /> : <span className="conversation-image-loading">正在加载图片…</span>}
+          <span className="conversation-image-name">{attachment.name}</span>
+        </button>}
+    {onRemove && <button type="button" className="conversation-image-remove" aria-label={'移除附件 ' + attachment.name} title="移除附件" onClick={onRemove}><Icon name="close" /></button>}
+    {expanded && source && <div className="conversation-image-overlay" role="dialog" aria-modal="true" aria-label={'图片查看 ' + attachment.name} onClick={() => setExpanded(false)}>
+      <div onClick={event => event.stopPropagation()}>
+        <header><strong>{attachment.name}</strong><button type="button" className="icon-button" autoFocus aria-label="关闭图片查看" onClick={() => setExpanded(false)}><Icon name="close" /></button></header>
+        <img src={source} alt={attachment.name} />
+      </div>
+    </div>}
+  </figure>;
 }
 
 function jiraImageAttachment(markup: string, issue?: JiraIssue): JiraAttachment | undefined {
@@ -36,6 +57,10 @@ export function jiraWikiImageAttachments(text: string, issue?: JiraIssue): JiraA
     if (attachment) found.set(attachment.id, attachment);
   }
   return [...found.values()];
+}
+
+export function removeJiraWikiImageAttachment(text: string, issue: JiraIssue, attachmentId: string): string {
+  return text.replace(/![^!\r\n]+!/g, markup => jiraImageAttachment(markup, issue)?.id === attachmentId ? '' : markup);
 }
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
@@ -168,7 +193,11 @@ export function MarkdownContent({ text, onFilePath, jiraIssue, sessionId }: { te
     const paragraph: string[] = [];
     while (index < lines.length && lines[index].trim() && !isBlockStart(lines, index)) paragraph.push(lines[index++]);
     if (paragraph.length) {
-      blocks.push(<p key={`paragraph-${index}`}>{renderInline(paragraph.join(' '), `paragraph-${index}`)}</p>);
+      const value = paragraph.join(' ');
+      const containsJiraImage = !!jiraIssue && !!sessionId && jiraWikiImageAttachments(value, jiraIssue).length > 0;
+      blocks.push(containsJiraImage
+        ? <div className="markdown-content-paragraph" key={`paragraph-${index}`}>{renderInline(value, `paragraph-${index}`)}</div>
+        : <p key={`paragraph-${index}`}>{renderInline(value, `paragraph-${index}`)}</p>);
     } else {
       blocks.push(<p key={`paragraph-${index}`}>{renderInline(lines[index], `paragraph-${index}`)}</p>); index++;
     }
