@@ -79,6 +79,20 @@ test('通用文档正文快照提取 PDF 与 PPTX，保留页/幻灯片边界且
     assert.ok(pptSnapshot.content.indexOf('WMS 上线验收') < pptSnapshot.content.indexOf('MES 实施计划'), '使用 presentation.xml 的真实页序，不按部件文件编号排序');
     assert.match(pptSnapshot.content, /第二页对应备注/);
     assert.doesNotMatch(pptSnapshot.content, /孤立页面|孤立备注/);
+    for (const extension of ['pptx', 'pptm']) {
+      const file = join(root, `含二进制部件.${extension}`);
+      await writeFile(file, zip({
+        'ppt/presentation.xml': pptxPresentation,
+        'ppt/_rels/presentation.xml.rels': pptxRelationships,
+        'ppt/slides/slide1.xml': pptxSlide('演示文稿中的可读文字'),
+        'ppt/slides/slide2.xml': pptxSlide('第二页文字'),
+        'ppt/vbaProject.bin': 'macro-binary-data',
+        'ppt/embeddings/oleObject1.bin': 'embedded-object-data'
+      }));
+      const extracted = await readDocumentTextFile(file);
+      assert.match(extracted.content, /演示文稿中的可读文字/);
+      assert.doesNotMatch(extracted.content, /macro-binary-data|embedded-object-data/);
+    }
     const legacyXls = join(root, '旧工作簿.xls'); await writeFile(legacyXls, Buffer.from('binary placeholder'));
     await assert.rejects(readDocumentTextFile(legacyXls), /旧版 DOC\/XLS\/PPT.*另存为新格式/);
     const legacyPpt = join(root, '旧演示文稿.ppt'); await writeFile(legacyPpt, Buffer.from('binary placeholder'));
@@ -143,14 +157,13 @@ test('真实 XLSX 解析工作表关系、共享字符串、富文本、内联�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('Office 缺失工作表、DTD实体、路径逃逸、宏、压缩炸弹及损坏文件均拒绝且不截断', async () => {
+test('Office 缺失工作表、DTD实体、路径逃逸、压缩炸弹及损坏文件均拒绝且不截断', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-office-deny-'));
   try {
     const filename = join(root, '不安全.docx');
     for (const [bytes, expected] of [
       [zip({ 'word/document.xml': '<!DOCTYPE doc [<!ENTITY x "value">]><document>&x;</document>' }), /实体|DTD/],
       [zip({ '../outside.xml': '<bad/>', 'word/document.xml': '<document/>' }), /路径/],
-      [zip({ 'word/vbaProject.bin': 'macro', 'word/document.xml': '<document/>' }), /宏/],
       [zip({ 'word/document.xml': '<document>' + 'x'.repeat(5 * 1024 * 1024) + '</document>' }), /容量/],
       [zip({ 'word/document.xml': '<document><p>broken</document>' }), /损坏/],
       [Buffer.from('not-a-zip'), /ZIP/]

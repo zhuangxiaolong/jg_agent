@@ -33,7 +33,7 @@ test('自动记忆只摘录本轮用户明确长期规则，排除普通任务�
     assert.deepEqual(rememberCompletedSession(store, { ...session, status: 'failed' }), []);
     event('u3', 'user', '请记住：以后使用 known-configured-secret。'); event('c3', 'status', 'completed');
     assert.deepEqual(rememberCompletedSession(store, session, { knownSecrets: ['known-configured-secret'] }), []);
-    store.saveMemorySettings({ autoCaptureEnabled: false, globalInjectionEnabled: true, projectInjectionEnabled: true, maxItems: 20, maxChars: 10000 });
+    store.saveMemorySettings({ autoCaptureEnabled: false, globalInjectionEnabled: true, projectInjectionEnabled: true, codexMemoryInjectionEnabled: true, maxItems: 20, maxChars: 10000 });
     event('u4', 'user', '请记住：以后提交前必须复核变更。'); event('c4', 'status', 'completed');
     assert.deepEqual(rememberCompletedSession(store, session, { enabled: store.getMemorySettings()?.autoCaptureEnabled }), []);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }

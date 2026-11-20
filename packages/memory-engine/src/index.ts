@@ -5,6 +5,7 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
   autoCaptureEnabled: true,
   globalInjectionEnabled: true,
   projectInjectionEnabled: true,
+  codexMemoryInjectionEnabled: true,
   maxItems: 20,
   maxChars: 10000
 };
@@ -57,6 +58,7 @@ export function normalizeMemorySettings(value: Partial<MemorySettings> | undefin
     autoCaptureEnabled: typeof value?.autoCaptureEnabled === 'boolean' ? value.autoCaptureEnabled : DEFAULT_MEMORY_SETTINGS.autoCaptureEnabled,
     globalInjectionEnabled: typeof value?.globalInjectionEnabled === 'boolean' ? value.globalInjectionEnabled : DEFAULT_MEMORY_SETTINGS.globalInjectionEnabled,
     projectInjectionEnabled: typeof value?.projectInjectionEnabled === 'boolean' ? value.projectInjectionEnabled : DEFAULT_MEMORY_SETTINGS.projectInjectionEnabled,
+    codexMemoryInjectionEnabled: typeof value?.codexMemoryInjectionEnabled === 'boolean' ? value.codexMemoryInjectionEnabled : DEFAULT_MEMORY_SETTINGS.codexMemoryInjectionEnabled,
     maxItems: typeof value?.maxItems === 'number' && Number.isInteger(value.maxItems) && value.maxItems >= 1 && value.maxItems <= 20 ? value.maxItems : DEFAULT_MEMORY_SETTINGS.maxItems,
     maxChars: typeof value?.maxChars === 'number' && Number.isInteger(value.maxChars) && value.maxChars >= 500 && value.maxChars <= 10000 ? value.maxChars : DEFAULT_MEMORY_SETTINGS.maxChars
   };

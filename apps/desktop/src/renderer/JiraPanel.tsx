@@ -162,7 +162,7 @@ export function JiraPanel({ api, settings, projects, projectId, onProjectChange,
       } catch (reason) { if (request === sequence.current) setHistoryError(`抓取已完成，本地记录读取失败：${readableError(reason)}`); }
     } catch (reason) {
       if (request === sequence.current && context === contextSequence.current) {
-        setError(`${automaticRequest ? '自动抓取失败：' : ''}${readableError(reason)}。已有本地记录将保留，可手动重试。`);
+        setError(`${automaticRequest ? '自动抓取失败：' : ''}${readableError(reason)}`);
         if (automaticRequest) {
           setAutoFailed(true); setAutoStatus('今日自动抓取失败，已有缓存仍保留；不会自动重复重试。');
           // 自动刷新失败仍允许查阅原缓存，日期和条件显示为缓存自身的快照。

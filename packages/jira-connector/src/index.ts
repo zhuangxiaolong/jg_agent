@@ -206,7 +206,7 @@ export class JiraConnector {
       if (response.status === 429) throw new Error('Jira 请求过于频繁，请稍后重试');
       if (response.status >= 300 && response.status < 400) throw new Error('Jira 返回登录或地址重定向，请填写正确的 Jira Base URL；连接器不会转发认证信息');
       if (!response.ok) {
-        if (!mutation) throw new Error(response.status >= 500 ? 'Jira 服务暂时不可用，请稍后重试' : 'Jira 拒绝了查询，请检查项目、日期字段和查询权限');
+        if (!mutation) throw new Error(response.status >= 500 ? 'Jira 服务暂时不可用，请稍后重试' : 'Jira 查询失败，请检查项目、日期字段及权限');
         const errors = await response.text();
         let detail = ''; try { const data = JSON.parse(errors); detail = [...(Array.isArray(data.errorMessages) ? data.errorMessages : []), ...Object.entries(data.errors ?? {}).map(([name, value]) => `${name}: ${value}`)].join('；'); } catch { /* 非 JSON 不作为业务详情显示。 */ }
         throw new Error(this.text(`Jira ${response.status >= 500 ? '服务暂时不可用，' : ''}${mutation ? '操作' : '查询'}失败（HTTP ${response.status}）${detail ? '：' + detail.slice(0, 1200) : ''}`));
@@ -384,7 +384,7 @@ export class JiraConnector {
     if (!integer(startAt, 1000000) || (input.onlyMine !== undefined && typeof input.onlyMine !== 'boolean') || (input.priorityFirst !== undefined && typeof input.priorityFirst !== 'boolean')) throw new Error('Jira 分页或负责人筛选参数无效');
     const connection = await this.metadata();
     const dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
-    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : ['status NOT IN ("已完成", "关闭")']), ...(input.onlyMine ? ['assignee = currentUser()'] : [])];
+    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "已关闭")'] : [])];
     const ordering = input.priorityFirst ? 'priority DESC, updated DESC, key ASC' : 'updated DESC, key ASC';
     const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY ${ordering}`;
     const query = new URLSearchParams({ jql, startAt: String(startAt), maxResults: String(PAGE_SIZE), fields: this.fields() });

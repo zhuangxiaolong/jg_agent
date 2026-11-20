@@ -1,5 +1,5 @@
 import { useTransientError } from './use-transient-error';
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
 import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
@@ -615,7 +615,7 @@ export function App() {
       const added = await api.addConversationAttachments(session.id, files);
       if (added.length) {
         setConversationAttachments(current => [...current, ...added]);
-        setNotice(`已粘贴 ${added.length} 个附件，可检查后发送。`);
+        setNotice(`已添加 ${added.length} 个附件，可检查后发送。`);
       }
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
@@ -635,6 +635,18 @@ export function App() {
       setPrompt(target.value.slice(0, start) + inserted + target.value.slice(end));
       window.requestAnimationFrame(() => { target.focus(); target.setSelectionRange(start + inserted.length, start + inserted.length); });
     }
+    void pasteConversationAttachments(files);
+  }
+  function handleComposerDragOver(event: ReactDragEvent<HTMLFormElement>) {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+  function handleComposerDrop(event: ReactDragEvent<HTMLFormElement>) {
+    const files = Array.from(event.dataTransfer.files);
+    if (!files.length) return;
+    event.preventDefault();
+    event.stopPropagation();
     void pasteConversationAttachments(files);
   }
   async function refreshDiff(id = sessionId, background = false) {
@@ -1092,7 +1104,7 @@ export function App() {
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
-              <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send}>
+              <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send} onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
                 <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
                 {conversationAttachments.length > 0 && <div className="composer-attachments" aria-label="待发送附件">{conversationAttachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} onRemove={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))} /> : <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name="file" /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}</div>}
                <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>

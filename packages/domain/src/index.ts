@@ -298,7 +298,7 @@ export interface Memory {
   scope?: MemoryScope; category?: MemoryCategory; status?: MemoryStatus; memorySource?: MemorySource;
   confidence?: number; tags?: string[]; evidence?: MemoryEvidence[]; updatedAt?: string; supersedesMemoryId?: string; reviewReason?: string;
 }
-export interface MemorySettings { autoCaptureEnabled: boolean; globalInjectionEnabled: boolean; projectInjectionEnabled: boolean; maxItems: number; maxChars: number }
+export interface MemorySettings { autoCaptureEnabled: boolean; globalInjectionEnabled: boolean; projectInjectionEnabled: boolean; codexMemoryInjectionEnabled: boolean; maxItems: number; maxChars: number }
 export interface MemoryDiagnostics { retrievedAt: string; durationMs: number; totalCandidates: number; injectedCount: number; injectedChars: number; skippedCount: number; contextHash: string; categories: MemoryCategory[] }
 export interface UpdateStatus { state: UpdateState; version?: string; progress?: number; message?: string }
 export interface RequirementsSync { url: string; automatic: boolean; version?: string; lastChecked?: string; lastUpdated?: string; message?: string; error?: string }

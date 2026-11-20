@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Memory, MemorySettings } from '../packages/domain/src';
 import { extractMemoryCandidates, memoriesConflict, normalizeMemory, normalizeMemorySettings, retrieveMemories, scanMemoryText } from '../packages/memory-engine/src';
 
-const settings: MemorySettings = { autoCaptureEnabled: true, globalInjectionEnabled: true, projectInjectionEnabled: true, maxItems: 20, maxChars: 10000 };
+const settings: MemorySettings = { autoCaptureEnabled: true, globalInjectionEnabled: true, projectInjectionEnabled: true, codexMemoryInjectionEnabled: true, maxItems: 20, maxChars: 10000 };
 const now = '2026-11-19T00:00:00.000Z';
 function memory(id: string, content: string, overrides: Partial<Memory> = {}): Memory {
   return { id, title: content.slice(0, 60), content, createdAt: now, scope: 'global', category: 'preference', status: 'active', memorySource: 'manual', ...overrides };
@@ -62,6 +62,8 @@ test('本地检索遵守注入开关、数量和字符预算，规范化不覆�
   const disabled = retrieveMemories({ memories, task: '数据库迁移', settings: { ...settings, globalInjectionEnabled: false } });
   assert.deepEqual(disabled.memories, []);
   assert.equal(normalizeMemorySettings({ globalInjectionEnabled: false }).globalInjectionEnabled, false);
+  assert.equal(normalizeMemorySettings({}).codexMemoryInjectionEnabled, true);
+  assert.equal(normalizeMemorySettings({ codexMemoryInjectionEnabled: false }).codexMemoryInjectionEnabled, false);
 });
 
 test('相同记忆去重，带否定变化的规则进入冲突判断', () => {

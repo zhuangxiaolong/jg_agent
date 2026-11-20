@@ -10,7 +10,7 @@ export { assertNoPlaintextCredentials } from './security';
 export type { ManagedDocument, ProductSystem } from '../../domain/src/index';
 export { MAX_DOCUMENT_CHARACTERS, MAX_DICTIONARY_CHARACTERS } from './limits';
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv', '.sql']);
-export const SUPPORTED_DOCUMENT_TEXT_EXTENSIONS = Object.freeze([...TEXT_EXTENSIONS, '.pdf', '.docx', '.xlsx', '.pptx']);
+export const SUPPORTED_DOCUMENT_TEXT_EXTENSIONS = Object.freeze([...TEXT_EXTENSIONS, '.pdf', '.docx', '.xlsx', '.pptx', '.pptm']);
 const SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET = new Set(SUPPORTED_DOCUMENT_TEXT_EXTENSIONS);
 const SYSTEMS = new Set<ProductSystem>(['MES5', 'MES6', 'WMS', '前端', '通用']);
 
@@ -63,7 +63,6 @@ function readOfficeArchive(bytes: Uint8Array, limits: DocumentLimits): Record<st
       names.add(name);
       total += file.originalSize;
       if (file.originalSize > limits.entryBytes || total > limits.archiveBytes || file.originalSize > Math.max(file.size, 1) * 500) throw new Error('Office 文档解压容量超过限制，请拆分文档。');
-      if (/vbaProject\.bin$|(?:^|\/)embeddings\//i.test(name)) throw new Error('不支持含宏或嵌入对象的 Office 文档，请导出为纯文本文档。');
       return /\.xml$|\.rels$/i.test(name);
     } });
   } catch (error) {
@@ -282,8 +281,8 @@ async function extractDocumentContent(extension: string, bytes: Uint8Array, limi
   const archive = readOfficeArchive(bytes, limits);
   if (extension === '.docx') return extractDocx(archive, limits);
   if (extension === '.xlsx') return extractXlsx(archive, limits);
-  if (extension === '.pptx') return extractPptx(archive, limits);
-  throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX；旧版 XLS/PPT 请另存为新格式。');
+  if (extension === '.pptx' || extension === '.pptm') return extractPptx(archive, limits);
+  throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 XLS/PPT 请另存为新格式。');
 }
 
 async function readFileSnapshot(filename: string, limits: DocumentLimits): Promise<{ bytes: Buffer; name: string; extension: string }> {
@@ -308,7 +307,7 @@ async function readFileSnapshot(filename: string, limits: DocumentLimits): Promi
 export async function readDocumentTextFile(filename: string, options: DocumentTextReadOptions = {}): Promise<DocumentTextSnapshot> {
   const limits = extractionLimits(options);
   const snapshot = await readFileSnapshot(filename, limits);
-  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX；旧版 DOC/XLS/PPT 请另存为新格式。');
+  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
   const content = await extractDocumentContent(snapshot.extension, snapshot.bytes, limits);
   if (!content.trim()) throw new Error('文档未包含可导入的文本。');
   if (content.length > limits.characters) throw new Error(`文档提取文本超过 ${limits.characters} 字符，未导入也未截断；请拆分文档后重试。`);
@@ -320,7 +319,7 @@ export async function importDocumentFile(filename: string, kind: ManagedDocument
   if (!['dictionary', 'requirement'].includes(kind) || !SYSTEMS.has(system)) throw new Error('文档类型或适用系统无效。');
   const limits = documentLimits(kind);
   const snapshot = await readDocumentTextFile(filename, { maxCharacters: limits.characters, maxFileBytes: limits.fileBytes });
-  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX；旧版 DOC/XLS/PPT 请另存为新格式。');
+  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
   const content = assertTextSize(snapshot.content, kind);
   return { id: randomUUID(), kind, system, name: snapshot.name, content, digest: snapshot.digest, createdAt: new Date().toISOString(), enabled: true };
 }
