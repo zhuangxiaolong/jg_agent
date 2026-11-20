@@ -12,6 +12,7 @@ export const modelApiKeySchema = z.string().trim().min(1, '请填写 API Key').m
 export const promptSchema = z.string().trim().min(1).max(50000);
 export const sessionSendSchema = z.object({ prompt: promptSchema, attachmentIds: z.array(idSchema).max(20).default([]) }).strict();
 export const sessionConversationImageSchema = z.object({ sessionId: idSchema, attachmentId: idSchema, fullSize: z.boolean().default(false) }).strict();
+export const sessionConversationAttachmentSchema = z.object({ sessionId: idSchema, attachmentId: idSchema }).strict();
 export const sessionAttachmentPathsSchema = z.object({ sessionId: idSchema, paths: z.array(z.string().min(1).max(4096).refine(value => !value.includes('\0'), '附件路径无效')).min(1).max(20) }).strict();
 const clipboardImageBytesSchema = z.custom<Uint8Array>(value => value instanceof Uint8Array && value.byteLength > 0 && value.byteLength <= 8 * 1024 * 1024, '剪贴板图片数据无效或超过 8 MiB');
 export const sessionAttachmentsSchema = z.object({

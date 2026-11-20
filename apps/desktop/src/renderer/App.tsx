@@ -40,6 +40,7 @@ const defaultLayout: LayoutPreferences = { leftVisible: true, rightVisible: true
 type ResizeKind = 'left' | 'right' | 'bottom' | 'composer' | 'standalone';
 interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; startValue: number; latest: number; pointerId: number; handle: HTMLButtonElement }
 interface FileContextMenu { file: FileDiff; x: number; y: number }
+type MessageFileContextMenu = { kind: 'project'; path: string; x: number; y: number } | { kind: 'attachment'; sessionId: string; attachment: ConversationAttachment; x: number; y: number };
 interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
 function time(value: string) { return formatClockTime(value); }
@@ -139,6 +140,7 @@ export function App() {
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenu | null>(null);
   const [filePreviewPath, setFilePreviewPath] = useState('');
   const [fileAction, setFileAction] = useState('');
+  const [messageFileContextMenu, setMessageFileContextMenu] = useState<MessageFileContextMenu | null>(null);
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
   const prompt = sessionDrafts[sessionId]?.prompt || '';
   const conversationAttachments = sessionDrafts[sessionId]?.attachments || [];
@@ -847,16 +849,17 @@ export function App() {
   }, [sessionSettingsOpen]);
 
   useEffect(() => {
-    if (!fileContextMenu) return;
+    if (!fileContextMenu && !messageFileContextMenu) return;
     const closeOnOutside = (event: PointerEvent) => {
       if (event.target instanceof Element && event.target.closest('.file-context-menu')) return;
       setFileContextMenu(null);
+      setMessageFileContextMenu(null);
     };
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setFileContextMenu(null); } };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setFileContextMenu(null); setMessageFileContextMenu(null); } };
     document.addEventListener('pointerdown', closeOnOutside);
     document.addEventListener('keydown', closeOnEscape);
     return () => { document.removeEventListener('pointerdown', closeOnOutside); document.removeEventListener('keydown', closeOnEscape); };
-  }, [fileContextMenu]);
+  }, [fileContextMenu, messageFileContextMenu]);
   useEffect(() => { if (layout.bottomVisible) activityEndRef.current?.scrollIntoView({ block: 'end' }); }, [activityEvents.length, layout.bottomVisible]);
   useEffect(() => {
     if (sessionId && !running) void refreshDiff(sessionId);
@@ -1026,6 +1029,46 @@ export function App() {
     setFilePreviewPath(relative.replace(/^\.\//, ''));
     setInspector('files');
   }
+  function showMessageFileContextMenu(filePath: string, x: number, y: number) {
+    setFileContextMenu(null);
+    setMessageFileContextMenu({ kind: 'project', path: filePath, x, y });
+  }
+  function showConversationAttachmentContextMenu(attachment: ConversationAttachment, x: number, y: number) {
+    setFileContextMenu(null);
+    setMessageFileContextMenu({ kind: 'attachment', sessionId, attachment, x, y });
+  }
+  function messageProjectFile(filePath: string) {
+    const targetProject = project || sessionProject;
+    if (!targetProject) return undefined;
+    const normalized = filePath.replace(/\\/g, '/');
+    const root = targetProject.path.replace(/\\/g, '/').replace(/\/$/, '');
+    const relative = normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? normalized.slice(root.length + 1) : normalized;
+    return { path: relative.replace(/^\.\//, ''), target: sessionProject ? sessionId : { projectId: targetProject.id } };
+  }
+  function openMessageContextFile() {
+    const menu = messageFileContextMenu;
+    setMessageFileContextMenu(null);
+    if (!menu) return;
+    if (menu.kind === 'project') {
+      const file = messageProjectFile(menu.path);
+      if (!file) { setError('请先选择项目后打开文件'); return; }
+      void api.openProjectFile(file.target, file.path).catch(reason => setError(message(reason)));
+      return;
+    }
+    void api.openConversationAttachment(menu.sessionId, menu.attachment.id).catch(reason => setError(message(reason)));
+  }
+  function revealMessageContextFile() {
+    const menu = messageFileContextMenu;
+    setMessageFileContextMenu(null);
+    if (!menu) return;
+    if (menu.kind === 'attachment') {
+      void api.revealConversationAttachment(menu.sessionId, menu.attachment.id).catch(reason => setError(message(reason)));
+      return;
+    }
+    const file = messageProjectFile(menu.path);
+    if (!file) { setError('请先选择项目后打开文件所在位置'); return; }
+    void api.revealProjectFile(file.target, file.path).catch(reason => setError(message(reason)));
+  }
 
   function renderProjectGroup(item: NonNullable<typeof data>['projects'][number]) {
     const projectSessions = data?.sessions.filter(sessionItem => sessionItem.projectId === item.id) ?? [];
@@ -1078,7 +1121,7 @@ export function App() {
             {requiresRequirementAdmission(session.jiraIssue) && <RequirementAdmissionPanel admission={session.requirementAdmission} historyHint={session.imported ? '导入会话无准入快照；不会补造历史结论' : '历史任务/尚未执行需求检查'} onRefresh={() => refreshRequirementAdmission()} refreshing={requirementBusy} disabled={running || !!busy || requirementBusy} resolveAvailable={session.requirementAdmission?.status !== 'stale' && session.requirementAdmission?.status !== 'error'} onResolve={(itemId, action, valueText, reason) => resolveRequirementItem(itemId, action, valueText, reason)} />}
             <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll} aria-live="polite" aria-label="会话消息">
                {!rows.length && <div className="session-welcome"><Mark /><h1>{project ? '一起理解这个项目' : '开始新的对话'}</h1><p>{project ? '描述您要分析的问题、代码或需求。' : '描述您的问题，也可以添加文本和附件进行分析。'}<br />当前为{session.system || '通用'}，Agent 直接使用所选项目目录。</p><div className="suggestions">{(project ? ['梳理项目架构与主要模块', '检查潜在缺陷并说明影响范围', '分析现有测试与构建方式'] : ['帮我整理这份资料的重点', '帮我起草一份工作计划', '分析这个问题并给出建议']).map(text => <button key={text} onClick={() => setPrompt(text)}>{text}<Icon name="arrow" /></button>)}</div></div>}
-               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool-group' ? <details className="tool-event tool-event-group" key={row.id}><summary><Icon name="terminal" /><span>工具事件（{row.toolEvents?.length ?? 1} 项）</span><time>{time(row.createdAt)}</time><span className="tool-event-expand">点击展开</span></summary><div className="tool-event-list">{row.toolEvents?.map((tool, index) => <pre key={`${tool.id}-${index}`}>{toolPlatformText(tool.text)}</pre>)}</div></details> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className={`message-avatar ${row.type === 'user' ? 'user-avatar' : ''}`}>{row.type === 'user' ? userAvatar(userProfile) : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? userProfile.name : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? session?.jiraIssue ? <MarkdownContent text={displayUserMessageText(row.text)} jiraIssue={session.jiraIssue} sessionId={sessionId} /> : displayUserMessageText(row.text) : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} />}</div>{row.type === 'user' && row.attachments?.length ? <div className="message-images" aria-label="消息附件">{row.attachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} /> : <ConversationFilePreview key={attachment.id} attachment={attachment} />)}</div> : null}</div></article>)}
+               {rows.map(row => row.type === 'status' ? <div className="event-status" key={row.id}><span /><span>{row.text in statusLabels ? statusLabels[row.text as SessionStatus] : engineText(row.text)}</span></div> : row.type === 'tool-group' ? <details className="tool-event tool-event-group" key={row.id}><summary><Icon name="terminal" /><span>工具事件（{row.toolEvents?.length ?? 1} 项）</span><time>{time(row.createdAt)}</time><span className="tool-event-expand">点击展开</span></summary><div className="tool-event-list">{row.toolEvents?.map((tool, index) => <pre key={`${tool.id}-${index}`}>{toolPlatformText(tool.text)}</pre>)}</div></details> : <article className={`message ${row.type === 'user' ? 'user' : row.type === 'error' ? 'error' : 'agent'}`} key={row.id}><div className={`message-avatar ${row.type === 'user' ? 'user-avatar' : ''}`}>{row.type === 'user' ? userAvatar(userProfile) : row.type === 'error' ? <Icon name="alert" /> : <Mark small />}</div><div className="message-content"><div className="message-meta"><strong>{row.type === 'user' ? userProfile.name : assistantName}</strong>{row.type !== 'user' && row.durationMs !== undefined && <span className="message-duration" title={`本轮处理用时 ${formatDuration(row.durationMs)}`}>用时 {formatDuration(row.durationMs)}<Icon name="chevron" /></span>}<time>{time(row.createdAt)}</time></div><div className="message-text">{row.type === 'user' ? session?.jiraIssue ? <MarkdownContent text={displayUserMessageText(row.text)} jiraIssue={session.jiraIssue} sessionId={sessionId} onFilePath={openMessageFile} onFileContextMenu={showMessageFileContextMenu} /> : displayUserMessageText(row.text) : <MarkdownContent text={row.type === 'error' ? engineText(row.text) : row.text} onFilePath={openMessageFile} onFileContextMenu={showMessageFileContextMenu} />}</div>{row.type === 'user' && row.attachments?.length ? <div className="message-images" aria-label="消息附件">{row.attachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} /> : <ConversationFilePreview key={attachment.id} attachment={attachment} onContextMenu={(x, y) => showConversationAttachmentContextMenu(attachment, x, y)} />)}</div> : null}</div></article>)}
               {runtimeApprovals.map(event => {
                 const approval = event.approval!;
                 const marker = `${sessionId}:${approval.requestId}`;
@@ -1112,7 +1155,7 @@ export function App() {
                   {jiraIssue && jiraDraftImageAttachments.map(attachment => <JiraInlineImagePreview key={attachment.id} issueKey={jiraIssue.key} attachment={attachment} sessionId={sessionId} onRemove={() => setPrompt(current => removeJiraWikiImageAttachment(current, jiraIssue, attachment.id))} />)}
                   {conversationAttachments.map(attachment => attachment.kind === 'image' ? <ConversationImagePreview key={attachment.id} sessionId={sessionId} attachment={attachment} onRemove={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))} /> : <span className="composer-attachment" key={attachment.id} title={`${attachment.name}（${attachment.size} 字节）`}><Icon name="file" /><span>{attachment.name}</span><button type="button" aria-label={`移除附件 ${attachment.name}`} title="移除附件" disabled={running} onClick={() => setConversationAttachments(current => current.filter(item => item.id !== attachment.id))}><Icon name="close" /></button></span>)}
                 </div>}
-               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : running ? '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
+               <div className="composer-toolbar"><div className="composer-context"><button className="attachment-button" type="button" onClick={() => { void pickConversationAttachments(); }} disabled={running || !!busy} title="上传图片或文件"><Icon name="file" />{busy === 'attachments' ? '选择中…' : '添加附件'}</button><label className="session-branch-picker" title="选择当前会话的本地项目"><Icon name="branch" /><select aria-label="当前会话本地项目" value={bindProjectId} onChange={event => { void bindCurrentSession(event.target.value); }} disabled={running || !!busy}><option value="">不关联项目</option>{data?.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{bindProjectId && !session?.projectId && <label className="session-branch-picker" title="选择当前会话的基准分支"><Icon name="branch" /><select aria-label="当前会话基准分支" value={baseBranch} onChange={event => setBaseBranch(event.target.value)} disabled={running || !!busy || branchLoading || !branchOptions.length}>{!branchOptions.length && <option value="">{branchLoading ? '读取分支…' : '默认分支'}</option>}{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}</select></label>}</div>{running && <button className="cancel-button" type="button" onClick={cancel}><Icon name="stop" />停止</button>}<button className="send-button" type="submit" disabled={(!prompt.trim() && !conversationAttachments.length) || !(sessionRuntimeHealth?.compatible || sessionRuntimeHealth?.warmingUp) || projectBindingChanged || claudeGrokSelection || !!busy} aria-label="发送任务" title={claudeGrokSelection ? 'Claude Runtime 不支持当前 Grok 模型，请更换模型' : projectBindingChanged ? '请先应用本地项目选择' : running ? sessionRuntimeKind === 'claude_agent_sdk' ? '补充当前任务（Enter；引导本轮）' : '补充当前任务（Enter；不支持即时补充时排队执行）' : '发送任务（Enter）'}><Icon name="arrow" /></button></div>
               </form>
               <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行 · Ctrl + V 粘贴文件</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型') + ' / ' + configuredBackend} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'} · {configuredBackend}</span><Icon name="chevron" /></button>
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
@@ -1130,7 +1173,12 @@ export function App() {
           </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>从后往前看，挑战一切不可能</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>项目会话直接使用所选本地目录，执行时遵循本机安全策略。</span></div></div>}
         </main>
 
-        {browserOpen && browserState && <BrowserPanel key={sessionId} api={api} state={browserState} suspended={showSettings || sessionSettingsOpen || !!fileContextMenu} onClose={() => { void closeBrowser(); }} onError={reason => setError(message(reason))} />}
+        {messageFileContextMenu && <div className="file-context-menu message-file-context-menu" role="menu" aria-label={`会话文件操作：${messageFileContextMenu.kind === 'project' ? messageFileContextMenu.path : messageFileContextMenu.attachment.name}`} style={{ left: Math.min(messageFileContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(messageFileContextMenu.y, Math.max(8, window.innerHeight - 120)) }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}>
+          <div className="file-context-heading">{messageFileContextMenu.kind === 'project' ? messageFileContextMenu.path : messageFileContextMenu.attachment.name}</div>
+          <button type="button" role="menuitem" onClick={openMessageContextFile}><Icon name="file" />打开文件</button>
+          <button type="button" role="menuitem" onClick={revealMessageContextFile}><Icon name="folder" />在资源管理器打开</button>
+        </div>}
+        {browserOpen && browserState && <BrowserPanel key={sessionId} api={api} state={browserState} suspended={showSettings || sessionSettingsOpen || !!fileContextMenu || !!messageFileContextMenu} onClose={() => { void closeBrowser(); }} onError={reason => setError(message(reason))} />}
         <aside id="right-panel" className="inspector" aria-label="右侧任务与代码面板" hidden={!layout.rightVisible || browserOpen}>
        <button type="button" className="panel-resize-handle inspector-resize-handle" role="separator" aria-label="调整右侧面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={840} aria-valuenow={Math.min(layout.rightWidth ?? 420, 840)} title="拖动调整右侧面板宽度" onPointerDown={event => beginResize('right', event)} onKeyDown={event => adjustResize('right', event)} onDoubleClick={() => changeLayout({ rightWidth: 420 })} />
           <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="files-panel-tab" className={currentInspector === 'files' ? 'active' : ''} aria-pressed={currentInspector === 'files'} aria-controls="files-panel" disabled={!project && !sessionProject} onClick={() => setInspector('files')}>项目文件</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>

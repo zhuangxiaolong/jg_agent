@@ -25,7 +25,7 @@ import { SettingsService } from './settings';
 import { GrokSettingsService } from './grok-settings';
 import { resolveGrokSessionBinding } from './grok-session-binding';
 import { DpapiCredentialVault } from './credentials';
-import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionConversationImageSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
+import { clipboardTextSchema, commitSchema, documentImportSchema, gitFileSchema, idSchema, jiraIssueKeySchema, jiraProjectScopeSchema, jiraSearchSchema, pluginIdentifierSchema, profileIdSchema, projectIdSchema, projectNameSchema, promptSchema, providerSchema, redact, requirementResolutionSchema, sessionAliasSchema, sessionAttachmentsSchema, sessionConversationAttachmentSchema, sessionConversationImageSchema, sessionCreateSchema, sessionOptionsSchema, sessionSendSchema } from './security';
 import { RunLifecycle, type RunTicket } from './lifecycle';
 import { createAgentOrchestrationProvider } from './agent-orchestration';
 import { SessionRuntimes } from './session-runtimes';
@@ -428,6 +428,33 @@ async function conversationImageDataUrl(sessionId: string, attachmentId: string,
   const scale = Math.min(1, 640 / width, 480 / height);
   const preview = image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' }).toPNG();
   return 'data:image/png;base64,' + preview.toString('base64');
+}
+async function conversationAttachmentFilePath(sessionId: string, attachmentId: string): Promise<string> {
+  const session = sessionById(sessionId);
+  const pending = pendingConversationAttachments.get(session.id)?.get(attachmentId);
+  const saved = store.events(session.id).flatMap(event => event.type === 'user' ? event.attachments ?? [] : []).find(item => item.id === attachmentId);
+  const attachment = pending ?? saved;
+  if (!attachment || attachment.kind !== 'file') throw new Error('文件不属于当前会话');
+  if (!Number.isSafeInteger(attachment.size) || attachment.size < 0 || attachment.size > MAX_CONVERSATION_ATTACHMENT_BYTES) throw new Error('会话文件附件信息无效');
+
+  const attachmentsRoot = path.resolve(dataRoot, 'attachments');
+  const conversationRoot = path.join(attachmentsRoot, 'conversation');
+  const directory = path.resolve(conversationRoot, session.id);
+  if (path.dirname(directory) !== conversationRoot || path.basename(directory) !== session.id) throw new Error('会话文件目录无效');
+  for (const parent of [attachmentsRoot, conversationRoot, directory]) {
+    const stat = await lstat(parent);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('会话文件目录身份异常');
+  }
+  const canonicalDirectory = await realpath(directory);
+  const prefix = `${attachmentId.toLowerCase()}.`;
+  const filenames = (await readdir(directory)).filter(name => name.toLowerCase().startsWith(prefix) && /^[0-9a-f-]{36}\.[a-z0-9]{1,11}$/i.test(name));
+  if (filenames.length !== 1) throw new Error('会话文件不存在或不唯一');
+  const filename = path.join(directory, filenames[0]);
+  const stat = await lstat(filename);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size !== attachment.size) throw new Error('会话文件身份或大小校验失败');
+  const canonicalFile = await realpath(filename);
+  if (!sameWorkspacePath(path.dirname(canonicalFile), canonicalDirectory)) throw new Error('会话文件路径校验失败');
+  return canonicalFile;
 }
 function pendingAttachments(sessionId: string): Map<string, PendingConversationAttachment> {
   let entries = pendingConversationAttachments.get(sessionId);
@@ -1581,6 +1608,15 @@ if (primaryInstance) app.whenReady().then(async () => {
     const input = sessionConversationImageSchema.parse(value);
     return conversationImageDataUrl(input.sessionId, input.attachmentId, input.fullSize);
   });
+  handle('session:attachment-open', async (value: unknown) => {
+    const input = sessionConversationAttachmentSchema.parse(value);
+    const error = await shell.openPath(await conversationAttachmentFilePath(input.sessionId, input.attachmentId));
+    if (error) throw new Error(`无法打开会话文件：${error}`);
+  });
+  handle('session:attachment-reveal', async (value: unknown) => {
+    const input = sessionConversationAttachmentSchema.parse(value);
+    shell.showItemInFolder(await conversationAttachmentFilePath(input.sessionId, input.attachmentId));
+  });
   handle('performance:report', (value: unknown) => performanceService!.telemetry.report(sessionById(value).id));
   handle('performance:ui-render', (value: unknown) => performanceService!.markFirstUiRender(sessionById(value).id));
   handle('performance:export', (value: unknown) => performanceService!.telemetry.export(sessionById(value).id));
@@ -2327,6 +2363,15 @@ if (primaryInstance) app.whenReady().then(async () => {
     const { project } = projectGitTarget(value);
     const file = gitFileSchema.parse(fileValue);
     return git.readFile(project.path, file, true);
+  });
+  handle('git:project-file-open', async (value: unknown, fileValue: unknown) => {
+    const { project } = projectGitTarget(value);
+    const file = gitFileSchema.parse(fileValue);
+    const filename = await git.pathForFile(project.path, file, true);
+    const stat = await lstat(filename).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+    if (!stat || !stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('只能打开项目中的普通文件');
+    const error = await shell.openPath(filename);
+    if (error) throw new Error(`无法打开文件：${error}`);
   });
   handle('git:project-file-reveal', async (value: unknown, fileValue: unknown) => {
     const { project } = projectGitTarget(value);

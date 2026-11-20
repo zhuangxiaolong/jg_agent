@@ -39,13 +39,19 @@ test('Claude 新会话及冷恢复将所选档位与当前指引发给 SDK，不
   await writeFile(executablePath, 'fixture');
   try {
     for (const reasoningEffort of [undefined, 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const) {
-      const calls: Array<{ prompt: unknown; options: ClaudeSdkQueryOptions }> = [];
+      const calls: Array<{ prompt: Promise<string>; options: ClaudeSdkQueryOptions }> = [];
       const events: Array<{ type: string; text: string }> = [];
       const options = {
         model: 'user-selected-model', reasoningEffort, apiKey: 'synthetic-overview-key', executablePath,
         additionalSystemPrompt: '原有开发规范',
         sdkLoader: async () => ({ query(parameters: { prompt: unknown; options: ClaudeSdkQueryOptions }) {
-          calls.push(parameters);
+          const prompt = typeof parameters.prompt === 'string'
+            ? Promise.resolve(parameters.prompt)
+            : (async () => {
+              const source = parameters.prompt as AsyncIterable<{ message: { content: unknown } }>;
+              return String((await source[Symbol.asyncIterator]().next()).value.message.content);
+            })();
+          calls.push({ prompt, options: parameters.options });
           return { async *[Symbol.asyncIterator]() {
             yield { type: 'system', subtype: 'init', session_id: 'native-overview-session' };
             yield { type: 'result', subtype: 'success', session_id: 'native-overview-session' };
@@ -64,7 +70,7 @@ test('Claude 新会话及冷恢复将所选档位与当前指引发给 SDK，不
         resumed.onEvent(event => events.push(event));
         await resumed.resumeSession(thread, cwd, 'native-overview-session');
         await resumed.sendTurn(thread, '继续原任务', cwd);
-        assert.deepEqual(calls.map(call => call.prompt), ['读一下这个项目', '深入分析生产过站并修复，按规范构建测试', '继续原任务']);
+        assert.deepEqual(await Promise.all(calls.map(call => call.prompt)), ['读一下这个项目', '深入分析生产过站并修复，按规范构建测试', '继续原任务']);
         assert.deepEqual(calls.map(call => call.options.resume), [undefined, 'native-overview-session', 'native-overview-session']);
         for (const { options: seen } of calls) {
           assert.equal(seen.model, 'user-selected-model');

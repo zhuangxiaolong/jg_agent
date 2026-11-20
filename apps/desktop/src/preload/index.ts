@@ -140,6 +140,9 @@ const api: DesktopApi = {
   getEvents: id => invoke('session:events', id),
   prewarmSession: id => invoke('session:prewarm', id),
   getConversationImage: (sessionId, attachmentId, fullSize = false) => invoke('session:conversation-image', { sessionId, attachmentId, fullSize }),
+  openConversationAttachment: (sessionId, attachmentId) => invoke('session:attachment-open', { sessionId, attachmentId }),
+  revealConversationAttachment: (sessionId, attachmentId) => invoke('session:attachment-reveal', { sessionId, attachmentId }),
+  openProjectFile: (target, file) => invoke('git:project-file-open', target, file),
   listAgentTasks: id => invoke('agent-task:list', id),
   getAgentOrchestrationAvailability: id => invoke('agent-task:availability', id),
   taskEngineering: {

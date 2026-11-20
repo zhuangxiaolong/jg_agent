@@ -1,9 +1,33 @@
-import { createElement, useEffect, useState, type ReactNode } from 'react';
+import { createElement, useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
 import { readableError } from './dictionary-index';
 import { Icon } from './ui';
 
 function isDevelopmentWarning(line: string): boolean { return /需求不完整[，,:：、\s]*暂不修改/.test(line); }
+type FileContextHandler = (filePath: string, x: number, y: number) => void;
+
+function localFileTarget(target: string): string | undefined {
+  const value = target.trim();
+  if (/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(value)) return value;
+  if (/^file:\/\//i.test(value)) {
+    try {
+      const url = new URL(value);
+      const pathname = decodeURIComponent(url.pathname);
+      return url.hostname && url.hostname !== 'localhost'
+        ? `\\\\${url.hostname}${pathname.replaceAll('/', '\\')}`
+        : pathname.replace(/^\/([A-Za-z]:\/)/, '$1');
+    } catch { return undefined; }
+  }
+  if (!value || value.startsWith('#') || /^[a-z][a-z\d+.-]*:/i.test(value)) return undefined;
+  return value;
+}
+
+function showFileContextMenu(event: ReactMouseEvent<HTMLElement>, filePath: string, handler?: FileContextHandler) {
+  if (!handler) return;
+  event.preventDefault();
+  event.stopPropagation();
+  handler(filePath, event.clientX, event.clientY);
+}
 
 export function JiraInlineImagePreview({ issueKey, attachment, sessionId, onRemove }: { issueKey: string; attachment: JiraAttachment; sessionId: string; onRemove?: () => void }) {
   const [source, setSource] = useState(''), [error, setError] = useState('');
@@ -78,7 +102,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   return <div className="markdown-code"><div className="markdown-code-toolbar"><span>{language || '代码'}</span><button type="button" className="markdown-code-copy" aria-label="复制代码" title="复制代码" data-copy-status={status} onClick={() => void copy()}><Icon name={status === 'copied' ? 'check' : 'copy'} /><span role="status" aria-live="polite">{status === 'copied' ? '已复制' : status === 'failed' ? '复制失败，请重试' : '复制'}</span></button></div><pre className="markdown-code-content"><code data-language={language || undefined}>{code}</code></pre></div>;
 }
 
-function inline(value: string, keyPrefix: string, onFilePath?: (path: string) => void, jiraIssue?: JiraIssue, sessionId?: string): ReactNode[] {
+function inline(value: string, keyPrefix: string, onFilePath?: (path: string) => void, onFileContextMenu?: FileContextHandler, jiraIssue?: JiraIssue, sessionId?: string): ReactNode[] {
   const output: ReactNode[] = [];
   const pattern = /(![^!\r\n]+!|\[[^\]]+\]\((?:<[^>]+>|[^)\s]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|https?:\/\/[^\s<>]+|(?:[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+|(?:\.\.?\/)?(?:[\w.@+-]+\/)+[\w.@+-]+(?:\.[\w.@+-]+)?))/g;
   let cursor = 0;
@@ -97,20 +121,21 @@ function inline(value: string, keyPrefix: string, onFilePath?: (path: string) =>
       try { target = decodeURI(target); } catch { /* 保留原始目标，避免无效编码破坏整条消息。 */ }
       const localPath = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(target);
       const href = localPath ? `file:///${encodeURI(target.replaceAll('\\', '/').replace(/^\/+/, ''))}` : target;
-      output.push(<a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer">{markdownLink[1]}</a>);
+      const fileTarget = localFileTarget(target);
+      output.push(<a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer" onContextMenu={fileTarget ? event => showFileContextMenu(event, fileTarget, onFileContextMenu) : undefined}>{markdownLink[1]}</a>);
     }
     else if (token.startsWith('**')) output.push(<strong key={`${keyPrefix}-${index}`}>{token.slice(2, -2)}</strong>);
     else if (token.startsWith('`')) {
       const code = token.slice(1, -1);
       const isPath = /(?:^[A-Za-z]:\\|^\.\.?\/|[\\/])/.test(code) && !/\s/.test(code);
-      output.push(isPath && onFilePath ? <button type="button" className="markdown-path markdown-path-link" key={`${keyPrefix}-${index}`} onClick={() => onFilePath(code)} title="在项目文件中预览">{code}</button> : <code className={isPath ? 'markdown-path' : undefined} key={`${keyPrefix}-${index}`}>{code}</code>);
+      output.push(isPath && onFilePath ? <button type="button" className="markdown-path markdown-path-link" key={`${keyPrefix}-${index}`} onClick={() => onFilePath(code)} onContextMenu={event => showFileContextMenu(event, code, onFileContextMenu)} title="在项目文件中预览">{code}</button> : <code className={isPath ? 'markdown-path' : undefined} key={`${keyPrefix}-${index}`}>{code}</code>);
     }
     else if (token.startsWith('*')) output.push(<em key={`${keyPrefix}-${index}`}>{token.slice(1, -1)}</em>);
     else if (/^https?:\/\//i.test(token)) {
       const href = token.replace(/[),.;，。；]+$/, '');
       output.push(<a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer">{href}</a>);
       if (href.length < token.length) output.push(token.slice(href.length));
-    } else output.push(onFilePath ? <button type="button" className="markdown-path markdown-path-link" key={`${keyPrefix}-${index}`} onClick={() => onFilePath(token)} title="在项目文件中预览">{token}</button> : <code className="markdown-path" key={`${keyPrefix}-${index}`}>{token}</code>);
+    } else output.push(onFilePath ? <button type="button" className="markdown-path markdown-path-link" key={`${keyPrefix}-${index}`} onClick={() => onFilePath(token)} onContextMenu={event => showFileContextMenu(event, token, onFileContextMenu)} title="在项目文件中预览">{token}</button> : <code className="markdown-path" key={`${keyPrefix}-${index}`}>{token}</code>);
     cursor = index + token.length;
   }
   if (cursor < value.length) output.push(value.slice(cursor));
@@ -122,8 +147,8 @@ function isBlockStart(lines: string[], index: number): boolean {
   return isDevelopmentWarning(line) || /^\s*```/.test(line) || /^#{1,6}\s/.test(line) || /^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(line) || /^\s*>/.test(line) || /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line) || (index + 1 < lines.length && line.includes('|') && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1]));
 }
 
-export function MarkdownContent({ text, onFilePath, jiraIssue, sessionId }: { text: string; onFilePath?: (path: string) => void; jiraIssue?: JiraIssue; sessionId?: string }) {
-  const renderInline = (value: string, key: string) => inline(value, key, onFilePath, jiraIssue, sessionId);
+export function MarkdownContent({ text, onFilePath, onFileContextMenu, jiraIssue, sessionId }: { text: string; onFilePath?: (path: string) => void; onFileContextMenu?: FileContextHandler; jiraIssue?: JiraIssue; sessionId?: string }) {
+  const renderInline = (value: string, key: string) => inline(value, key, onFilePath, onFileContextMenu, jiraIssue, sessionId);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -151,7 +176,7 @@ export function MarkdownContent({ text, onFilePath, jiraIssue, sessionId }: { te
         if (nextHeading && nextHeading[1].length <= level || /^\s*(?:```|---+|___+|\*\*\*+)\s*/.test(lines[index]) || isDevelopmentWarning(lines[index])) break;
         details.push(lines[index++]);
       }
-      blocks.push(<section className="markdown-warning" role="alert" aria-label="开发条件警告" key={`warning-${index}`}><div className="markdown-warning-title"><Icon name="alert" />{createElement(heading ? `h${level}` : 'strong', null, ...renderInline(title, `warning-${index}`))}</div>{details.some(value => value.trim()) && <MarkdownContent text={details.join('\n')} onFilePath={onFilePath} jiraIssue={jiraIssue} sessionId={sessionId} />}</section>);
+      blocks.push(<section className="markdown-warning" role="alert" aria-label="开发条件警告" key={`warning-${index}`}><div className="markdown-warning-title"><Icon name="alert" />{createElement(heading ? `h${level}` : 'strong', null, ...renderInline(title, `warning-${index}`))}</div>{details.some(value => value.trim()) && <MarkdownContent text={details.join('\n')} onFilePath={onFilePath} onFileContextMenu={onFileContextMenu} jiraIssue={jiraIssue} sessionId={sessionId} />}</section>);
       continue;
     }
     if (heading) {

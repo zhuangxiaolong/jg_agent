@@ -4,8 +4,21 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createSdkMcpServer, tool, type SDKUserMessage, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import { ClaudeAgentSdkRuntimeAdapter, CLAUDE_AGENT_SDK_RUNTIME_VERSION, claudeRelayBaseUrl, createClaudeWorkspaceSandbox, normalizeClaudeSdkMessage, type ClaudeSdkModule, type ClaudeSdkQueryOptions } from '../packages/agent-runtime/src/claude-adapter';
+import { ClaudeAgentSdkRuntimeAdapter, CLAUDE_AGENT_SDK_RUNTIME_VERSION, CLAUDE_STREAM_IDLE_TIMEOUT_MS, claudeRelayBaseUrl, createClaudeWorkspaceSandbox, normalizeClaudeSdkMessage, type ClaudeSdkModule, type ClaudeSdkQueryOptions } from '../packages/agent-runtime/src/claude-adapter';
 import type { AuthorizedDirectoryPolicy } from '../packages/agent-runtime/src/authorized-directory-broker';
+
+async function firstPromptText(prompt: string | AsyncIterable<SDKUserMessage>): Promise<string> {
+  if (typeof prompt === 'string') return prompt;
+  const next = await prompt[Symbol.asyncIterator]().next();
+  assert.equal(next.done, false);
+  const content = next.value.message.content;
+  assert.equal(typeof content, 'string');
+  return content as string;
+}
+
+test('Claude Runtime 模型无事件保护允许较长响应', () => {
+  assert.equal(CLAUDE_STREAM_IDLE_TIMEOUT_MS, 5 * 60_000);
+});
 
 test('Claude 复用通用中转站时避免重复追加 /v1，保留自定义前缀', () => {
   assert.equal(claudeRelayBaseUrl('https://relay.example.invalid/v1'), 'https://relay.example.invalid');
@@ -34,10 +47,10 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
   const executablePath = join(cwd, 'claude.exe');
   await writeFile(executablePath, 'fixture');
   const optionsSeen: ClaudeSdkQueryOptions[] = [];
-  const prompts: string[] = [];
+  const prompts: Array<Promise<string>> = [];
   const sdk: ClaudeSdkModule = {
-    query({ prompt, options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
-      prompts.push(prompt);
+    query({ prompt, options }: { prompt: string | AsyncIterable<SDKUserMessage>; options: ClaudeSdkQueryOptions }) {
+      prompts.push(firstPromptText(prompt));
       optionsSeen.push(options);
       return { async *[Symbol.asyncIterator]() { yield { type: 'result', subtype: 'success' }; } };
     },
@@ -49,7 +62,7 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
   try {
     const thread = await adapter.startSession(cwd);
     await adapter.sendTurn(thread, '执行实际调用 sk-test-secret', cwd);
-    assert.equal(prompts[0], '执行实际调用 sk-test-secret');
+    assert.equal(await prompts[0], '执行实际调用 sk-test-secret');
     assert.equal(optionsSeen[0].env?.ANTHROPIC_BASE_URL, 'https://relay.example.invalid/anthropic');
     assert.equal(optionsSeen[0].env?.ANTHROPIC_API_KEY, 'sk-test-secret');
     await adapter.testConnection(cwd);
@@ -72,7 +85,7 @@ test('Claude Adapter 使用 query、固定 settingSources/bypass permission，�
   const optionsSeen: ClaudeSdkQueryOptions[] = [];
   let persistedNativeSessionId = '';
   const sdk: ClaudeSdkModule = {
-    query({ options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
+    query({ options }: { prompt: string | AsyncIterable<SDKUserMessage>; options: ClaudeSdkQueryOptions }) {
       optionsSeen.push(options);
       const messages = [
         { type: 'system', subtype: 'init', session_id: 'native-1' },
@@ -124,7 +137,7 @@ test('Claude Runtime 自动继续普通工具请求', async () => {
   let seen: ClaudeSdkQueryOptions | undefined;
   let canUseTool: ClaudeSdkQueryOptions['canUseTool'];
   const sdk: ClaudeSdkModule = {
-    query({ options }: { prompt: string; options: ClaudeSdkQueryOptions }) {
+    query({ options }: { prompt: string | AsyncIterable<SDKUserMessage>; options: ClaudeSdkQueryOptions }) {
       seen = options;
       canUseTool = options.canUseTool;
       return { async *[Symbol.asyncIterator]() { yield { type: 'result', subtype: 'success' }; } };
@@ -146,6 +159,42 @@ test('Claude Runtime 自动继续普通工具请求', async () => {
     await adapter.close();
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('Claude Runtime 运行中补充对话以 now 优先级注入当前输入流', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'claude-steer-turn-'));
+  const executablePath = join(cwd, 'claude.exe');
+  await writeFile(executablePath, 'fixture');
+  let initialPrompt: SDKUserMessage | undefined;
+  let guidedPrompt: SDKUserMessage | undefined;
+  const sdk: ClaudeSdkModule = {
+    query({ prompt }) {
+      const input = (prompt as AsyncIterable<SDKUserMessage>)[Symbol.asyncIterator]();
+      return { async *[Symbol.asyncIterator]() {
+        const initial = (await input.next()).value!;
+        initialPrompt = initial;
+        yield { type: 'system', subtype: 'init', session_id: 'native-steer' };
+        const guided = (await input.next()).value!;
+        guidedPrompt = guided;
+        yield { type: 'assistant', user_message_uuid: guided.uuid, user_message_uuids: [guided.uuid], message: { content: [{ type: 'text', text: '已按补充信息调整' }] } };
+        yield { type: 'result', subtype: 'success', session_id: 'native-steer', user_message_uuid: guided.uuid, user_message_uuids: [initial.uuid, guided.uuid] };
+      } };
+    },
+  };
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({ model: 'claude-test', apiKey: 'sk-test-secret', executablePath, sdkLoader: async () => sdk });
+  let onInitialized!: () => void;
+  const initialized = new Promise<void>(resolve => { onInitialized = resolve; });
+  adapter.onEvent(event => { if (event.text === 'Claude Runtime 会话已启动') onInitialized(); });
+  try {
+    const thread = await adapter.startSession(cwd);
+    const sending = adapter.sendTurn(thread, '筛选目录内简历', cwd);
+    await initialized;
+    assert.equal(await adapter.steerTurn(thread, '岗位重点是 MES/WMS 项目经理和实施', cwd), true);
+    await sending;
+    assert.equal(initialPrompt?.message.content, '筛选目录内简历');
+    assert.equal(guidedPrompt?.message.content, '岗位重点是 MES/WMS 项目经理和实施');
+    assert.equal(guidedPrompt?.priority, 'now');
+  } finally { await adapter.close(); await rm(cwd, { recursive: true, force: true }); }
 });
 
 test('Claude Runtime 连续无事件达到保护时限后中止并报告可操作错误', async () => {
@@ -278,12 +327,12 @@ test('Claude 新建、后续轮次与冷恢复均追加查询指南，保留业�
   const instructions = '【业务要求】保留项目已有构建流程和工具文档，不修改需求范围。';
   const model = 'claude-user-selected-model';
   const prompts = ['今天南京的天气怎么样\n请简洁回答。', '保留同一会话继续处理', '恢复后继续原任务'];
-  const calls: Array<{ prompt: string | AsyncIterable<SDKUserMessage>; options: ClaudeSdkQueryOptions }> = [];
+  const calls: Array<{ prompt: Promise<string>; options: ClaudeSdkQueryOptions }> = [];
   const sdk: ClaudeSdkModule = {
     tool,
     createSdkMcpServer,
     query(parameters) {
-      calls.push(parameters);
+      calls.push({ prompt: firstPromptText(parameters.prompt), options: parameters.options });
       return { async *[Symbol.asyncIterator]() {
         yield { type: 'system', subtype: 'init', session_id: 'native-execution-guidance' };
         yield { type: 'result', subtype: 'success', session_id: 'native-execution-guidance' };
@@ -306,7 +355,7 @@ test('Claude 新建、后续轮次与冷恢复均追加查询指南，保留业�
     await resumed.resumeSession(thread, cwd, 'native-execution-guidance');
     await resumed.sendTurn(thread, prompts[2], cwd);
     assert.equal(calls.length, 3);
-    assert.deepEqual(calls.map(call => call.prompt), prompts, '查询指南不能拼进或替换原始用户任务');
+    assert.deepEqual(await Promise.all(calls.map(call => call.prompt)), prompts, '查询指南不能拼进或替换原始用户任务');
     assert.deepEqual(calls.map(call => call.options.resume), [undefined, 'native-execution-guidance', 'native-execution-guidance']);
     for (const { options: seen } of calls) {
       assert.equal(seen.model, model, '不得切换模型以实现查询优化');

@@ -443,6 +443,9 @@ export interface DesktopApi {
   pickAttachments(sessionId: string): Promise<ConversationAttachment[]>;
   addConversationAttachments(sessionId: string, files: File[]): Promise<ConversationAttachment[]>;
   getConversationImage(sessionId: string, attachmentId: string, fullSize?: boolean): Promise<string>;
+  openConversationAttachment(sessionId: string, attachmentId: string): Promise<void>;
+  revealConversationAttachment(sessionId: string, attachmentId: string): Promise<void>;
+  openProjectFile(target: string | { projectId: string }, file: string): Promise<void>;
   authorizeSessionDirectory(sessionId: string): Promise<Session>;
   revokeSessionDirectory(sessionId: string, grantId: string): Promise<Session>;
   restoreSessionFullReadAccess(sessionId: string): Promise<Session>;
