@@ -117,6 +117,7 @@ export class JiraConnector {
   private readonly dateFieldId: string;
   private readonly authorization: string;
   readonly imageCacheScope: string;
+  private userMetadataPromise?: Promise<{ displayName: string; timeZone: string }>;
   private metadataPromise?: Promise<JiraConnectionResult>;
   private sessionPromise?: Promise<string>;
   private sessionCookie?: string;
@@ -206,7 +207,7 @@ export class JiraConnector {
       if (response.status === 429) throw new Error('Jira 请求过于频繁，请稍后重试');
       if (response.status >= 300 && response.status < 400) throw new Error('Jira 返回登录或地址重定向，请填写正确的 Jira Base URL；连接器不会转发认证信息');
       if (!response.ok) {
-        if (!mutation) throw new Error(response.status >= 500 ? 'Jira 服务暂时不可用，请稍后重试' : 'Jira 查询失败，请检查项目、日期字段及权限');
+        if (!mutation && response.status >= 500) throw new Error('Jira 服务暂时不可用，请稍后重试');
         const errors = await response.text();
         let detail = ''; try { const data = JSON.parse(errors); detail = [...(Array.isArray(data.errorMessages) ? data.errorMessages : []), ...Object.entries(data.errors ?? {}).map(([name, value]) => `${name}: ${value}`)].join('；'); } catch { /* 非 JSON 不作为业务详情显示。 */ }
         throw new Error(this.text(`Jira ${response.status >= 500 ? '服务暂时不可用，' : ''}${mutation ? '操作' : '查询'}失败（HTTP ${response.status}）${detail ? '：' + detail.slice(0, 1200) : ''}`));
@@ -286,12 +287,22 @@ export class JiraConnector {
     await this.get(`issue/${encodeURIComponent(key)}/transitions`, undefined, { method: 'POST', body: JSON.stringify({ transition: { id: transitionId }, update: { comment: [{ add: { body: comment } }] } }) });
   }
 
+  private userMetadata(): Promise<{ displayName: string; timeZone: string }> {
+    if (!this.userMetadataPromise) {
+      this.userMetadataPromise = (async () => {
+        const user = await this.get('myself');
+        if (!object(user) || typeof user.displayName !== 'string' || typeof user.timeZone !== 'string' || !user.timeZone) throw new Error('Jira 未返回当前用户及时区，无法构造可靠查询');
+        try { new Intl.DateTimeFormat('zh-CN', { timeZone: user.timeZone }).format(); } catch { throw new Error('Jira 返回的用户时区无法识别，请由管理员检查时区配置'); }
+        return { displayName: this.text(user.displayName), timeZone: user.timeZone };
+      })().catch(error => { this.userMetadataPromise = undefined; throw error; });
+    }
+    return this.userMetadataPromise;
+  }
+
   private async metadata(): Promise<JiraConnectionResult> {
     if (!this.metadataPromise) {
       this.metadataPromise = (async () => {
-        const [user, fields] = await Promise.all([this.get('myself'), this.get('field')]);
-        if (!object(user) || typeof user.displayName !== 'string' || typeof user.timeZone !== 'string' || !user.timeZone) throw new Error('Jira 未返回当前用户与时区，无法可靠构造日期查询');
-        try { new Intl.DateTimeFormat('zh-CN', { timeZone: user.timeZone }).format(); } catch { throw new Error('Jira 返回的用户时区无法识别，请由管理员检查时区配置'); }
+        const [user, fields] = await Promise.all([this.userMetadata(), this.get('field')]);
         if (!Array.isArray(fields)) throw new Error('Jira 字段元数据格式无效，无法识别日期字段');
         const field = fields.find(item => object(item) && item.id === `customfield_${this.dateFieldId}`);
         if (!field || !object(field.schema)) throw new Error(`当前账号无法读取日期字段 cf[${this.dateFieldId}]，请检查字段 ID 与权限`);
@@ -300,7 +311,7 @@ export class JiraConnector {
         if (typeof field.schema.custom === 'string' && /:datepicker$/.test(field.schema.custom)) kinds.add('date');
         if (typeof field.schema.custom === 'string' && /:(?:datetime|datetimepicker)$/.test(field.schema.custom)) kinds.add('datetime');
         if (kinds.size !== 1) throw new Error('配置的 Jira 字段不是可确认的 Date 或 Date Time 类型，请联系管理员核实');
-        return { displayName: this.text(user.displayName), timeZone: user.timeZone, fieldName: this.text(field.name) || `cf[${this.dateFieldId}]`, fieldType: [...kinds][0] };
+        return { ...user, fieldName: this.text(field.name) || `cf[${this.dateFieldId}]`, fieldType: [...kinds][0] };
       })().catch(error => { this.metadataPromise = undefined; throw error; });
     }
     return this.metadataPromise;
@@ -382,8 +393,13 @@ export class JiraConnector {
     if (!/^\d{4}-/.test(nextDate)) throw new Error('查询日期超出支持范围');
     const startAt = input.startAt ?? 0;
     if (!integer(startAt, 1000000) || (input.onlyMine !== undefined && typeof input.onlyMine !== 'boolean') || (input.priorityFirst !== undefined && typeof input.priorityFirst !== 'boolean')) throw new Error('Jira 分页或负责人筛选参数无效');
-    const connection = await this.metadata();
-    const dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
+    let timeZone: string;
+    let dateClause = '';
+    if (scope === 'daily') {
+      const connection = await this.metadata();
+      timeZone = connection.timeZone;
+      dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
+    } else timeZone = (await this.userMetadata()).timeZone;
     const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "已关闭")'] : [])];
     const ordering = input.priorityFirst ? 'priority DESC, updated DESC, key ASC' : 'updated DESC, key ASC';
     const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY ${ordering}`;
@@ -391,7 +407,7 @@ export class JiraConnector {
     const data = await this.get('search', query);
     if (!object(data) || !Array.isArray(data.issues) || !integer(data.startAt, 1000000) || data.startAt !== startAt || !integer(data.maxResults, 1000) || !integer(data.total, 100000000) || data.issues.length > PAGE_SIZE || data.issues.length > data.maxResults || (!data.maxResults && data.total > startAt) || (!data.issues.length && data.total > startAt)) throw new Error('Jira 返回的分页数据异常，请重新查询；未展示不完整任务列表');
     const fetchedAt = new Date().toISOString();
-    return { issues: data.issues.map(item => this.issue(item, fetchedAt, projectKey)), startAt: data.startAt, maxResults: data.maxResults, total: data.total, isLast: data.startAt + data.maxResults >= data.total, jql, timeZone: connection.timeZone, fetchedAt };
+    return { issues: data.issues.map(item => this.issue(item, fetchedAt, projectKey)), startAt: data.startAt, maxResults: data.maxResults, total: data.total, isLast: data.startAt + data.maxResults >= data.total, jql, timeZone, fetchedAt };
   }
 
   async getIssue(key: string, selectedProject?: string): Promise<JiraIssue> {
@@ -402,7 +418,7 @@ export class JiraConnector {
     return issue;
   }
 
-  private fields(): string { return `summary,description,issuetype,status,priority,assignee,reporter,updated,attachment,customfield_${this.dateFieldId}`; }
+  private fields(): string { return 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment'; }
 
   private description(value: unknown): string {
     if (value === null || value === undefined) return '';

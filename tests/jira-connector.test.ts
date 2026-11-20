@@ -65,7 +65,7 @@ test('合成 HTTP REST2：读取用户/日期字段、日期任务分页及详�
     assert.ok(requests.every(item => item.method === 'GET' && item.auth === `Basic ${Buffer.from(`fixture-user:${password}`).toString('base64')}`));
     const search = requests.find(item => item.url.pathname.endsWith('/search'))!;
     assert.equal(search.url.searchParams.get('maxResults'), '50');
-    assert.equal(search.url.searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment,customfield_11116');
+    assert.equal(search.url.searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment');
     await assert.rejects(connector.getIssue('OTHER-1'), /配置的 Jira 项目/);
   } finally { await service.close(); }
 });
@@ -106,6 +106,33 @@ test('最近任务通过真实HTTP省去日报条件，保留项目、负责人�
     await assert.rejects(connector.searchIssues({ date: '2026-02-29', scope: 'recent' }), /日期/);
     await assert.rejects(connector.searchIssues({ date: '2026-11-04', scope: 'recent', startAt: -1 }), /分页/);
   } finally { await service.close(); }
+});
+
+test('抓取所有本人任务不依赖日报字段，并保留状态过滤与安全错误诊断', async () => {
+  const requests: URL[] = [];
+  const connector = new JiraConnector({ baseUrl: 'https://jira.example.invalid', account: 'fixture', password, dateFieldId: '99999' }, async input => {
+    const url = new URL(input.toString());
+    requests.push(url);
+    if (url.pathname.endsWith('/myself')) return Response.json(user);
+    if (url.pathname.endsWith('/search')) return Response.json({ startAt: 0, maxResults: 50, total: 0, issues: [] });
+    return Response.json({ errorMessages: ['日报字段不可访问'] }, { status: 400 });
+  });
+  const result = await connector.searchIssues({ date: '2026-11-04', scope: 'recent', projectKey: '*', onlyMine: true, priorityFirst: true });
+  assert.equal(result.jql, 'assignee = currentUser() AND status NOT IN ("完成", "已关闭") ORDER BY priority DESC, updated DESC, key ASC');
+  assert.equal(result.timeZone, user.timeZone);
+  assert.deepEqual(requests.map(url => url.pathname), ['/rest/api/2/myself', '/rest/api/2/search']);
+  assert.equal(requests[1].searchParams.get('fields'), 'summary,description,issuetype,status,priority,assignee,reporter,updated,attachment');
+
+  const failed = new JiraConnector({ baseUrl: 'https://jira.example.invalid', account: 'fixture', password }, async input => {
+    const url = new URL(input.toString());
+    if (url.pathname.endsWith('/myself')) return Response.json(user);
+    return Response.json({ errorMessages: [`合成 JQL 错误 ${password}`] }, { status: 400 });
+  });
+  await assert.rejects(failed.searchIssues({ date: '2026-11-04', scope: 'recent', projectKey: '*', onlyMine: true }), (error: Error) => {
+    assert.match(error.message, /HTTP 400.*合成 JQL 错误 \[已脱敏\]/);
+    assert.ok(!error.message.includes(password));
+    return true;
+  });
 });
 
 test('合成CD日报任务与跨项目分页：本次项目筛选不修改实例默认，所有项目仍保留日期和负责人条件', async () => {
