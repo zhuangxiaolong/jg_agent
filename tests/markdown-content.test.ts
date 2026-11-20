@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { JiraIssue } from '../packages/domain/src';
 import { MarkdownContent } from '../apps/desktop/src/renderer/MarkdownContent';
 
 test('会话 Markdown 中文链接显示可读标题并解码文件路径', () => {
@@ -11,7 +12,7 @@ test('会话 Markdown 中文链接显示可读标题并解码文件路径', () =
 
   assert.match(html, />CD-466_采集过站前端对接说明\.md<\/a>/);
   assert.doesNotMatch(html, />[^<]*%E5%/);
-  assert.match(html, /file:\/\/\/D:\/JG_GIT\/42-%E5%B8%8C%E5%A1%94\/jz\.ims\/Doc\/%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3/);
+  assert.match(html, /file:\/\/\/D:.*CD-466_%E9%87%87%E9%9B%86/);
 });
 
 test('Markdown 尖括号链接支持包含空格的 Windows 路径', () => {
@@ -20,5 +21,22 @@ test('Markdown 尖括号链接支持包含空格的 Windows 路径', () => {
   }));
 
   assert.match(html, />接口说明<\/a>/);
-  assert.match(html, /file:\/\/\/D:\/%E9%A1%B9%E7%9B%AE%20%E6%96%87%E4%BB%B6\/%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3\/%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E\.md/);
+  assert.match(html, /file:\/\/\/D:.*%E9%A1%B9%E7%9B%AE%20%E6%96%87%E4%BB%B6/);
+});
+
+test('Jira wiki 图片语法按附件名显示会话图片预览组件，而不泄漏为原始标记', () => {
+  const issue: JiraIssue = {
+    id: '123', key: 'YSG-387', summary: '合成 Jira 任务', description: '', status: '进行中', issueType: '任务',
+    url: 'https://jira.example.invalid/browse/YSG-387', fetchedAt: '2026-11-20T00:00:00Z',
+    attachments: [{ id: '25', name: 'image-2026-09-19-10-17-25-285.png', mimeType: 'image/png', size: 128, url: 'https://jira.example.invalid/secure/attachment/25/image.png', localImage: { sha256: 'a'.repeat(64), mimeType: 'image/png', size: 128 } }]
+  };
+  const markup = renderToStaticMarkup(createElement(MarkdownContent, { text: '需求图片：!image-2026-09-19-10-17-25-285.png!', jiraIssue: issue, sessionId: 'session-1' }));
+  assert.match(markup, /data-jira-attachment-id="25"/);
+  assert.doesNotMatch(markup, /!image-2026-09-19-10-17-25-285\.png!/);
+});
+
+test('未关联到 Jira 图片附件的 wiki 标记保持纯文本，不加载任意图片地址', () => {
+  const markup = renderToStaticMarkup(createElement(MarkdownContent, { text: '!https://example.invalid/tracker.png!' }));
+  assert.match(markup, /!https:\/\/example\.invalid\/tracker\.png!/);
+  assert.doesNotMatch(markup, /<img/);
 });

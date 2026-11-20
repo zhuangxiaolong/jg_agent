@@ -400,7 +400,7 @@ export class JiraConnector {
       timeZone = connection.timeZone;
       dateClause = connection.fieldType === 'date' ? `cf[${this.dateFieldId}] = "${input.date}"` : `cf[${this.dateFieldId}] >= "${input.date} 00:00" AND cf[${this.dateFieldId}] < "${nextDate} 00:00"`;
     } else timeZone = (await this.userMetadata()).timeZone;
-    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "已关闭")'] : [])];
+    const clauses = [...(projectKey === '*' ? [] : [`project = "${projectKey}"`]), ...(scope === 'daily' ? [dateClause] : []), ...(input.onlyMine ? ['assignee = currentUser()'] : []), ...(scope === 'recent' ? ['status NOT IN ("完成", "关闭")'] : [])];
     const ordering = input.priorityFirst ? 'priority DESC, updated DESC, key ASC' : 'updated DESC, key ASC';
     const jql = `${clauses.length ? `${clauses.join(' AND ')} ` : ''}ORDER BY ${ordering}`;
     const query = new URLSearchParams({ jql, startAt: String(startAt), maxResults: String(PAGE_SIZE), fields: this.fields() });

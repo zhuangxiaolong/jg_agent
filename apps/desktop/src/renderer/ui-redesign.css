@@ -183,7 +183,7 @@ html[data-style="jinggong"][data-theme="dark"] body { background: #0b1220; }
 .dock-layout .message-meta { height: 24px; gap: 6px; }
 .dock-layout .message-meta strong { font-size: 12px; }
 .dock-layout .message-meta time { font-size: 10px; }
-.dock-layout .message-text { margin-top: 3px; font-size: 9pt; line-height: 1.4; }
+.dock-layout .message-text { margin-top: 3px; font-size: 9pt; line-height: 1.6; }
 .dock-layout .message.user .message-text { padding: 8px 11px; }
 .dock-layout .event-status { margin: 4px 0; font-size: 11px; }
 .dock-layout .user-avatar { overflow: hidden; background: var(--accent-bg); color: var(--accent-text); }

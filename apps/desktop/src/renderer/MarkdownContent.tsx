@@ -1,7 +1,26 @@
 import { createElement, useEffect, useState, type ReactNode } from 'react';
+import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
+import { readableError } from './dictionary-index';
 import { Icon } from './ui';
 
 function isDevelopmentWarning(line: string): boolean { return /需求不完整[，,:：、\s]*暂不修改/.test(line); }
+
+function JiraInlineImagePreview({ issueKey, attachment, sessionId }: { issueKey: string; attachment: JiraAttachment; sessionId: string }) {
+  const [source, setSource] = useState(''), [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setSource(''); setError('');
+    if (attachment.imageWarning && !attachment.localImage) { setError(attachment.imageWarning); return () => { alive = false; }; }
+    window.jinggong.getJiraImage(issueKey, attachment.id, sessionId).then(value => {
+      if (!/^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) throw new Error('图片缓存格式无效，无法展示。');
+      if (alive) setSource(value);
+    }).catch(reason => { if (alive) setError(readableError(reason)); });
+    return () => { alive = false; };
+  }, [issueKey, attachment.id, attachment.localImage?.sha256, attachment.imageWarning, sessionId]);
+  return <span className="markdown-jira-image-preview" data-jira-attachment-id={attachment.id}>
+    {source ? <img src={source} alt={attachment.name} onError={() => setError('图片缓存不是受支持的图片。')} /> : error ? <span className="markdown-jira-image-error" role="alert">图片预览不可用：{error}</span> : <span role="status">正在加载图片预览…</span>}
+  </span>;
+}
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [result, setResult] = useState<{ code: string; status: 'copied' | 'failed' }>();
@@ -18,16 +37,22 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   return <div className="markdown-code"><div className="markdown-code-toolbar"><span>{language || '代码'}</span><button type="button" className="markdown-code-copy" aria-label="复制代码" title="复制代码" data-copy-status={status} onClick={() => void copy()}><Icon name={status === 'copied' ? 'check' : 'copy'} /><span role="status" aria-live="polite">{status === 'copied' ? '已复制' : status === 'failed' ? '复制失败，请重试' : '复制'}</span></button></div><pre className="markdown-code-content"><code data-language={language || undefined}>{code}</code></pre></div>;
 }
 
-function inline(value: string, keyPrefix: string, onFilePath?: (path: string) => void): ReactNode[] {
+function inline(value: string, keyPrefix: string, onFilePath?: (path: string) => void, jiraIssue?: JiraIssue, sessionId?: string): ReactNode[] {
   const output: ReactNode[] = [];
-  const pattern = /(\[[^\]]+\]\((?:<[^>]+>|[^)\s]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|https?:\/\/[^\s<>]+|(?:[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+|(?:\.\.?\/)?(?:[\w.@+-]+\/)+[\w.@+-]+(?:\.[\w.@+-]+)?))/g;
+  const pattern = /(![^!\r\n]+!|\[[^\]]+\]\((?:<[^>]+>|[^)\s]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|https?:\/\/[^\s<>]+|(?:[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+|(?:\.\.?\/)?(?:[\w.@+-]+\/)+[\w.@+-]+(?:\.[\w.@+-]+)?))/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
     if (index > cursor) output.push(value.slice(cursor, index));
     const token = match[0];
+    const jiraImage = /^!([^!]+)!$/.exec(token);
     const markdownLink = /^\[([^\]]+)\]\((?:<([^>]+)>|([^\s)]+))\)$/.exec(token);
-    if (markdownLink) {
+    if (jiraImage) {
+      const name = jiraImage[1].split('|', 1)[0].trim().replace(/^.*[\\/]/, '').toLocaleLowerCase();
+      const attachment = jiraIssue?.attachments.find(item => item.name.toLocaleLowerCase() === name && (/^image\/(?:png|jpeg|gif|webp)$/i.test(item.mimeType) || /\.(?:png|jpe?g|gif|webp)$/i.test(item.name)));
+      output.push(jiraIssue && attachment && sessionId ? <JiraInlineImagePreview key={`${keyPrefix}-${index}`} issueKey={jiraIssue.key} attachment={attachment} sessionId={sessionId} /> : token);
+    }
+    else if (markdownLink) {
       let target = markdownLink[2] ?? markdownLink[3] ?? '';
       try { target = decodeURI(target); } catch { /* 保留原始目标，避免无效编码破坏整条消息。 */ }
       const localPath = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(target);
@@ -57,8 +82,8 @@ function isBlockStart(lines: string[], index: number): boolean {
   return isDevelopmentWarning(line) || /^\s*```/.test(line) || /^#{1,6}\s/.test(line) || /^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(line) || /^\s*>/.test(line) || /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line) || (index + 1 < lines.length && line.includes('|') && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1]));
 }
 
-export function MarkdownContent({ text, onFilePath }: { text: string; onFilePath?: (path: string) => void }) {
-  const renderInline = (value: string, key: string) => inline(value, key, onFilePath);
+export function MarkdownContent({ text, onFilePath, jiraIssue, sessionId }: { text: string; onFilePath?: (path: string) => void; jiraIssue?: JiraIssue; sessionId?: string }) {
+  const renderInline = (value: string, key: string) => inline(value, key, onFilePath, jiraIssue, sessionId);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -86,7 +111,7 @@ export function MarkdownContent({ text, onFilePath }: { text: string; onFilePath
         if (nextHeading && nextHeading[1].length <= level || /^\s*(?:```|---+|___+|\*\*\*+)\s*/.test(lines[index]) || isDevelopmentWarning(lines[index])) break;
         details.push(lines[index++]);
       }
-      blocks.push(<section className="markdown-warning" role="alert" aria-label="开发条件警告" key={`warning-${index}`}><div className="markdown-warning-title"><Icon name="alert" />{createElement(heading ? `h${level}` : 'strong', null, ...renderInline(title, `warning-${index}`))}</div>{details.some(value => value.trim()) && <MarkdownContent text={details.join('\n')} onFilePath={onFilePath} />}</section>);
+      blocks.push(<section className="markdown-warning" role="alert" aria-label="开发条件警告" key={`warning-${index}`}><div className="markdown-warning-title"><Icon name="alert" />{createElement(heading ? `h${level}` : 'strong', null, ...renderInline(title, `warning-${index}`))}</div>{details.some(value => value.trim()) && <MarkdownContent text={details.join('\n')} onFilePath={onFilePath} jiraIssue={jiraIssue} sessionId={sessionId} />}</section>);
       continue;
     }
     if (heading) {
