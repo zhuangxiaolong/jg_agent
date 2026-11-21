@@ -34,7 +34,7 @@ async function fixture(t: TestContext, projectBudgetPolicy?: () => Partial<TaskB
   store.saveProject({ id: projectId, path: workspace, name: '运行器临时样本', branch: 'main' });
   store.saveSession({ id: sessionId, projectId, title: '运行器临时测试', workspacePath: workspace, status: 'idle', createdAt: new Date().toISOString(), model: 'fixture-model', runtimeKind: 'codex' });
   const runtimes: FixtureRuntime[] = []; const runtimeOptions: RuntimeOptions[] = []; let settingsReads = 0;
-  const settings = { redactContent: (value: string) => value, assertCleanText: (_value: string) => undefined, profiles: () => { settingsReads += 1; return [{ id: 'fixture-provider', baseUrl: 'https://fixture.invalid', models: ['fixture-model'] }]; }, credential: () => ({ read: () => 'synthetic-fixture-key' }) } as unknown as SettingsService;
+  const settings = { redactContent: (value: string) => value, assertCleanText: (_value: string) => undefined, memorySecrets: () => [], profiles: () => { settingsReads += 1; return [{ id: 'fixture-provider', baseUrl: 'https://fixture.invalid', models: ['fixture-model'] }]; }, credential: () => ({ read: () => 'synthetic-fixture-key' }) } as unknown as SettingsService;
   const runner = new AgentTaskRunner({ store, settings, dataRoot: root, resourcesRoot: root, codexExecutable: process.execPath, jinggongExecutable: process.execPath, publish: () => undefined, projectBudgetPolicy, runtimeFactory: (_kind, options) => { runtimeOptions.push(options); const runtime = new FixtureRuntime(); runtimes.push(runtime); return runtime; } });
   t.after(async () => { await runner.close(); store.close(); await rm(root, { recursive: true, force: true }); });
   const current = (id = 'task-1') => store.listAgentTasks(sessionId).find(task => task.id === id)!;

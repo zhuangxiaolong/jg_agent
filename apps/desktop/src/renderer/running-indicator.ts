@@ -1,5 +1,5 @@
-import type { AgentEvent } from '../../../../packages/domain/src';
-import { compactAgentEvent, compactToolEvent, engineText, toolPlatformText } from './branding';
+import type { AgentEvent, RuntimeKind } from '../../../../packages/domain/src';
+import { compactAgentEvent, compactToolEvent, engineText, hidesRuntimeToolEvents, toolPlatformText } from './branding';
 
 const statusLabels: Record<string, string> = {
   idle: '就绪',
@@ -23,7 +23,7 @@ function responseSummary(value: string): string {
 }
 
 /** 主时间线保持简洁，运行指示器单独保留本轮最近的可读进度。 */
-export function runningIndicatorDetails(events: AgentEvent[], limit = 5): RunningIndicatorDetail[] {
+export function runningIndicatorDetails(events: AgentEvent[], limit = 5, runtimeKind?: RuntimeKind): RunningIndicatorDetail[] {
   if (limit <= 0) return [];
   const details: RunningIndicatorDetail[] = [];
   const seen = new Set<string>();
@@ -48,12 +48,13 @@ export function runningIndicatorDetails(events: AgentEvent[], limit = 5): Runnin
       continue;
     }
     if (event.type !== 'tool' && event.type !== 'status' && event.type !== 'error' && event.type !== 'message') continue;
+    if (event.type === 'tool' && hidesRuntimeToolEvents(runtimeKind)) continue;
     if (event.type === 'message' && /^### (?:代码变更(?:已)?核验|构建、测试与报告核验)/.test(event.text.trim())) continue;
     // “运行中/已完成”等生命周期状态已经在会话顶部显示，避免重复占用最新进度。
     if (event.type === 'status' && event.text in statusLabels && event.text !== 'waiting-approval') continue;
     const compact = event.type === 'tool' && /^(?:执行命令|命令执行完成|已执行项目文件工具|已执行字典工具|已拒绝项目或字典访问)：?/.test(event.text)
       ? /^执行命令：/.test(event.text) ? `正在执行：${event.text.slice('执行命令：'.length).replace(/\s+/g, ' ').trim().slice(0, 180)}` : compactToolEvent(event.text)
-      : compactAgentEvent(event);
+      : compactAgentEvent(event, runtimeKind);
     if (!compact) continue;
     const text = event.type === 'tool'
       ? toolPlatformText(compact)
@@ -68,8 +69,8 @@ export function runningIndicatorDetails(events: AgentEvent[], limit = 5): Runnin
   return details.reverse();
 }
 
-export function latestRunningIndicator(events: AgentEvent[]): string {
-  const latest = runningIndicatorDetails(events, 1)[0]?.text;
+export function latestRunningIndicator(events: AgentEvent[], runtimeKind?: RuntimeKind): string {
+  const latest = runningIndicatorDetails(events, 1, runtimeKind)[0]?.text;
   if (latest) return latest;
   const terminalStatuses = new Set(['completed', 'failed', 'interrupted']);
   for (let index = events.length - 1; index >= 0; index -= 1) {

@@ -35,3 +35,13 @@ test('主时间线隐藏成功的日常命令并保留验证、写入与失败�
   assert.match(event('rg -n "pattern" src', 2)!, /^命令执行失败/);
   assert.equal(compactAgentEvent({ type: 'error', text: '连接失败' }), '连接失败');
 });
+
+test('Codex、Jinggong 和 Claude 会话统一隐藏 Runtime 工具活动', () => {
+  const events = [
+    { type: 'tool' as const, text: '命令执行完成：dotnet build\n退出码：0' },
+    { type: 'tool' as const, text: '已执行项目文件工具 write_project_file：src/main.ts' },
+  ];
+  for (const runtimeKind of ['codex', 'jinggong', 'claude_agent_sdk'] as const) {
+    for (const event of events) assert.equal(compactAgentEvent(event, runtimeKind), null);
+  }
+});

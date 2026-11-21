@@ -53,8 +53,13 @@ export function compactToolEvent(value: string): string | null {
   return shortText(text);
 }
 
-export function compactAgentEvent(event: Pick<AgentEvent, 'type' | 'text'>): string | null {
+export function hidesRuntimeToolEvents(runtimeKind?: RuntimeKind): boolean {
+  return runtimeKind === 'codex' || runtimeKind === 'claude_agent_sdk' || runtimeKind === 'jinggong';
+}
+
+export function compactAgentEvent(event: Pick<AgentEvent, 'type' | 'text'>, runtimeKind?: RuntimeKind): string | null {
   if (event.type === 'tool' || event.type === 'approval') {
+    if (event.type === 'tool' && hidesRuntimeToolEvents(runtimeKind)) return null;
     const compact = compactToolEvent(event.text);
     // 成功的搜索、读文件和环境探测不占主对话；原始事件仍保存在本机。
     if (event.type === 'tool' && compact?.startsWith('命令已完成：') && !importantCommand(event.text)) return null;

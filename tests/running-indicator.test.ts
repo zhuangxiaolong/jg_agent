@@ -51,6 +51,18 @@ test('运行中指示器显示日常命令进度但不重复上轮信息', () =>
   assert.equal(runningIndicatorDetails(events, 1).length, 1);
 });
 
+test('Codex、Jinggong 和 Claude 运行指示器隐藏工具活动', () => {
+  const events = [
+    event('1', 'status', 'running'),
+    event('2', 'tool', '命令执行完成：dotnet build\n退出码：0'),
+    event('3', 'tool', '已执行项目文件工具 write_project_file：src/main.ts'),
+  ];
+  for (const runtimeKind of ['codex', 'jinggong', 'claude_agent_sdk'] as const) {
+    assert.deepEqual(runningIndicatorDetails(events, 5, runtimeKind), []);
+    assert.equal(latestRunningIndicator(events, runtimeKind), '正在准备运行环境…');
+  }
+});
+
 test('运行中指示器限制回复摘要且过滤内部核验消息', () => {
   const events = [event('1', 'delta', '进展'.repeat(300)), event('2', 'message', '### 代码变更核验\n内部核验')];
   const latest = latestRunningIndicator(events);

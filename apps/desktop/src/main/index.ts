@@ -1111,7 +1111,11 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     // 所有 Runtime 首字即时可见，后续增量合并写盘，不依赖性能统计开关。
     batcher.push(event);
   });
-  runtimes.setEventSubscription(ticket, candidateAdapter, () => { unsubscribe(); batcher.flush(); });
+  runtimes.setEventSubscription(ticket, candidateAdapter, () => {
+    unsubscribe();
+    batcher.flush();
+    if (runtimeEventBuffers.get(session.id) === batcher) runtimeEventBuffers.delete(session.id);
+  });
   const initSpan = performanceService?.telemetry.startSpan(performanceService.traceId(session.id), { stage: 'runtime.initialize', operation: `${kind}.start_handshake` });
   try { await candidateAdapter.start(); runs.assertCurrent(ticket); performanceService?.telemetry.endSpan(initSpan, 'completed'); }
   catch (error) { performanceService?.telemetry.endSpan(initSpan, 'failed'); runtimes.release(ticket, candidateAdapter); await candidateAdapter.close(); throw error; }

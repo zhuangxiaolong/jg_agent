@@ -15,7 +15,7 @@ import { DiffPreview } from './DiffPreview';
 import { JiraPanel } from './JiraPanel';
 import { jiraTaskPrompt } from './JiraIssueDetails';
 import { RequirementAdmissionPanel } from './RequirementAdmissionPanel';
-import { compactAgentEvent, engineText, engineVersion, sessionDisplayName, toolPlatformText } from './branding';
+import { compactAgentEvent, engineText, engineVersion, hidesRuntimeToolEvents, sessionDisplayName, toolPlatformText } from './branding';
 import { isSessionRunActive } from './session-run-state';
 import { isJiraSessionCreating } from './jira-create-state';
 import { ProjectRow } from './ProjectRow';
@@ -83,11 +83,23 @@ function diffStatusTone(status: string): string {
   return code === 'A' || code === '?' ? 'added' : code === 'D' ? 'deleted' : code === 'R' || code === 'C' ? 'renamed' : code === '!' ? 'warning' : 'modified';
 }
 function mergeEvents(a: AgentEvent[], b: AgentEvent[]) {
+  if (!a.length) return [...b];
+  if (!b.length) return a;
+  const lastCreatedAt = a[a.length - 1]?.createdAt ?? '';
+  const appendOnly = b.every((event, index) => event.createdAt >= (index === 0 ? lastCreatedAt : b[index - 1].createdAt));
+  if (appendOnly && !b.some(event => a[a.length - 1]?.id === event.id)) return [...a, ...b];
   const events = new Map(a.map(event => [event.id, event]));
   b.forEach(event => events.set(event.id, event));
   return [...events.values()].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
 }
-function timeline(events: AgentEvent[]) {
+
+function rendererEvents(events: AgentEvent[], runtimeKind?: RuntimeKind): AgentEvent[] {
+  return hidesRuntimeToolEvents(runtimeKind) ? events.filter(event => event.type !== 'tool') : events;
+}
+function mergeRendererEvents(saved: AgentEvent[], current: AgentEvent[], runtimeKind?: RuntimeKind): AgentEvent[] {
+  return mergeEvents(rendererEvents(saved, runtimeKind), rendererEvents(current, runtimeKind));
+}
+function timeline(events: AgentEvent[], runtimeKind?: RuntimeKind) {
   const rows: { id: string; type: AgentEvent['type'] | 'tool-group'; text: string; createdAt: string; durationMs?: number; attachments?: ConversationAttachment[]; toolEvents?: AgentEvent[] }[] = [];
   const durations = assistantMessageDurations(events);
   let currentToolGroup: (typeof rows)[number] | undefined;
@@ -98,7 +110,7 @@ function timeline(events: AgentEvent[]) {
     }
     if (event.type === 'message' && /^### (?:代码变更(?:已)?核验|构建、测试与报告核验)/.test(event.text.trim())) continue;
     if (event.type === 'status' && ['running', 'completed'].includes(event.text)) continue;
-    const compactText = compactAgentEvent(event);
+    const compactText = compactAgentEvent(event, runtimeKind);
     if (compactText === null) continue;
     const last = rows[rows.length - 1];
     const display = { ...event, text: compactText, ...(durations.has(event.id) ? { durationMs: durations.get(event.id) } : {}) };
@@ -181,6 +193,8 @@ export function App() {
   const [workingExpanded, setWorkingExpanded] = useState(false);
   const uiRenderMarkedSessions = useRef(new Set<string>());
   const pendingUiRenderSessions = useRef(new Set<string>());
+  const runtimeKindsRef = useRef(new Map<string, RuntimeKind>());
+  for (const item of data?.sessions ?? []) runtimeKindsRef.current.set(item.id, item.runtimeKind ?? 'codex');
 
   useEffect(() => {
     if (sessionId) void api.prewarmSession(sessionId).catch(() => undefined);
@@ -247,13 +261,13 @@ export function App() {
   const running = isSessionRunActive(sessionId, runningSessions.current, sendingSessions);
   const sessionEvents = events[sessionId] || [];
   const runtimeApprovals = useMemo(() => sessionRuntimeKind === 'grok_build_acp' ? [] : pendingRuntimeApprovals(sessionEvents, sessionId, running), [sessionEvents, sessionId, running, sessionRuntimeKind]);
-  const rows = useMemo(() => timeline(sessionEvents), [sessionEvents]);
-  const workingDetails = useMemo(() => runningIndicatorDetails(sessionEvents), [sessionEvents]);
-  const latestWorkingInfo = useMemo(() => latestRunningIndicator(sessionEvents), [sessionEvents]);
+  const rows = useMemo(() => timeline(sessionEvents, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
+  const workingDetails = useMemo(() => runningIndicatorDetails(sessionEvents, 5, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
+  const latestWorkingInfo = useMemo(() => latestRunningIndicator(sessionEvents, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
   const activityEvents = useMemo(() => {
     const compacted: AgentEvent[] = [];
     for (const event of sessionEvents) {
-      const compactText = compactAgentEvent(event);
+      const compactText = compactAgentEvent(event, sessionRuntimeKind);
       if (compactText === null) continue;
       if (event.type === 'status' && ['running', 'completed'].includes(event.text)) continue;
       if (activityTab === 'tools' ? event.type !== 'tool' : !['tool', 'status', 'error'].includes(event.type)) continue;
@@ -352,6 +366,7 @@ export function App() {
       setStatuses(current => { const next = { ...current }; delete next[id]; return next; });
       setBrowserStates(current => { const next = { ...current }; delete next[id]; return next; });
       sessionNames.current.delete(id);
+      runtimeKindsRef.current.delete(id);
       if (currentSessionIdRef.current === id) setSessionId('');
     } catch (reason) {
       setError(message(reason));
@@ -557,7 +572,7 @@ export function App() {
       await api.respondRuntimeApproval(targetSessionId, requestId, decision);
       setApprovalSubmitted(current => new Set(current).add(marker));
       const saved = await api.getEvents(targetSessionId);
-      setEvents(current => ({ ...current, [targetSessionId]: mergeEvents(saved, current[targetSessionId] || []) }));
+      setEvents(current => ({ ...current, [targetSessionId]: mergeRendererEvents(saved, current[targetSessionId] || [], sessionRuntimeKind) }));
     } catch (reason) { setError(message(reason)); }
     finally { setApprovalBusy(current => { const next = new Set(current); next.delete(marker); return next; }); }
   }
@@ -584,7 +599,7 @@ export function App() {
       }
       if (targetProjectId) setNotice(`会话已切换到项目「${targetProjectName}」。`);
       const savedEvents = await api.getEvents(updated.id);
-      setEvents(current => ({ ...current, [updated.id]: mergeEvents(savedEvents, current[updated.id] || []) }));
+      setEvents(current => ({ ...current, [updated.id]: mergeRendererEvents(savedEvents, current[updated.id] || [], updated.runtimeKind) }));
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
@@ -721,7 +736,18 @@ export function App() {
       for (const id of visibleSessions) pendingUiRenderSessions.current.add(id);
       setEvents(current => {
         const next = { ...current };
-        for (const event of batch) next[event.sessionId] = mergeEvents(next[event.sessionId] || [], [event]);
+        const grouped = new Map<string, AgentEvent[]>();
+        for (const event of batch) {
+          const runtimeKind = runtimeKindsRef.current.get(event.sessionId);
+          if (event.type === 'tool' && hidesRuntimeToolEvents(runtimeKind)) continue;
+          const sessionEvents = grouped.get(event.sessionId);
+          if (sessionEvents) sessionEvents.push(event);
+          else grouped.set(event.sessionId, [event]);
+        }
+        for (const [id, sessionBatch] of grouped) {
+          const runtimeKind = runtimeKindsRef.current.get(id);
+          next[id] = mergeEvents(rendererEvents(next[id] || [], runtimeKind), sessionBatch);
+        }
         return next;
       });
     };
@@ -820,7 +846,7 @@ export function App() {
     let alive = true;
     setError('');
     api.getEvents(sessionId).then(next => {
-      if (alive) setEvents(current => ({ ...current, [sessionId]: mergeEvents(next, current[sessionId] || []) }));
+      if (alive) setEvents(current => ({ ...current, [sessionId]: mergeRendererEvents(next, current[sessionId] || [], sessionRuntimeKind) }));
     }).catch(reason => alive && setError(message(reason)));
     void refreshDiff(sessionId);
     return () => { alive = false; };
@@ -977,7 +1003,7 @@ export function App() {
       const latest = next.sessions.find(item => item.id === id);
       if (latest) setStatuses(current => ({ ...current, [id]: latest.status }));
       const saved = await api.getEvents(id);
-      setEvents(current => ({ ...current, [id]: mergeEvents(saved, current[id] || []) }));
+      setEvents(current => ({ ...current, [id]: mergeRendererEvents(saved, current[id] || [], runtimeKindsRef.current.get(id)) }));
     } catch (reason) {
       if (!wasRunning) runningSessions.current.delete(id);
       if (selectedSessionRef.current === id) setError(message(reason));
@@ -1020,7 +1046,7 @@ export function App() {
     setShowReturnLatest(false);
     element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
   }
-  function openMessageFile(filePath: string) {
+  const openMessageFile = useCallback((filePath: string) => {
     const candidate = project?.path || sessionProject?.path;
     if (!candidate) { setError('请先选择项目后查看文件'); return; }
     const normalized = filePath.replace(/\\/g, '/');
@@ -1028,11 +1054,11 @@ export function App() {
     const relative = normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? normalized.slice(root.length + 1) : filePath;
     setFilePreviewPath(relative.replace(/^\.\//, ''));
     setInspector('files');
-  }
-  function showMessageFileContextMenu(filePath: string, x: number, y: number) {
+  }, [project?.path, sessionProject?.path]);
+  const showMessageFileContextMenu = useCallback((filePath: string, x: number, y: number) => {
     setFileContextMenu(null);
     setMessageFileContextMenu({ kind: 'project', path: filePath, x, y });
-  }
+  }, []);
   function showConversationAttachmentContextMenu(attachment: ConversationAttachment, x: number, y: number) {
     setFileContextMenu(null);
     setMessageFileContextMenu({ kind: 'attachment', sessionId, attachment, x, y });

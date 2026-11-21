@@ -1,4 +1,4 @@
-.performance-panel { padding: 16px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.performance-panel { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 16px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .performance-panel header { display: flex; flex-direction: column; margin-bottom: 14px; }
 .performance-panel small { opacity: .7; }
 .performance-panel dl { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 7px 12px; }

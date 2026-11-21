@@ -1,4 +1,4 @@
-import { createElement, useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { createElement, memo, useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { JiraAttachment, JiraIssue } from '../../../../packages/domain/src';
 import { readableError } from './dictionary-index';
 import { Icon } from './ui';
@@ -147,7 +147,7 @@ function isBlockStart(lines: string[], index: number): boolean {
   return isDevelopmentWarning(line) || /^\s*```/.test(line) || /^#{1,6}\s/.test(line) || /^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(line) || /^\s*>/.test(line) || /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line) || (index + 1 < lines.length && line.includes('|') && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1]));
 }
 
-export function MarkdownContent({ text, onFilePath, onFileContextMenu, jiraIssue, sessionId }: { text: string; onFilePath?: (path: string) => void; onFileContextMenu?: FileContextHandler; jiraIssue?: JiraIssue; sessionId?: string }) {
+export const MarkdownContent = memo(function MarkdownContent({ text, onFilePath, onFileContextMenu, jiraIssue, sessionId }: { text: string; onFilePath?: (path: string) => void; onFileContextMenu?: FileContextHandler; jiraIssue?: JiraIssue; sessionId?: string }) {
   const renderInline = (value: string, key: string) => inline(value, key, onFilePath, onFileContextMenu, jiraIssue, sessionId);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
@@ -228,5 +228,5 @@ export function MarkdownContent({ text, onFilePath, onFileContextMenu, jiraIssue
     }
   }
   return <div className="markdown-content">{blocks}</div>;
-}
+});
 
