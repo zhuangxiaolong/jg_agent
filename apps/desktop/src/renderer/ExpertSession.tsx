@@ -29,7 +29,7 @@ export function ExpertSession({ session, running, open }: {session:Session; runn
     ? (['MES5','MES6','WMS'].includes(scope ?? '') ? defaultProfile : undefined)
     : profiles.find(p=>p.id===selection.profileId);
   return <details className="expert-session"><summary>{selected && <ExpertAvatar id={selected.id} size={20}/>}
-    {selected?.name ?? '普通 Agent'}{runs[0] && <> · 最近运行 <ExpertAvatar id={runs[0].profileId} size={18}/> {runs[0].name}</>} · 专家设置</summary>
+    {selected?.name ?? '普通 Agent'} · 专家设置</summary>
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <label>产品知识范围<select value={selection.scope} disabled={running || busy} onChange={e=>void select({...selection,scope:e.target.value as ExpertSelection['scope']})}>{['auto','off','MES5','MES6','WMS','SRM','JMOM','PDA'].map(s=><option key={s} value={s}>{s === 'auto' ? '自动 · '+(scope ?? '未知') : s === 'off' ? '关闭手册' : s}</option>)}</select></label>
     <button type="button" onClick={open}>专家中心</button>{error && <p role="alert">{error}</p>}
