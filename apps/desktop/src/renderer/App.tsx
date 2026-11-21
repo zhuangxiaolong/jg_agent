@@ -29,6 +29,7 @@ import { latestRunningIndicator, runningIndicatorDetails } from './running-indic
 import { BrowserPanel } from './BrowserPanel';
 import { ProjectFilesPanel } from './ProjectFilesPanel';
 import { pendingRuntimeApprovals, sessionProviderChoices } from './grok-ui-state';
+import { runtimeForSelectedModel } from './session-runtime-selection';
 import { assistantMessageDurations, formatClockTime, formatDuration } from './message-timing';
 import './runtime-approval.css';
 
@@ -533,18 +534,28 @@ export function App() {
     }).finally(() => { if (alive) setBranchLoading(false); });
     return () => { alive = false; };
   }, [api, projectId, bindProjectId, session?.id, session?.projectId, session?.baseBranch, data?.projects]);
-  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort }) {
+  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }, successNotice?: string) {
     if (!session || running || busy) return;
     setBusy('configure'); setError(''); setNotice('');
-    try { await api.configureSession(session.id, patch); await refresh(); }
+    try { await api.configureSession(session.id, patch); await refresh(); if (successNotice) setNotice(successNotice); }
     catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
+  }
+  function configureSelectedModel(providerId: string, model: { id: string; name: string }) {
+    const preferredRuntime = runtimeForSelectedModel(model.id, model.name);
+    const runtimeKind = preferredRuntime && preferredRuntime !== sessionRuntimeKind ? preferredRuntime : undefined;
+    setDraftProvider(providerId);
+    setDraftModel(model.id);
+    void configure(
+      { providerId, model: model.id, ...(runtimeKind ? { runtimeKind } : {}) },
+      runtimeKind ? `已根据所选模型自动切换到 ${runtimeLabel(runtimeKind)}。` : undefined,
+    );
   }
   function selectSessionProvider(providerId: string) {
     const provider = providerChoices.find(item => item.id === providerId);
     const model = provider?.models.find(item => item.id === draftModel && item.enabled) || provider?.models.find(item => item.enabled);
-    setDraftProvider(providerId);
-    if (model) { setDraftModel(model.id); void configure({ providerId, model: model.id }); }
+    if (model) configureSelectedModel(providerId, model);
+    else setDraftProvider(providerId);
   }
   async function switchSessionRuntime(kind: RuntimeKind) {
     if (!session || kind === sessionRuntimeKind || running || busy) return;
@@ -1187,7 +1198,8 @@ export function App() {
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
               <div className="session-settings-heading"><strong>会话设置</strong><button type="button" className="icon-button" aria-label="关闭会话设置" onClick={() => { setSessionSettingsOpen(false); sessionSettingsTriggerRef.current?.focus(); }}><Icon name="close" /></button></div>
               <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => selectSessionProvider(e.target.value)}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{providerChoices.map(item => <option value={item.id} key={item.id} disabled={!item.enabled}>{item.name}{!item.enabled ? '（已停用）' : item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
-              <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => { const model = e.target.value; setDraftModel(model); void configure({ providerId: draftProvider, model }); }}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.some(model => model.id === draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item.id} value={item.id} disabled={!item.enabled}>{item.name || item.id}{item.name && item.name !== item.id ? ` · ${item.id}` : ''}{item.backend ? ` · ${item.backend}` : ''}{item.unavailableReason === 'claude-grok' ? '（Claude Runtime 不支持）' : item.enabled ? '' : '（已停用）'}</option>)}</select></label>
+              <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => { const modelId = e.target.value; const model = selectedProvider?.models.find(item => item.id === modelId); if (model) configureSelectedModel(draftProvider, model); else { setDraftModel(modelId); void configure({ providerId: draftProvider, model: modelId }); } }}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.some(model => model.id === draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item.id} value={item.id} disabled={!item.enabled}>{item.name || item.id}{item.name && item.name !== item.id ? ` · ${item.id}` : ''}{item.backend ? ` · ${item.backend}` : ''}{item.unavailableReason === 'claude-grok' ? '（Claude Runtime 不支持）' : item.enabled ? '' : '（已停用）'}</option>)}</select></label>
+              <p className="field-hint">选择 GPT 或 Claude 模型会自动匹配 Runtime，也可在右侧手动切换。</p>
               {claudeGrokSelection && <p className="grok-session-note">Claude Runtime 不支持 Grok 模型。请选择其他模型后再发送。</p>}
               <label>系统<select aria-label="会话适用系统" value={draftSystem} disabled={running || !!busy} onChange={e => { const system = e.target.value as ProductSystem; setDraftSystem(system); void configure({ system }); }}>{['通用', 'MES5', 'MES6', 'WMS', '前端'].map(item => <option key={item}>{item}</option>)}</select></label>
               <label>推理强度<select aria-label="推理强度" value={draftReasoning} disabled={running || !!busy} onChange={event => { const value = event.target.value as ReasoningEffort | ''; setDraftReasoning(value); void configure({ reasoningEffort: value || undefined }); }}>{([{ value: '', label: '模型默认' }, { value: 'none', label: '无' }, { value: 'minimal', label: '最低' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' }] as const).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>

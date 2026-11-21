@@ -1,10 +1,11 @@
 # 精工 Agent
 
-精工 Agent 是面向 MES5、MES6、WMS、前端等项目的 Windows 桌面研发工具。当前仓库版本为 0.9.2，应用源码位于 `apps/desktop/`，核心模块位于 `packages/`。
+精工 Agent 是面向 MES5、MES6、WMS、前端等项目的 Windows 桌面研发工具。当前仓库版本为 0.9.3，应用源码位于 `apps/desktop/`，核心模块位于 `packages/`。
 
 ## 能力
 
 - 使用 Codex、Claude Agent SDK 或精工 Runtime 执行开发任务；每个会话可单独选择运行时、模型和推理强度。
+- 选择 GPT 模型时自动切换到 Codex Runtime，选择 Claude 模型时自动切换到 Claude Runtime；会话仍支持手动选择 Runtime。
 - 可在会话中选择 Grok Build ACP Runtime、中转站与模型，直接复用【模型中转站】中的 HTTPS 地址、凭据和模型；运行时设置只显示组件状态，无需另行启用、绑定模型或配置协议。
 - Grok 会话空闲时可中途更换中转站和模型，聊天记录保留；下一轮按新配置重建连接并携带历史摘录，往返切换使用独立绑定目录。运行中仍需等待或停止后再修改。
 - Grok 简单联网查询优先一次获取结构化数据，提供 Windows PowerShell 5.1 兼容指引，减少重复取数、格式和编码纠错轮次；保留用户选择的推理强度，旧会话通过规则版本迁移应用新指引。
