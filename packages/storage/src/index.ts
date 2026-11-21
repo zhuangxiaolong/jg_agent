@@ -10,8 +10,9 @@ import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notif
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
+import { tokenizeManualContent, type ManualChunk, type ManualImportJob, type ManualProductType, type OperationManual } from '../../operation-manuals/src';
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -674,6 +675,22 @@ export class LocalStore {
           PRAGMA user_version = 16;
         `));
       }
+      if (version <= 16) {
+        store.transaction(() => store.db.run(`
+          CREATE TABLE IF NOT EXISTS operation_manuals (id TEXT PRIMARY KEY, product_type TEXT NOT NULL, status TEXT NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS operation_manuals_product_status ON operation_manuals(product_type, status, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS operation_manuals_sha256 ON operation_manuals(product_type, sha256);
+          CREATE TABLE IF NOT EXISTS operation_manual_chunks (id TEXT PRIMARY KEY, manual_id TEXT NOT NULL REFERENCES operation_manuals(id) ON DELETE CASCADE, product_type TEXT NOT NULL, content_hash TEXT NOT NULL, ordinal INTEGER NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS operation_manual_chunks_manual ON operation_manual_chunks(manual_id, ordinal);
+          CREATE INDEX IF NOT EXISTS operation_manual_chunks_product ON operation_manual_chunks(product_type, manual_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS operation_manual_chunks_hash ON operation_manual_chunks(manual_id, content_hash);
+          CREATE TABLE IF NOT EXISTS operation_manual_chunk_terms (chunk_id TEXT NOT NULL REFERENCES operation_manual_chunks(id) ON DELETE CASCADE, manual_id TEXT NOT NULL REFERENCES operation_manuals(id) ON DELETE CASCADE, term TEXT NOT NULL, PRIMARY KEY(chunk_id, term));
+          CREATE INDEX IF NOT EXISTS operation_manual_chunk_terms_term ON operation_manual_chunk_terms(term, manual_id, chunk_id);
+          CREATE TABLE IF NOT EXISTS operation_manual_jobs (id TEXT PRIMARY KEY, manual_id TEXT NOT NULL REFERENCES operation_manuals(id) ON DELETE CASCADE, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS operation_manual_jobs_manual ON operation_manual_jobs(manual_id, updated_at DESC);
+          PRAGMA user_version = 17;
+        `));
+      }
       if (options.recoverUnfinished !== false) {
         const pendingTools = new Map(store.listAgentTasks().filter(task => task.contractVersion).map(task => [task.id, store.getTaskAuditSnapshot(task.sessionId, task.id).pendingToolCalls]));
         const unfinishedTasks = store.listAgentTasks().filter(task => task.status === 'RUNNING' || task.verificationStatus === 'RUNNING' || pendingTools.get(task.id)?.length);
@@ -1256,6 +1273,10 @@ export class LocalStore {
     }
     if (session.providerId !== undefined) value.providerId = session.providerId;
     if (session.system !== undefined) value.system = session.system;
+    if (session.manualKnowledgeScope !== undefined) {
+      if (!['auto', 'MES5', 'MES6', 'WMS', 'SRM', 'JMOM', 'PDA', 'off'].includes(session.manualKnowledgeScope)) throw new Error('手册知识范围设置无效');
+      value.manualKnowledgeScope = session.manualKnowledgeScope;
+    }
     if (session.jiraProjectKey !== undefined) value.jiraProjectKey = session.jiraProjectKey;
     if (session.jiraIssue !== undefined) value.jiraIssue = jiraSnapshot(session.jiraIssue);
     if (session.requirementAdmission !== undefined) value.requirementAdmission = session.requirementAdmission;
@@ -1870,6 +1891,90 @@ export class LocalStore {
     const document = this.rows<ManagedDocument>('SELECT value FROM documents WHERE id = ?', [id])[0];
     if (!document) throw new Error('文档不存在');
     this.saveDocument({ ...document, enabled });
+  }
+
+  listOperationManuals(): OperationManual[] { return this.rows<OperationManual>('SELECT value FROM operation_manuals ORDER BY updated_at DESC, rowid DESC'); }
+
+  getOperationManual(id: string): OperationManual | undefined { return this.rows<OperationManual>('SELECT value FROM operation_manuals WHERE id = ?', [id])[0]; }
+
+  findOperationManualByDigest(productType: ManualProductType, sha256: string): OperationManual | undefined {
+    return this.rows<OperationManual>('SELECT value FROM operation_manuals WHERE product_type = ? AND sha256 = ? LIMIT 1', [productType, sha256.toLowerCase()])[0];
+  }
+
+  saveOperationManual(manual: OperationManual): void {
+    this.transaction(() => this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]));
+  }
+
+  deleteOperationManual(id: string): OperationManual | undefined {
+    const manual = this.getOperationManual(id);
+    if (!manual) return undefined;
+    this.transaction(() => this.db.run('DELETE FROM operation_manuals WHERE id = ?', [id]));
+    return manual;
+  }
+
+  listOperationManualChunks(manualId: string): ManualChunk[] { return this.rows<ManualChunk>('SELECT value FROM operation_manual_chunks WHERE manual_id = ? ORDER BY ordinal', [manualId]); }
+
+  replaceOperationManualChunks(manualId: string, chunks: ManualChunk[]): void {
+    this.transaction(() => {
+      this.db.run('DELETE FROM operation_manual_chunks WHERE manual_id = ?', [manualId]);
+      for (const chunk of chunks) {
+        this.db.run('INSERT INTO operation_manual_chunks(id, manual_id, product_type, content_hash, ordinal, value) VALUES (?, ?, ?, ?, ?, ?)', [chunk.id, chunk.manualId, chunk.productType, chunk.contentHash, chunk.ordinal, JSON.stringify(chunk)]);
+        const terms = tokenizeManualContent(`${chunk.sectionPath.join(' ')} ${chunk.content}`).slice(0, 500);
+        for (const term of terms) this.db.run('INSERT OR IGNORE INTO operation_manual_chunk_terms(chunk_id, manual_id, term) VALUES (?, ?, ?)', [chunk.id, manualId, term]);
+      }
+    });
+  }
+
+  completeOperationManualIndex(manual: OperationManual, chunks: ManualChunk[]): void {
+    this.transaction(() => {
+      this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]);
+      this.db.run('DELETE FROM operation_manual_chunks WHERE manual_id = ?', [manual.id]);
+      for (const chunk of chunks) {
+        this.db.run('INSERT INTO operation_manual_chunks(id, manual_id, product_type, content_hash, ordinal, value) VALUES (?, ?, ?, ?, ?, ?)', [chunk.id, chunk.manualId, chunk.productType, chunk.contentHash, chunk.ordinal, JSON.stringify(chunk)]);
+        for (const term of tokenizeManualContent(`${chunk.sectionPath.join(' ')} ${chunk.content}`).slice(0, 500)) this.db.run('INSERT OR IGNORE INTO operation_manual_chunk_terms(chunk_id, manual_id, term) VALUES (?, ?, ?)', [chunk.id, manual.id, term]);
+      }
+    });
+  }
+
+  searchOperationManualChunks(productTypes: ManualProductType[], terms: string[], limit = 20): Array<{ manual: OperationManual; chunk: ManualChunk; score: number }> {
+    if (!productTypes.length || !terms.length) return [];
+    const selectedTerms = [...new Set(terms)].slice(0, 24);
+    const selectedTypes = [...new Set(productTypes)];
+    const typePlaceholders = selectedTypes.map(() => '?').join(', ');
+    const termPlaceholders = selectedTerms.map(() => '?').join(', ');
+    const rows = this.records<{ manual_value: string; chunk_value: string; score: number }>(
+      `SELECT m.value AS manual_value, c.value AS chunk_value, COUNT(DISTINCT t.term) AS score
+       FROM operation_manual_chunk_terms t
+       JOIN operation_manual_chunks c ON c.id = t.chunk_id
+       JOIN operation_manuals m ON m.id = c.manual_id
+       WHERE m.product_type IN (${typePlaceholders}) AND m.status IN ('ready', 'partial', 'processing')
+         AND t.term IN (${termPlaceholders})
+       GROUP BY c.id
+       ORDER BY score DESC, c.ordinal ASC
+       LIMIT ?`,
+      [...selectedTypes, ...selectedTerms, Math.max(1, Math.min(100, limit))],
+    );
+    return rows.map(row => ({ manual: JSON.parse(String(row.manual_value)) as OperationManual, chunk: JSON.parse(String(row.chunk_value)) as ManualChunk, score: Number(row.score) }));
+  }
+
+  listOperationManualJobs(manualId?: string): ManualImportJob[] {
+    return manualId
+      ? this.rows<ManualImportJob>('SELECT value FROM operation_manual_jobs WHERE manual_id = ? ORDER BY updated_at DESC', [manualId])
+      : this.rows<ManualImportJob>('SELECT value FROM operation_manual_jobs ORDER BY updated_at DESC');
+  }
+
+  getOperationManualJob(id: string): ManualImportJob | undefined { return this.rows<ManualImportJob>('SELECT value FROM operation_manual_jobs WHERE id = ?', [id])[0]; }
+
+  saveOperationManualJob(job: ManualImportJob): void {
+    this.transaction(() => this.db.run('INSERT INTO operation_manual_jobs(id, manual_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [job.id, job.manualId, job.status, job.updatedAt, JSON.stringify(job)]));
+  }
+
+  beginOperationManualReplacement(manual: OperationManual, job: ManualImportJob): void {
+    if (manual.id !== job.manualId) throw new Error('替换手册与导入任务不匹配。');
+    this.transaction(() => {
+      this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]);
+      this.db.run('INSERT INTO operation_manual_jobs(id, manual_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?)', [job.id, job.manualId, job.status, job.updatedAt, JSON.stringify(job)]);
+    });
   }
 
   listMemories(): Memory[] { return this.rows<Memory>('SELECT value FROM memories ORDER BY created_at DESC, rowid DESC'); }

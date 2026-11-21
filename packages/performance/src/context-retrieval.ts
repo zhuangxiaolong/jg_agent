@@ -3,9 +3,9 @@ import type { ContextCandidate, ContextSourceType, PerformanceSettings } from '.
 export interface ContextRetrievalRequest { sessionId: string; projectId?: string; workspaceId: string; systemType?: string; query: string }
 export interface ContextRetrievalResult { candidates: ContextCandidate[]; excluded: Array<{ sourceType: ContextSourceType; sourceId: string; title: string; reason: string }> }
 
-const sourcePriority: Record<ContextSourceType, number> = { skill_body: 100, project_fact: 90, project_decision: 85, memory: 70, skill_metadata: 65, dictionary: 60, project_resource: 55, workspace_code: 50, task_evidence: 40 };
+const sourcePriority: Record<ContextSourceType, number> = { skill_body: 100, project_fact: 90, project_decision: 85, memory: 70, skill_metadata: 65, dictionary: 60, operation_manual: 62, project_resource: 55, workspace_code: 50, task_evidence: 40 };
 const trustPriority = { platform_required: 100, user_confirmed: 60, managed_skill: 40, user_memory: 30, untrusted_project_data: 10 } as const;
-const maximums: Record<ContextSourceType, number> = { skill_body: 3, skill_metadata: 3, memory: 20, project_fact: 10, project_decision: 10, dictionary: 4, project_resource: 4, workspace_code: 8, task_evidence: 4 };
+const maximums: Record<ContextSourceType, number> = { skill_body: 3, skill_metadata: 3, memory: 20, project_fact: 10, project_decision: 10, dictionary: 4, operation_manual: 8, project_resource: 4, workspace_code: 8, task_evidence: 4 };
 
 function tokens(value: string): Set<string> {
   const normalized = value.normalize('NFKC').toLocaleLowerCase();

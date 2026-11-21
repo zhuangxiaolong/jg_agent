@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>精工 Agent 0.9.2 操作手册</title>
+  <style>
+    :root { color-scheme: light; --ink:#172b38; --muted:#607482; --line:#d9e3e9; --paper:#f3f6f7; --surface:#fff; --navy:#10253c; --blue:#2377d4; --blue-soft:#e9f3ff; --green:#18764c; --green-soft:#eaf7ef; --amber:#8d5c0c; --amber-soft:#fff5dd; font-family:"Microsoft YaHei UI","Segoe UI",sans-serif; color:var(--ink); background:var(--paper); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; line-height:1.75; }
+    a { color:var(--blue); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .hero { padding:58px max(6vw,28px) 46px; color:#f4f8fc; background:linear-gradient(120deg,#10253c,#17486c 65%,#2377d4); }
+    .hero-inner,.layout { width:min(1180px,92vw); margin:0 auto; }
+    .eyebrow { color:#a9d2ff; font-size:13px; letter-spacing:.08em; }
+    h1 { margin:12px 0; font-size:clamp(34px,5vw,54px); line-height:1.2; }
+    .hero p { max-width:760px; color:#d7e7f5; font-size:17px; }
+    .version { display:inline-block; margin-top:14px; padding:5px 11px; border:1px solid #ffffff55; border-radius:999px; font-size:13px; }
+    .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:28px; padding:32px 0 64px; align-items:start; }
+    nav { position:sticky; top:20px; padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+    nav strong { display:block; margin:0 0 10px; }
+    nav a { display:block; padding:6px 0; color:var(--muted); font-size:14px; }
+    main { min-width:0; }
+    section { margin-bottom:22px; padding:26px clamp(20px,4vw,36px); border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 5px 20px #17395408; }
+    h2 { margin:0 0 14px; font-size:24px; }
+    h3 { margin:22px 0 8px; font-size:17px; }
+    p { margin:10px 0; }
+    ul,ol { padding-left:24px; }
+    li { margin:6px 0; }
+    .cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:18px 0; }
+    .card { padding:16px; border:1px solid var(--line); border-radius:12px; background:#fbfdff; }
+    .card strong { display:block; margin-bottom:5px; }
+    .card span { color:var(--muted); font-size:14px; }
+    .callout { margin:16px 0; padding:14px 16px; border-left:4px solid var(--blue); border-radius:8px; background:var(--blue-soft); }
+    .callout.success { border-color:var(--green); background:var(--green-soft); }
+    .callout.warning { border-color:#d49b26; background:var(--amber-soft); }
+    .steps { counter-reset:step; list-style:none; padding:0; }
+    .steps li { position:relative; min-height:38px; margin:12px 0; padding-left:48px; }
+    .steps li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:0; display:grid; width:32px; height:32px; place-items:center; border-radius:50%; color:white; background:var(--blue); font-weight:700; }
+    code { padding:2px 6px; border-radius:5px; background:#edf2f6; font-family:Consolas,monospace; font-size:.92em; overflow-wrap:anywhere; }
+    .footer { padding:26px; text-align:center; color:var(--muted); font-size:13px; }
+    @media(max-width:800px) { .layout { grid-template-columns:1fr; } nav { position:static; } nav div { display:grid; grid-template-columns:repeat(2,1fr); gap:0 12px; } .cards { grid-template-columns:1fr; } }
+    @media print { body { background:#fff; } .hero { padding:28px; print-color-adjust:exact; } .layout { display:block; width:100%; padding:18px; } nav { display:none; } section { break-inside:avoid; box-shadow:none; } a { color:inherit; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">精工 Agent · 桌面端使用指南</div>
+      <h1>产品操作手册</h1>
+      <p>管理本地产品文档，让会话按产品范围检索手册内容，并在回答中保留来源。随安装包提供四份常用手册，MES6 上传入口也已预留。</p>
+      <span class="version">版本 0.9.2</span>
+    </div>
+  </header>
+  <div class="layout">
+    <nav aria-label="目录">
+      <strong>本页目录</strong>
+      <div>
+        <a href="#included">随包手册</a>
+        <a href="#open">打开知识库</a>
+        <a href="#import">导入手册</a>
+        <a href="#replace">替换更新</a>
+        <a href="#scope">选择检索范围</a>
+        <a href="#search">测试与查看</a>
+        <a href="#limits">解析说明</a>
+        <a href="#storage">本地存储</a>
+      </div>
+    </nav>
+    <main>
+      <section id="included">
+        <h2>安装后已有的手册</h2>
+        <p>首次启动时，应用会校验安装包中的手册文件并复制到当前 Windows 用户数据目录，随后后台建立可检索索引。内置手册会显示“安装包内置手册”。</p>
+        <div class="cards">
+          <div class="card"><strong>iMES5.9 操作手册 V1.1</strong><span>分类 MES5，产品版本 iMES 5.9</span></div>
+          <div class="card"><strong>SRM 系统操作手册</strong><span>分类 SRM</span></div>
+          <div class="card"><strong>JMOM 仓库和品质模块操作手册</strong><span>分类 JMOM</span></div>
+          <div class="card"><strong>PDA 移动仓库和品质操作手册</strong><span>分类 PDA</span></div>
+        </div>
+        <div class="callout success">MES6 分类已保留。现在没有 MES6 手册也可以正常使用，之后选择 MES6 分类导入即可。</div>
+      </section>
+
+      <section id="open">
+        <h2>打开产品手册</h2>
+        <ol class="steps">
+          <li>启动精工 Agent 并等待主窗口加载。</li>
+          <li>点击左下方“全局设置”。</li>
+          <li>在设置导航中打开“产品手册”。</li>
+          <li>在“手册库”查看分类、状态、版本和解析信息。</li>
+        </ol>
+        <p>新安装或首次运行时，内置手册可能先显示“等待处理”或“处理中”。解析在后台完成，页面会自动刷新状态。</p>
+      </section>
+
+      <section id="import">
+        <h2>导入手册</h2>
+        <ol class="steps">
+          <li>在“导入手册”填写默认产品分类、产品版本、手册版本、生效日期和适用范围。</li>
+          <li>点击“选择手册文件”，从文件对话框中选择一份或多份资料。</li>
+          <li>在待导入列表中逐本确认产品分类和版本。选择 MES6 手册时，将分类设为 MES6。</li>
+          <li>点击“导入并解析”，文件会复制到本机知识库并进入后台队列。</li>
+        </ol>
+        <p>支持 PDF、DOCX、XLSX、PPTX、Markdown、TXT 和 HTML。单文件最大 100 MiB，每批最多 20 个文件。批量导入可以分别设置分类，也可以把默认信息应用到全部文件。</p>
+        <div class="callout">相同产品分类下重复导入同一文件时会提示已有记录，不会新建重复索引。</div>
+      </section>
+
+      <section id="replace">
+        <h2>重新上传并替换</h2>
+        <p>替换适用于内置手册更新版或用户手册的新版本。替换保留手册记录和分类，解析成功后更新活动文件与索引。</p>
+        <ol class="steps">
+          <li>在“手册库”选择需要更新的手册。</li>
+          <li>点击“重新上传并替换”，并且只选择一个文件。</li>
+          <li>等待后台解析结束。完成后，文件名、摘要和搜索结果会切换到新版本。</li>
+        </ol>
+        <div class="callout success">解析成功后旧原件会清理，新的 DOCX 和索引一起生效。解析失败、取消或应用中断时，原手册及原索引会保留，可以修复文件后再次替换。</div>
+        <p>内置手册支持停用和替换，不能直接删除。普通用户导入的手册可以在详情中删除。</p>
+      </section>
+
+      <section id="scope">
+        <h2>选择会话知识范围</h2>
+        <p>在“手册范围”选择会话，再设置产品知识范围。</p>
+        <ul>
+          <li><strong>自动匹配</strong>按当前会话识别出的产品范围检索。问题明确提到 MES5、MES6、WMS、SRM、JMOM 或 PDA 时，按问题临时选择对应产品。</li>
+          <li><strong>MES5、MES6、WMS、SRM、JMOM、PDA</strong>检索所选产品和通用手册。</li>
+          <li><strong>关闭手册检索</strong>停用当前会话的手册上下文。</li>
+        </ul>
+        <div class="callout warning">未知项目且问题没有明确产品范围时，不会自动混合不同产品的手册。可以在此手动指定范围。</div>
+      </section>
+
+      <section id="search">
+        <h2>查看内容和测试检索</h2>
+        <ul>
+          <li>手册详情展示 SHA-256、文件大小、提取字符数、片段数量及页数、工作表数或幻灯片数。</li>
+          <li>“测试检索”可选产品范围并输入操作问题，检查召回片段、匹配分数和来源定位。</li>
+          <li>解析片段预览展示章节、页码、工作表或幻灯片位置。</li>
+          <li>对话检索到手册时，模型上下文会携带固定来源标识，提示模型引用并标注资料未说明的部分。</li>
+        </ul>
+        <p>用户可修改名称和适用元数据、停用或启用手册、重新解析、取消排队任务或删除自己导入的资料。</p>
+      </section>
+
+      <section id="limits">
+        <h2>解析状态与内容范围</h2>
+        <ul>
+          <li><strong>可用</strong>文本解析和索引已完成，可以参与检索。</li>
+          <li><strong>部分可用</strong>存在未被当前解析器处理的内容，例如 DOCX 内嵌图片。</li>
+          <li><strong>解析失败</strong>没有可检索内容或文件格式、内容无法解析。可更换文件后重试。</li>
+        </ul>
+        <div class="callout warning">当前版本没有 OCR。DOCX 图片会显示图片数量和部分解析提示，图片中的文字不会建立索引。SRM 手册可提取的正文较少且含有截图，手册状态可能是“部分可用”，检索不到截图文字。</div>
+        <p>扫描版 PDF 没有可搜索文字时不会建立成功索引。DOCX 章节按文档标题和抽取段落定位，不能保证对应原始页码。</p>
+      </section>
+
+      <section id="storage">
+        <h2>本地存储和模型请求</h2>
+        <p>索引存入本地 SQLite 数据库。Windows 默认原件目录为 <code>%LOCALAPPDATA%\JinggongAgent\knowledge\manuals\originals</code>。用户替换后的文件仍保留在本机数据目录，不会随更新安装包恢复为初始版本。</p>
+        <p>手册全文不会在每轮发送。检索命中的片段会作为当前会话上下文发送给已配置的模型服务，用于回答当前问题。</p>
+      </section>
+    </main>
+  </div>
+  <footer class="footer">精工 Agent 0.9.2 · 产品操作手册</footer>
+</body>
+</html>

@@ -4,7 +4,7 @@ import type { ContextBuildStats, ContextBundle, ContextCandidate, ContextExclude
 export function estimateContextTokens(text: string): number { return Math.ceil(Buffer.byteLength(text, 'utf8') / 3); }
 
 function sourceName(sourceType: ContextSourceType): string {
-  return ({ memory: '用户记忆', project_fact: '项目事实', project_decision: '项目决策', skill_metadata: 'Skill 元数据', skill_body: '已加载 Skill', dictionary: '数据字典', project_resource: '项目资料', workspace_code: '工作区代码', task_evidence: '任务证据' } as const)[sourceType];
+  return ({ memory: '用户记忆', project_fact: '项目事实', project_decision: '项目决策', skill_metadata: 'Skill 元数据', skill_body: '已加载 Skill', dictionary: '数据字典', operation_manual: '产品操作手册', project_resource: '项目资料', workspace_code: '工作区代码', task_evidence: '任务证据' } as const)[sourceType];
 }
 
 function toCandidate(fragment: ContextFragment): ContextCandidate {
@@ -18,7 +18,7 @@ function render(candidate: ContextCandidate): string {
 }
 
 function tokenCap(sourceType: ContextSourceType, budgetTokens: number): number {
-  const ratio: Record<ContextSourceType, number> = { memory: 0.25, project_fact: 0.3, project_decision: 0.2, skill_metadata: 0.12, skill_body: 0.2, dictionary: 0.22, project_resource: 0.25, workspace_code: 0.42, task_evidence: 0.15 };
+  const ratio: Record<ContextSourceType, number> = { memory: 0.25, project_fact: 0.3, project_decision: 0.2, skill_metadata: 0.12, skill_body: 0.2, dictionary: 0.22, operation_manual: 0.3, project_resource: 0.25, workspace_code: 0.42, task_evidence: 0.15 };
   return Math.max(64, Math.floor(budgetTokens * ratio[sourceType]));
 }
 

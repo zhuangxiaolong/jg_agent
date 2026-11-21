@@ -73,7 +73,7 @@ test('通用文档正文快照提取 PDF 与 PPTX，保留页/幻灯片边界且
       'ppt/notesSlides/notesSlide3.xml': pptxSlide('孤立备注不得读入')
     }));
     const pptSnapshot = await readDocumentTextFile(pptx);
-    assert.match(pptSnapshot.content, /幻灯片：ppt\/slides\/slide1\.xml/);
+    assert.match(pptSnapshot.content, /幻灯片：1/);
     assert.match(pptSnapshot.content, /MES 实施计划/);
     assert.match(pptSnapshot.content, /WMS 上线验收/);
     assert.ok(pptSnapshot.content.indexOf('WMS 上线验收') < pptSnapshot.content.indexOf('MES 实施计划'), '使用 presentation.xml 的真实页序，不按部件文件编号排序');
@@ -128,11 +128,15 @@ test('真实 DOCX ZIP/XML 提取正文、表格和页眉，不执行或下载外
   try {
     const filename = join(root, '需求.docx');
     await writeFile(filename, zip({
-      'word/document.xml': '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>验收要求 &amp; 中文</w:t></w:r></w:p><w:p><w:r><w:t>库存必须大于零。</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>字段 QTY</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>数量</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>',
-      'word/header1.xml': '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>MES6 需求版本</w:t></w:r></w:p></w:hdr>'
+      'word/document.xml': '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>第一章 操作说明</w:t></w:r></w:p><w:p><w:r><w:t>验收要求 &amp; 中文</w:t></w:r></w:p><w:p><w:r><w:t>库存必须大于零。</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>字段 QTY</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>数量</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>',
+      'word/header1.xml': '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>MES6 需求版本</w:t></w:r></w:p></w:hdr>',
+      'word/media/image1.png': '合成截图占位数据'
     }));
     const imported = await importDocumentFile(filename, 'requirement', 'MES6');
+    const snapshot = await readDocumentTextFile(filename);
+    assert.equal(snapshot.embeddedImageCount, 1);
     assert.match(imported.content, /验收要求 & 中文/);
+    assert.match(imported.content, /# 第一章 操作说明/);
     assert.match(imported.content, /库存必须大于零/);
     assert.match(imported.content, /字段 QTY/);
     assert.match(imported.content, /MES6 需求版本/);

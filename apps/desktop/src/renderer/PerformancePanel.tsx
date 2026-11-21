@@ -8,14 +8,14 @@ import './performance.css';
 const stageNames: Record<PerformanceStage, string> = {
   'runtime.spawn': '引擎进程启动', 'runtime.initialize': '引擎初始化', 'workspace.index_check': '索引检查', 'workspace.index_update': '增量索引',
   search: '代码搜索', 'file.read': '文件读取', 'context.retrieve': '片段检索', 'context.build': '上下文组装',
-  'context.memory_retrieve': '记忆检索', 'context.project_retrieve': '项目事实检索', 'context.skill_retrieve': 'Skill 检索', 'context.dictionary_retrieve': '字典检索', 'context.cache_lookup': '上下文缓存', 'context.budget_allocate': '预算分配',
+  'context.memory_retrieve': '记忆检索', 'context.project_retrieve': '项目事实检索', 'context.skill_retrieve': 'Skill 检索', 'context.dictionary_retrieve': '字典检索', 'context.manual_retrieve': '操作手册检索', 'context.cache_lookup': '上下文缓存', 'context.budget_allocate': '预算分配',
   'skill.match': 'Skill 匹配', 'skill.load': 'Skill 加载', 'skill.resource_read': 'Skill 资源读取',
   'model.queue': '模型排队', 'model.first_token': '首个响应', 'model.response': '模型响应',
   'tool.queue': '工具排队', 'tool.execute': '工具执行', 'command.execute': '命令执行', 'test.execute': '构建 / 测试', retry: '重试', 'task.finalize': '收尾',
 };
 const statusNames: Record<string, string> = { running: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断', unavailable: '不可用' };
 const duration = (ms?: number) => ms === undefined ? '不可用' : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} 秒`;
-const contextSourceNames: Record<ContextSourceType, string> = { memory: '用户记忆', project_fact: '项目事实', project_decision: '项目决策', skill_metadata: 'Skill 元数据', skill_body: 'Skill 正文', dictionary: '数据字典', project_resource: '项目资源', workspace_code: '工作区代码', task_evidence: '任务证据' };
+const contextSourceNames: Record<ContextSourceType, string> = { memory: '用户记忆', project_fact: '项目事实', project_decision: '项目决策', skill_metadata: 'Skill 元数据', skill_body: 'Skill 正文', dictionary: '数据字典', operation_manual: '产品操作手册', project_resource: '项目资源', workspace_code: '工作区代码', task_evidence: '任务证据' };
 
 export function PerformancePanel({ api, session }: { api: DesktopApi; session?: Session }) {
   const [report, setReport] = useState<PerformanceReport>();

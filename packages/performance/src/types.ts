@@ -1,8 +1,8 @@
 import type { RuntimeKind } from '../../domain/src';
 
-export type PerformanceStage = 'runtime.spawn' | 'runtime.initialize' | 'workspace.index_check' | 'workspace.index_update' | 'search' | 'file.read' | 'context.retrieve' | 'context.build' | 'context.memory_retrieve' | 'context.project_retrieve' | 'context.skill_retrieve' | 'context.dictionary_retrieve' | 'context.cache_lookup' | 'context.budget_allocate' | 'skill.match' | 'skill.load' | 'skill.resource_read' | 'model.queue' | 'model.first_token' | 'model.response' | 'tool.queue' | 'tool.execute' | 'command.execute' | 'test.execute' | 'retry' | 'task.finalize';
+export type PerformanceStage = 'runtime.spawn' | 'runtime.initialize' | 'workspace.index_check' | 'workspace.index_update' | 'search' | 'file.read' | 'context.retrieve' | 'context.build' | 'context.memory_retrieve' | 'context.project_retrieve' | 'context.skill_retrieve' | 'context.dictionary_retrieve' | 'context.manual_retrieve' | 'context.cache_lookup' | 'context.budget_allocate' | 'skill.match' | 'skill.load' | 'skill.resource_read' | 'model.queue' | 'model.first_token' | 'model.response' | 'tool.queue' | 'tool.execute' | 'command.execute' | 'test.execute' | 'retry' | 'task.finalize';
 export type PerformanceStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unavailable';
-export type ContextSourceType = 'memory' | 'project_fact' | 'project_decision' | 'skill_metadata' | 'skill_body' | 'dictionary' | 'project_resource' | 'workspace_code' | 'task_evidence';
+export type ContextSourceType = 'memory' | 'project_fact' | 'project_decision' | 'skill_metadata' | 'skill_body' | 'dictionary' | 'operation_manual' | 'project_resource' | 'workspace_code' | 'task_evidence';
 export type ContextScope = 'global' | 'project' | 'workspace' | 'session';
 export type ContextTrust = 'platform_required' | 'user_confirmed' | 'managed_skill' | 'user_memory' | 'untrusted_project_data';
 export interface ContextCandidate {

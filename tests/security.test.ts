@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema, sessionConversationAttachmentSchema, sessionConversationImageSchema } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, operationManualIdSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema, sessionConversationAttachmentSchema, sessionConversationImageSchema } from '../apps/desktop/src/main/security';
 
 test('提交不再要求复核资料列表，保留旧请求兼容与提交参数校验', () => {
   assert.deepEqual(commitSchema.parse({ message: '提交本地修改' }), { message: '提交本地修改' });
@@ -20,6 +20,12 @@ test('IPC 拒绝非法 ID、空输入与超长输入', () => {
   assert.equal(clipboardTextSchema.parse('\t中文代码\n\n  '), '\t中文代码\n\n  ');
   assert.equal(clipboardTextSchema.safeParse({ text: '错误参数' }).success, false);
   assert.equal(clipboardTextSchema.safeParse('a'.repeat(2 * 1024 * 1024 + 1)).success, false);
+});
+test('操作手册 IPC 接受受限的内置标识，同时保留 UUID 校验', () => {
+  assert.equal(operationManualIdSchema.safeParse('builtin-operation-manual-imes59').success, true);
+  assert.equal(operationManualIdSchema.safeParse('00000000-0000-4000-8000-000000000001').success, true);
+  assert.equal(operationManualIdSchema.safeParse('../../manual').success, false);
+  assert.equal(operationManualIdSchema.safeParse('builtin-operation-manual-../../manual').success, false);
 });
 test('会话附件 IPC 只接受有界的本机文件路径列表', () => {
   const sessionId = '00000000-0000-4000-8000-000000000001';

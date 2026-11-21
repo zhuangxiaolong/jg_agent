@@ -1,0 +1,39 @@
+{
+  "version": "0.9.2",
+  "manuals": [
+    {
+      "id": "builtin-operation-manual-imes59",
+      "name": "iMES5.9 操作手册",
+      "productType": "MES5",
+      "productVersion": "iMES 5.9",
+      "manualVersion": "V1.1",
+      "scopeNote": "iMES 5.9 产品操作",
+      "path": "iMES5.9-操作手册-V1.1.docx",
+      "sha256": "96a2a250eed1d47507f67f751949c95ef9ed102af30bdc3cdc088302160a6770"
+    },
+    {
+      "id": "builtin-operation-manual-srm",
+      "name": "SRM 系统操作手册",
+      "productType": "SRM",
+      "scopeNote": "SRM 系统及供应商送货操作",
+      "path": "SRM系统操作手册.docx",
+      "sha256": "4751d547abc01f82301c2252564a1c4e97990fa3015d38a021fe2edfbe7f068e"
+    },
+    {
+      "id": "builtin-operation-manual-jmom",
+      "name": "JMOM 仓库和品质模块操作手册",
+      "productType": "JMOM",
+      "scopeNote": "JMOM 仓库与品质模块",
+      "path": "JMOM仓库和品质模块操作手册.docx",
+      "sha256": "3d73f0e60213cbb409126e0c0ae7ea5531301a23ae8edc4f8ce63012f8302638"
+    },
+    {
+      "id": "builtin-operation-manual-pda",
+      "name": "PDA 移动仓库和品质操作手册",
+      "productType": "PDA",
+      "scopeNote": "PDA 移动仓库与品质模块",
+      "path": "PDA移动仓库和品质操作手册.docx",
+      "sha256": "26d4e057a7e1cd8fc5bdefd69998f8a3beb68fb7addaa193760ab2e880f4d3c5"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ManagedDocument, Memory, MemorySettings, UserProfile } from '../../../../packages/domain/src';
 import { normalizeMemory, scanMemoryText } from '../../../../packages/memory-engine/src';
 import type { ContextCandidate } from '../../../../packages/performance/src';
+import { formatManualCitation, type ManualSearchHit } from '../../../../packages/operation-manuals/src';
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 
@@ -47,4 +48,22 @@ export function dictionaryContextCandidates(documents: ManagedDocument[], query:
     if (!text) return [];
     return [{ id: `dictionary:${document.id}`, sourceType: 'dictionary', sourceId: document.id, scope: 'global', contentHash: document.digest || hash(content), updatedAt: document.createdAt, trust: 'untrusted_project_data', status: 'active', systemType: document.system === '通用' ? '通用' : document.system, title: `${document.system} · ${document.name}`, text, reasons: ['按当前任务关键词检索字典片段'] }];
   });
+}
+
+export function operationManualContextCandidates(hits: Array<ManualSearchHit & { citation: string }>): ContextCandidate[] {
+  return hits.map(({ manual, chunk, score, citation }) => ({
+    id: `operation-manual:${manual.id}:${chunk.id}`,
+    sourceType: 'operation_manual',
+    sourceId: `${manual.originalName} · ${formatManualCitation(manual, chunk)}`,
+    scope: 'global',
+    contentHash: chunk.contentHash,
+    updatedAt: manual.updatedAt,
+    trust: 'untrusted_project_data',
+    status: 'active',
+    version: manual.manualVersion ?? manual.productVersion,
+    title: `${manual.name}${manual.manualVersion ? ` ${manual.manualVersion}` : ''}${chunk.sectionPath.length ? ` · ${chunk.sectionPath.join(' / ')}` : ''}`,
+    text: `引用标识：${citation}\n原始文件：${manual.originalName}\n产品分类：${manual.productType}${manual.productVersion ? ` · 产品版本 ${manual.productVersion}` : ''}\n适用范围：${manual.scopeNote || '未补充'}\n手册内容：\n${chunk.content}`,
+    relevanceScore: score * 12,
+    reasons: ['本地产品操作手册关键词索引命中'],
+  }));
 }

@@ -9,7 +9,7 @@ const STATUSES = new Set(['running', 'completed', 'failed', 'cancelled', 'interr
 export function defaultPerformanceSettings(): PerformanceSettings {
   return { enabled: true, telemetryEnabled: true, workspaceIndexEnabled: true, contextOptimizationEnabled: true, safeParallelEnabled: true,
     unifiedContextEnabled: true, retrievalCacheEnabled: true, contextExplainabilityEnabled: true,
-    contextSources: { memory: true, project_fact: true, project_decision: true, skill_metadata: true, skill_body: true, dictionary: true, project_resource: true, workspace_code: true, task_evidence: true },
+    contextSources: { memory: true, project_fact: true, project_decision: true, skill_metadata: true, skill_body: true, dictionary: true, operation_manual: true, project_resource: true, workspace_code: true, task_evidence: true },
     maxSkillContexts: 3, maxMemoryItems: 20, maxProjectAssertions: 10,
     maxParallelReadOperations: 3, retainDays: 30, contextBudgetTokens: 6000, testStrategy: 'recommend', version: 1,
     runtimeReuseEnabled: true, runtimeReuseIdleTtlMs: 5 * 60 * 1000, runtimeReuseMaxIdleInstances: 3,

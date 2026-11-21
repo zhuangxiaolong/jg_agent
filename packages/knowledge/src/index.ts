@@ -9,7 +9,7 @@ import { assertDocumentTextSize, documentLimits, MAX_DOCUMENT_CHARACTERS, MAX_DI
 export { assertNoPlaintextCredentials } from './security';
 export type { ManagedDocument, ProductSystem } from '../../domain/src/index';
 export { MAX_DOCUMENT_CHARACTERS, MAX_DICTIONARY_CHARACTERS } from './limits';
-const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv', '.sql']);
+const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv', '.sql', '.html', '.htm']);
 export const SUPPORTED_DOCUMENT_TEXT_EXTENSIONS = Object.freeze([...TEXT_EXTENSIONS, '.pdf', '.docx', '.xlsx', '.pptx', '.pptm']);
 const SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET = new Set(SUPPORTED_DOCUMENT_TEXT_EXTENSIONS);
 const SYSTEMS = new Set<ProductSystem>(['MES5', 'MES6', 'WMS', '前端', '通用']);
@@ -20,6 +20,7 @@ export interface DocumentTextSnapshot {
   content: string;
   digest: string;
   size: number;
+  embeddedImageCount?: number;
 }
 
 export interface DocumentTextReadOptions {
@@ -37,6 +38,21 @@ function decodeUtf8(bytes: Uint8Array): string {
   } catch { throw new Error('文件包含非 UTF-8 编码或二进制内容，请先转换为 UTF-8 文本。'); }
 }
 
+function extractHtmlText(source: string): string {
+  const decoded = source
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi, (_match, level: string, heading: string) => `${'#'.repeat(Number(level))} ${heading}\n`)
+    .replace(/<(?:br|hr|\/p|\/div|\/li|\/tr|\/h[1-6]|\/section|\/article|\/td|\/th)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, number: string) => String.fromCodePoint(Math.min(0x10ffff, Number(number))))
+    .replace(/&#x([\da-f]+);/gi, (_match, number: string) => String.fromCodePoint(Math.min(0x10ffff, Number.parseInt(number, 16))));
+  return decoded.replace(/[\t\u00a0 ]+/g, ' ').replace(/\n[\t ]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function assertTextSize(content: string, kind: ManagedDocument['kind']): string {
   if (!content.trim()) throw new Error('文档未包含可导入的文本。');
   assertDocumentTextSize(content, kind);
@@ -50,9 +66,12 @@ function parseXml(bytes: Uint8Array, preserveOrder = false, removeNSPrefix = tru
   return new XMLParser({ ignoreAttributes: false, removeNSPrefix, parseTagValue: false, parseAttributeValue: false, trimValues: false, preserveOrder, processEntities: true }).parse(source);
 }
 
-function readOfficeArchive(bytes: Uint8Array, limits: DocumentLimits): Record<string, Uint8Array> {
+interface OfficeArchiveSnapshot { files: Record<string, Uint8Array>; embeddedImageCount: number }
+
+function readOfficeArchive(bytes: Uint8Array, limits: DocumentLimits): OfficeArchiveSnapshot {
   let entries = 0;
   let total = 0;
+  let embeddedImageCount = 0;
   const names = new Set<string>();
   let archive: Record<string, Uint8Array>;
   try {
@@ -62,6 +81,7 @@ function readOfficeArchive(bytes: Uint8Array, limits: DocumentLimits): Record<st
       if (entries > limits.entries || name.includes('\\') || name.includes(':') || name.startsWith('/') || name.split('/').includes('..') || /[\x00-\x1f]/.test(name) || names.has(name)) throw new Error('Office 压缩包条目过多或路径不安全。');
       names.add(name);
       total += file.originalSize;
+      if (/^word\/media\//i.test(name)) embeddedImageCount += 1;
       if (file.originalSize > limits.entryBytes || total > limits.archiveBytes || file.originalSize > Math.max(file.size, 1) * 500) throw new Error('Office 文档解压容量超过限制，请拆分文档。');
       return /\.xml$|\.rels$/i.test(name);
     } });
@@ -71,10 +91,29 @@ function readOfficeArchive(bytes: Uint8Array, limits: DocumentLimits): Record<st
   }
   if (!archive['[Content_Types].xml']) throw new Error('文件缺少 Office 内容类型信息。');
   parseXml(archive['[Content_Types].xml']);
-  return archive;
+  return { files: archive, embeddedImageCount };
 }
 
 function array(value: any): any[] { return value === undefined || value === null ? [] : Array.isArray(value) ? value : [value]; }
+
+function paragraphHeadingLevel(nodes: any[], depth = 0): number | undefined {
+  if (depth > 50) return undefined;
+  const styleMatch = /"pStyle"[\s\S]{0,200}Heading\s*([1-6])/i.exec(JSON.stringify(nodes));
+  if (styleMatch) return Number(styleMatch[1]);
+  for (const node of nodes) {
+    for (const [name, children] of Object.entries(node)) {
+      if (name === 'pStyle') {
+        const match = /heading\s*([1-6])/i.exec(JSON.stringify(children));
+        if (match) return Number(match[1]);
+      }
+      if (Array.isArray(children)) {
+        const level = paragraphHeadingLevel(children, depth + 1);
+        if (level) return level;
+      }
+    }
+  }
+  return undefined;
+}
 
 function orderedWordText(nodes: any[], limits: DocumentLimits, depth = 0): string {
   if (depth > 100) throw new Error('Office 文档嵌套过深。');
@@ -87,6 +126,10 @@ function orderedWordText(nodes: any[], limits: DocumentLimits, depth = 0): strin
       else if (name === 'br' || name === 'cr') output += '\n';
       else if (name === 'instrText' || name === 'del' || name === 'delText') continue;
       else if (Array.isArray(children)) {
+        if (name === 'p') {
+          const level = paragraphHeadingLevel(children);
+          if (level) output += `${'#'.repeat(level)} `;
+        }
         output += orderedWordText(children, limits, depth + 1);
         if (name === 'p' || name === 'tr') output += '\n';
         else if (name === 'tc') output += '\t';
@@ -219,10 +262,10 @@ function extractPptx(archive: Record<string, Uint8Array>, limits: DocumentLimits
   });
   const sections: string[] = [];
   let totalLength = 0;
-  for (const name of slides) {
+  for (const [slideIndex, name] of slides.entries()) {
     const parsed = parseXml(archive[name], true);
     const content = orderedWordText(parsed, limits).replace(/\t\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-    if (content) sections.push(`[幻灯片：${name}]\n${content}`);
+    if (content) sections.push(`[幻灯片：${slideIndex + 1}]\n${content}`);
     totalLength += content.length;
     if (totalLength > limits.characters) throw new Error(`文档提取文本超过 ${limits.characters} 字符，未导入也未截断；请拆分文档后重试。`);
     const slideRelations = relations(path.posix.join(path.posix.dirname(name), '_rels', path.posix.basename(name) + '.rels'));
@@ -231,7 +274,7 @@ function extractPptx(archive: Record<string, Uint8Array>, limits: DocumentLimits
     for (const note of notes) {
       const notePath = resolvePart(name, note, 'notesSlide');
       const noteContent = orderedWordText(parseXml(archive[notePath], true), limits).replace(/\t\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-      if (noteContent) sections.push(`[演讲者备注：${notePath}]\n${noteContent}`);
+      if (noteContent) sections.push(`[演讲者备注：${slideIndex + 1}]\n${noteContent}`);
     }
   }
   if (!sections.length) throw new Error('PPTX 演示文稿未包含可导入的文字。');
@@ -269,19 +312,20 @@ function extractionLimits(options: DocumentTextReadOptions = {}): DocumentLimits
   const maxCharacters = options.maxCharacters ?? MAX_DOCUMENT_CHARACTERS;
   const maxFileBytes = options.maxFileBytes ?? 8 * 1024 * 1024;
   if (!Number.isSafeInteger(maxCharacters) || maxCharacters < 1 || maxCharacters > MAX_DICTIONARY_CHARACTERS) throw new Error(`文本字符上限必须为 1–${MAX_DICTIONARY_CHARACTERS}。`);
-  if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 || maxFileBytes > 32 * 1024 * 1024) throw new Error('文档文件上限必须为 1–32 MiB。');
+  if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 || maxFileBytes > 100 * 1024 * 1024) throw new Error('文档文件上限必须为 1–100 MiB。');
   // 字符上限决定正文/字典的解析预算；单独放宽源文件字节上限时仍保持正文的 ZIP 解压预算，避免目录 broker 因允许 16 MiB 文件而意外获得字典级 128 MiB 解压预算。
   const base = documentLimits(maxCharacters > MAX_DOCUMENT_CHARACTERS ? 'dictionary' : 'requirement');
   return { ...base, characters: maxCharacters, fileBytes: maxFileBytes };
 }
 
-async function extractDocumentContent(extension: string, bytes: Uint8Array, limits: DocumentLimits): Promise<string> {
-  if (TEXT_EXTENSIONS.has(extension)) return decodeUtf8(bytes);
-  if (extension === '.pdf') return extractPdf(bytes, limits);
+async function extractDocumentContent(extension: string, bytes: Uint8Array, limits: DocumentLimits): Promise<{ content: string; embeddedImageCount?: number }> {
+  if (extension === '.html' || extension === '.htm') return { content: extractHtmlText(decodeUtf8(bytes)) };
+  if (TEXT_EXTENSIONS.has(extension)) return { content: decodeUtf8(bytes) };
+  if (extension === '.pdf') return { content: await extractPdf(bytes, limits) };
   const archive = readOfficeArchive(bytes, limits);
-  if (extension === '.docx') return extractDocx(archive, limits);
-  if (extension === '.xlsx') return extractXlsx(archive, limits);
-  if (extension === '.pptx' || extension === '.pptm') return extractPptx(archive, limits);
+  if (extension === '.docx') return { content: extractDocx(archive.files, limits), ...(archive.embeddedImageCount ? { embeddedImageCount: archive.embeddedImageCount } : {}) };
+  if (extension === '.xlsx') return { content: extractXlsx(archive.files, limits) };
+  if (extension === '.pptx' || extension === '.pptm') return { content: extractPptx(archive.files, limits) };
   throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 XLS/PPT 请另存为新格式。');
 }
 
@@ -307,11 +351,12 @@ async function readFileSnapshot(filename: string, limits: DocumentLimits): Promi
 export async function readDocumentTextFile(filename: string, options: DocumentTextReadOptions = {}): Promise<DocumentTextSnapshot> {
   const limits = extractionLimits(options);
   const snapshot = await readFileSnapshot(filename, limits);
-  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
-  const content = await extractDocumentContent(snapshot.extension, snapshot.bytes, limits);
+  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、HTML、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
+  const extracted = await extractDocumentContent(snapshot.extension, snapshot.bytes, limits);
+  const content = extracted.content;
   if (!content.trim()) throw new Error('文档未包含可导入的文本。');
   if (content.length > limits.characters) throw new Error(`文档提取文本超过 ${limits.characters} 字符，未导入也未截断；请拆分文档后重试。`);
-  return { name: snapshot.name, extension: snapshot.extension, content, digest: createHash('sha256').update(snapshot.bytes).digest('hex'), size: snapshot.bytes.length };
+  return { name: snapshot.name, extension: snapshot.extension, content, digest: createHash('sha256').update(snapshot.bytes).digest('hex'), size: snapshot.bytes.length, ...(extracted.embeddedImageCount ? { embeddedImageCount: extracted.embeddedImageCount } : {}) };
 }
 
 /** 读取用户明确选择的本地资料；只在内存解析，不解压到磁盘、不执行宏、公式或链接。 */
@@ -319,7 +364,7 @@ export async function importDocumentFile(filename: string, kind: ManagedDocument
   if (!['dictionary', 'requirement'].includes(kind) || !SYSTEMS.has(system)) throw new Error('文档类型或适用系统无效。');
   const limits = documentLimits(kind);
   const snapshot = await readDocumentTextFile(filename, { maxCharacters: limits.characters, maxFileBytes: limits.fileBytes });
-  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
+  if (!SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET.has(snapshot.extension)) throw new Error('当前仅支持 MD、TXT、HTML、JSON、CSV、SQL、PDF、DOCX、XLSX、PPTX、PPTM；旧版 DOC/XLS/PPT 请另存为新格式。');
   const content = assertTextSize(snapshot.content, kind);
   return { id: randomUUID(), kind, system, name: snapshot.name, content, digest: snapshot.digest, createdAt: new Date().toISOString(), enabled: true };
 }

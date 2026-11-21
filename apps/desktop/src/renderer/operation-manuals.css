@@ -1,0 +1,63 @@
+.manual-import-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.manual-import-result p { margin: 4px 0; }
+
+.manual-import-selection {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.manual-import-row {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.manual-import-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.manual-import-file strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-import-file small { color: var(--text-secondary); }
+.manual-import-file button { margin-left: auto; }
+.manual-import-row .document-controls { flex-wrap: wrap; }
+.manual-import-row .document-controls>label { min-width: 120px; }
+
+.manual-chunk-preview {
+  display: block;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.manual-chunk-preview strong,
+.manual-chunk-preview small { display: block; }
+
+.manual-chunk-preview small {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.manual-chunk-preview pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

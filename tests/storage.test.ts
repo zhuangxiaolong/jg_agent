@@ -7,6 +7,7 @@ import initSqlJs from 'sql.js';
 import { LocalStore } from '../packages/storage/src/index';
 import type { AgentEvent, AgentTask, Project, Session } from '../packages/domain/src/index';
 import { createAgentTask, transitionAgentTask } from '../packages/agent-orchestrator/src';
+import { tokenizeManualQuery, type ManualChunk, type OperationManual } from '../packages/operation-manuals/src';
 
 test('工作区会话无需项目，分组重启保留且删除工作区后成为独立会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-workspace-session-'));
@@ -49,6 +50,34 @@ test('编排工具调用按 orchestration 和 toolCallId 幂等，未知结果�
     assert.throws(() => store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', toolName: 'platform_agent_get_task', requestHash }), /不同请求占用/);
     assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'started' });
     assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'unknown_outcome' });
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('操作手册切片与词项索引随数据库迁移持久化并按产品和状态过滤', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-manual-index-'));
+  const filename = join(root, 'agent.db');
+  let store = await LocalStore.open(filename);
+  const timestamp = '2026-11-21T00:00:00.000Z';
+  const manual: OperationManual = {
+    id: 'manual-mes6', name: 'MES6 报工手册', productType: 'MES6', manualVersion: 'V2.1',
+    originalName: 'mes6.md', originalStorageKey: 'knowledge/manuals/originals/manual-mes6/mes6.md', fileExtension: '.md',
+    fileSize: 100, sha256: 'a'.repeat(64), status: 'ready', parserVersion: 'manual-parser-1', extractedChars: 30, chunkCount: 1,
+    createdAt: timestamp, updatedAt: timestamp,
+  };
+  const chunk: ManualChunk = {
+    id: 'chunk-mes6', manualId: manual.id, productType: 'MES6', manualVersion: 'V2.1', sectionPath: ['生产管理', '工单报工'],
+    locator: { kind: 'pdf', page: 32 }, content: '扫描条码后确认工单报工。', contentHash: 'b'.repeat(64), tokenEstimate: 10, ordinal: 0,
+  };
+  try {
+    store.completeOperationManualIndex(manual, [chunk]);
+    assert.equal(store.searchOperationManualChunks(['MES6', 'COMMON'], tokenizeManualQuery('扫描条码工单报工')).length, 1);
+    assert.equal(store.searchOperationManualChunks(['MES5', 'COMMON'], tokenizeManualQuery('扫描条码工单报工')).length, 0);
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.getOperationManual(manual.id)?.status, 'ready');
+    assert.equal(store.listOperationManualChunks(manual.id)[0]?.locator.kind, 'pdf');
+    assert.equal(store.searchOperationManualChunks(['MES6', 'COMMON'], tokenizeManualQuery('扫描条码工单报工'))[0]?.chunk.id, chunk.id);
+    store.saveOperationManual({ ...manual, status: 'disabled', updatedAt: timestamp });
+    assert.equal(store.searchOperationManualChunks(['MES6', 'COMMON'], tokenizeManualQuery('扫描条码工单报工')).length, 0);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

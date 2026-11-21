@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizeJiraUrl } from '../../../../packages/jira-connector/src';
 export const idSchema = z.string().uuid();
+export const operationManualIdSchema = z.union([idSchema, z.string().regex(/^builtin-operation-manual-[a-z0-9-]+$/)]);
 export const pluginIdentifierSchema = z.string().trim().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, '插件标识无效');
 export const projectIdSchema = z.string().regex(/^[a-f0-9]{24}$/);
 export const profileIdSchema = z.union([idSchema, z.literal('legacy-default')]);
