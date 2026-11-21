@@ -5,6 +5,7 @@ import { requiresRequirementAdmission } from '../../../../packages/domain/src/ji
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon, Mark } from './ui';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
+import { ExpertSession } from './ExpertSession';
 import { JiraInlineImagePreview, jiraWikiImageAttachments, MarkdownContent, removeJiraWikiImageAttachment } from './MarkdownContent';
 import { ConversationImagePreview } from './ConversationImagePreview';
 import { ConversationFilePreview } from './ConversationFilePreview';
@@ -1201,6 +1202,7 @@ export function App() {
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
+              <ExpertSession key={session.id} session={session} running={running} open={()=>{setSettingsTab('experts');setShowSettings(true);}} />
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send} onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
                 <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
                 {(jiraDraftImageAttachments.length > 0 || conversationAttachments.length > 0) && <div className="composer-attachments" aria-label="待发送附件">

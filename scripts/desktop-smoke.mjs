@@ -106,6 +106,17 @@ try {
   const standaloneShare = path.join(root, '独立会话分享.json');
   await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, standaloneShare);
   await page.getByRole('button', { name: '全局设置', exact: true }).click();
+  await page.getByRole('navigation', { name:'设置分类' }).getByRole('button',{name:'专家中心'}).click();
+  await expect(page.getByLabel('专家档案')).toHaveValue('mes-wms-engineering');
+  await page.getByRole('button',{name:'复制档案',exact:true}).click();
+  await expect(page.getByRole('button',{name:'删除档案'})).toBeEnabled();
+  await page.getByRole('button',{name:'删除档案'}).click();
+  await page.getByRole('button',{name:'评测工作台'}).click();
+  const expertCases = page.getByRole('combobox',{name:'评测案例',exact:true});
+  await expect(expertCases.locator('option')).toHaveCount(41);
+  await expertCases.selectOption('mes-wms-backend-1');
+  await expect(page.getByLabel('预期关键点')).toHaveValue(/分页/);
+  checks.push('专家中心真实档案复制、删除及 40 个案例加载');
   await page.getByRole('button', { name: '会话与数据', exact: true }).click();
   await page.getByLabel('选择要导出的会话', { exact: true }).selectOption(standaloneSession.id);
   await page.getByRole('button', { name: '导出所选会话', exact: true }).click();

@@ -8,6 +8,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   return result.value;
 }
 const api: DesktopApi = {
+  experts: {
+    profiles:()=>invoke('experts:profiles'), session:id=>invoke('experts:session',id),
+    select:(id,selection)=>invoke('experts:select',id,selection), profile:(action,id,patch)=>invoke('experts:profile',action,id,patch),
+    feedback:(id,run,feedback)=>invoke('experts:feedback',id,run,feedback), cases:()=>invoke('experts:cases'),
+    saveCase:value=>invoke('experts:save-case',value), deleteCase:id=>invoke('experts:delete-case',id),
+    comparisons:()=>invoke('experts:comparisons'),compare:(session,caseId,profile)=>invoke('experts:compare',session,caseId,profile),
+    stop:()=>invoke('experts:stop'),grade:(id,arm,value)=>invoke('experts:grade',id,arm,value),export:format=>invoke('experts:export',format)
+  },
   learningEngine: {
     eligibility: (sessionId, taskId) => invoke('learning:eligibility', sessionId, taskId),
     listCandidates: sessionId => invoke('learning:candidates', sessionId),

@@ -388,6 +388,7 @@ export interface TaskGovernanceRecoveryAssessment {
   reasons: string[];
 }
 export interface DesktopApi {
+  experts?: import('./expert').ExpertApi;
   learningEngine?: LearningEngineApi;
   delivery?: DeliveryApi;
   impactReview?: ImpactReviewApi;

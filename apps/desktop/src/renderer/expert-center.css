@@ -1,0 +1,11 @@
+.expert-center label, .expert-session section > label { display:grid; gap:4px; margin:8px 0; }
+.expert-center label:has(input[type=checkbox]) { display:block; }
+.expert-center select,.expert-center textarea,.expert-center input:not([type=checkbox]),.expert-session select { width:100%; min-width:0; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:5px; }
+.expert-center textarea { min-height:55px; resize:vertical; }
+.expert-actions,.expert-scores { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.expert-center details,.expert-session details { padding:6px 0; }
+.expert-center summary,.expert-session summary { cursor:pointer; }
+.expert-center pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.expert-session { font-size:12px; margin:0 8px 4px; position:relative; }
+.expert-session > section { position:absolute; z-index:5; bottom:100%; left:0; width:min(440px,100%); max-height:48vh; overflow:auto; padding:12px; background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+.expert-session code,.expert-center code { overflow-wrap:anywhere; }

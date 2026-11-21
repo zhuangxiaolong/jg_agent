@@ -12,7 +12,11 @@ import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 import { tokenizeManualContent, type ManualChunk, type ManualImportJob, type ManualProductType, type OperationManual } from '../../operation-manuals/src';
 
-const SCHEMA_VERSION = 17;
+import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, ExpertRun } from '../../domain/src/expert';
+import { builtinProfiles } from '../../expert-engine/src';
+import { benchmarkCases } from '../../expert-engine/src/cases';
+
+const SCHEMA_VERSION = 18;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -691,7 +695,29 @@ export class LocalStore {
           PRAGMA user_version = 17;
         `));
       }
+      if (version < 18) store.transaction(() => {
+        store.db.run(`
+          CREATE TABLE IF NOT EXISTS expert_profiles (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS expert_bindings (id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE, value TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS expert_runs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS expert_runs_session ON expert_runs(session_id);
+          CREATE TABLE IF NOT EXISTS expert_eval_cases (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS expert_eval_runs (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+          PRAGMA user_version = 18;
+        `);
+        for (const item of builtinProfiles) store.db.run('INSERT OR IGNORE INTO expert_profiles VALUES (?,?)', [item.id,JSON.stringify(item)]);
+        for (const item of benchmarkCases) store.db.run('INSERT OR IGNORE INTO expert_eval_cases VALUES (?,?)', [item.id,JSON.stringify(item)]);
+      });
       if (options.recoverUnfinished !== false) {
+        const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
+        const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
+        if (activeExperts.length || activeEvals.length) store.transaction(() => {
+          for (const item of activeExperts) store.db.run('UPDATE expert_runs SET value=? WHERE id=?', [JSON.stringify({...item,status:'interrupted'}),item.id]);
+          for (const item of activeEvals) {
+            for (const arm of [item.baseline,item.expert]) if (['running','pending'].includes(arm.status)) arm.status = 'interrupted';
+            store.db.run('UPDATE expert_eval_runs SET value=? WHERE id=?',[JSON.stringify(item),item.id]);
+          }
+        });
         const pendingTools = new Map(store.listAgentTasks().filter(task => task.contractVersion).map(task => [task.id, store.getTaskAuditSnapshot(task.sessionId, task.id).pendingToolCalls]));
         const unfinishedTasks = store.listAgentTasks().filter(task => task.status === 'RUNNING' || task.verificationStatus === 'RUNNING' || pendingTools.get(task.id)?.length);
         if (unfinishedTasks.length) store.transaction(() => {
@@ -786,6 +812,32 @@ export class LocalStore {
       this.db.run('PRAGMA foreign_keys = ON');
       throw error;
     }
+  }
+
+  expertProfiles(): ExpertProfile[] { return this.rows('SELECT value FROM expert_profiles ORDER BY rowid'); }
+  saveExpertProfiles(items: ExpertProfile[], removeId?: string): void {
+    this.transaction(() => {
+      for (const item of items) this.db.run('INSERT INTO expert_profiles VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value', [item.id,JSON.stringify(item)]);
+      if (removeId) this.db.run('DELETE FROM expert_profiles WHERE id=?',[removeId]);
+    });
+  }
+  expertSelection(id: string): ExpertSelection {
+    return this.rows<ExpertSelection>('SELECT value FROM expert_bindings WHERE id=?',[id])[0] ?? {profileId:'auto',scope:'auto'};
+  }
+  selectExpert(id: string, selection: ExpertSelection): void {
+    this.transaction(() => this.db.run('INSERT OR REPLACE INTO expert_bindings VALUES (?,?)',[id,JSON.stringify(selection)]));
+  }
+  expertRuns(sessionId: string): ExpertRun[] { return this.rows('SELECT value FROM expert_runs WHERE session_id=? ORDER BY rowid DESC LIMIT 100',[sessionId]); }
+  expertRun(id: string): ExpertRun | undefined { return this.rows<ExpertRun>('SELECT value FROM expert_runs WHERE id=?',[id])[0]; }
+  saveExpertRun(item: ExpertRun): void {
+    this.transaction(() => this.db.run('INSERT INTO expert_runs VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',[item.id,item.sessionId,JSON.stringify(item)]));
+  }
+  expertCases(): ExpertCase[] { return this.rows('SELECT value FROM expert_eval_cases ORDER BY rowid'); }
+  saveExpertCase(item: ExpertCase): void { this.transaction(() => this.db.run('INSERT OR REPLACE INTO expert_eval_cases VALUES (?,?)',[item.id,JSON.stringify(item)])); }
+  deleteExpertCase(id: string): void { this.transaction(() => this.db.run('DELETE FROM expert_eval_cases WHERE id=?',[id])); }
+  expertComparisons(): ExpertComparison[] { return this.rows('SELECT value FROM expert_eval_runs ORDER BY rowid DESC'); }
+  saveExpertComparison(item: ExpertComparison): void {
+    this.transaction(() => this.db.run('INSERT INTO expert_eval_runs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',[item.id,JSON.stringify(item)]));
   }
 
   listProjects(): Project[] { return this.rows<Project>('SELECT value FROM projects ORDER BY rowid'); }
