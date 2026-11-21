@@ -22,6 +22,12 @@ test('共享查询指引按实际 Shell 提供兼容建议并保留原任务', (
   assert.match(windows, /localObsDateTime/);
   assert.match(windows, /只有工具返回明确的权限拒绝\/安全拦截结果，才能报告/);
   assert.match(windows, /用户明确授权的测试环境数据库写入/);
+  assert.equal(RUNTIME_EXECUTION_RULES_VERSION, 6);
+  assert.match(windows, /接口改动需要验证时，自动构建并启动受影响服务/);
+  assert.match(windows, /接口测试数据与 Markdown 对接文档必须逐项引用真实请求和实际响应，不得编造样例/);
+  assert.match(windows, /将接口测试标红并说明具体原因/);
+  assert.match(windows, /项目文件工具和项目文件 IPC 只接受当前项目\/工作区根目录内的相对路径/);
+  assert.match(windows, /禁止传入 Windows 盘符绝对路径、UNC 绝对路径/);
   assert.doesNotMatch(buildRuntimeExecutionInstructions('原始业务要求', 'linux'), /Windows Shell|wttr.in\/Nanjing/);
 });
 

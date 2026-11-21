@@ -24,6 +24,16 @@ test('Markdown 尖括号链接支持包含空格的 Windows 路径', () => {
   assert.match(html, /file:\/\/\/D:.*%E9%A1%B9%E7%9B%AE%20%E6%96%87%E4%BB%B6/);
 });
 
+test('项目内 Markdown 文件链接点击后在项目文件面板打开', () => {
+  const html = renderToStaticMarkup(createElement(MarkdownContent, {
+    text: '[物料信息管理零码开发操作手册](docs/物料信息管理零码开发操作手册.md)',
+    onFilePath: () => undefined,
+  }));
+
+  assert.match(html, /<button[^>]+title="在项目文件中打开，右键可打开所在目录"[^>]*>物料信息管理零码开发操作手册<\/button>/);
+  assert.doesNotMatch(html, /href="docs\/物料/);
+});
+
 test('Jira wiki 图片语法按附件名显示会话图片预览组件，而不泄漏为原始标记', () => {
   const issue: JiraIssue = {
     id: '123', key: 'YSG-387', summary: '合成 Jira 任务', description: '', status: '进行中', issueType: '任务',

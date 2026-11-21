@@ -52,6 +52,11 @@ test('三个 Runtime 的任务上下文保留 Jira 流程和实际代码修改�
       assert.ok(instructions.includes(flow), runtime);
       assert.match(instructions, /检查现有实现并实际修改文件/);
       assert.match(instructions, /不重复说明可修改代码、完整访问或执行权限/);
+      assert.match(instructions, /逐项实测本次涉及的接口/);
+      assert.match(instructions, /接口测试数据与 Markdown 对接文档必须逐项引用真实请求和实际响应，不得编造样例/);
+      assert.match(instructions, /将接口测试标红并说明具体原因/);
+      assert.match(instructions, /项目文件工具.*相对路径/);
+      assert.match(instructions, /Windows 盘符绝对路径/);
     }
   }
 });

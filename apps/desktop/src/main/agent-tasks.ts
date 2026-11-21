@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, certifiedControlledAnalysisCapabilities, classifyRetryFailure, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type RetryFailure, type ResolvedTaskBudget, type RuntimeCapabilityName } from '../../../../packages/agent-orchestrator/src';
-import { CODEX_RUNTIME_VERSION, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, JINGGONG_RUNTIME_VERSION, type RuntimeAdapter } from '../../../../packages/agent-runtime/src';
+import { assertRuntimeGovernance, assertTaskPathAllowed, canonicalTaskArgumentsHash, classifyRetryFailure, executionStatusOf, GovernanceError, GovernedToolGateway, nextRunnableTasks, normalizeTaskRelativePath, reconcileTaskStates, resolveTaskBudgetPolicy, retryPolicyDecision, schedulableAgentTasks, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, TaskCircuitBreaker, taskContentHash, terminalTaskStatus, transitionAgentTask, type RetryFailure, type ResolvedTaskBudget } from '../../../../packages/agent-orchestrator/src';
+import { createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, type ClaudeRuntimeOptions, type RuntimeAdapter } from '../../../../packages/agent-runtime/src';
 import type { RuntimeEvent, RuntimeOptions } from '../../../../packages/agent-runtime/src';
 import type { AgentTask, AgentTaskEvent, AgentTaskStatus, AgentTaskStructuredResult, RuntimeKind, Session, TaskBudgetPolicy, TaskContract } from '../../../../packages/domain/src';
 import { applicableDocuments, buildDeveloperContext } from '../../../../packages/policy/src';
@@ -62,6 +62,7 @@ export interface AgentTaskRunnerOptions {
   resourcesRoot: string;
   codexExecutable: string;
   jinggongExecutable: string;
+  claudeExecutable: string;
   publish: (event: AgentTaskEvent) => void;
   /** 自动子 Agent 全部结束后，将压缩后的结果写回父会话。 */
   publishSessionMessage?: (sessionId: string, text: string) => void;
@@ -458,8 +459,8 @@ export class AgentTaskRunner {
   private buildRuntime(task: AgentTask, session: Session, active: ActiveTask): RuntimeAdapter {
     if (task.workspaceMode === 'worktree') throw new GovernanceError('worktree_execution_not_supported');
     const kind = task.runtimeKind ?? session.runtimeKind ?? 'codex';
-    if (kind !== 'codex' && kind !== 'jinggong') throw new Error('分析子 Agent 当前仅支持 Codex Runtime 或 Jinggong Runtime');
-    const executable = kind === 'jinggong' ? this.options.jinggongExecutable : this.options.codexExecutable;
+    if (kind !== 'codex' && kind !== 'jinggong' && kind !== 'claude_agent_sdk') throw new Error('当前 Runtime 不支持受控分析子 Agent');
+    const executable = kind === 'jinggong' ? this.options.jinggongExecutable : kind === 'claude_agent_sdk' ? this.options.claudeExecutable : this.options.codexExecutable;
     if (!task.contractVersion && !existsSync(executable)) throw new Error(`${kind === 'jinggong' ? 'Jinggong' : 'Codex'} Runtime 尚未部署`);
     const provider = this.options.settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? this.options.settings.profiles()[0] : undefined);
     if (!provider || !provider.models.includes(task.model ?? session.model)) throw new Error('会话模型配置无效，无法启动分析子 Agent');
@@ -501,6 +502,20 @@ export class AgentTaskRunner {
       gateway = undefined;
     } } : {}) };
     if (this.options.runtimeFactory) return this.options.runtimeFactory(kind, runtimeOptions);
+    if (kind === 'claude_agent_sdk') {
+      const claudeOptions: ClaudeRuntimeOptions = {
+        model: task.model ?? session.model,
+        reasoningEffort: session.reasoningEffort,
+        apiKey,
+        relayBaseUrl: provider.baseUrl,
+        executablePath: this.options.claudeExecutable,
+        controlledMode: true,
+        additionalSystemPrompt: developerInstructions,
+        authorizedDirectories: () => ({ mode: 'restricted', directories: [] }),
+        toolGateway: runtimeOptions.toolGateway,
+      };
+      return createClaudeAgentSdkRuntimeAdapter(claudeOptions);
+    }
     return kind === 'jinggong' ? createJinggongRuntimeAdapter(runtimeOptions) : createCodexRuntimeAdapter(runtimeOptions);
   }
 
@@ -520,14 +535,7 @@ export class AgentTaskRunner {
         this.options.store.appendTaskAuditEvent(task.sessionId, task.id, { eventType: 'budget.inherited', actor: 'platform-runner', payload: { policy: inherited.policy, sources: inherited.sources } });
         const session = this.options.store.getSession(task.sessionId);
         const runtimeKind = task.runtimeKind ?? session?.runtimeKind ?? 'codex';
-        const certifications = this.options.store.listRuntimeCapabilityCertifications();
-        const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : session?.runtimeVersion ?? CODEX_RUNTIME_VERSION;
-        const modelId = task.model ?? session?.model ?? '';
-        const hasCertificationCandidate = certifications.some(item => item.runtimeKind === runtimeKind && item.runtimeVersion === runtimeVersion && item.modelId === modelId && item.wireApi === 'responses' && item.testSuiteVersion === CONTROLLED_ANALYSIS_TEST_SUITE_VERSION && item.testStatus === 'passed' && item.testRunId && item.evidenceRef?.trim() && Number.isFinite(Date.parse(item.testedAt)) && Date.parse(item.testedAt) <= Date.now());
-        const profiles = hasCertificationCandidate && session ? this.options.settings.profiles() : [];
-        const provider = session && (profiles.find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? profiles[0] : undefined));
-        const certified = provider ? certifiedControlledAnalysisCapabilities(certifications, { runtimeKind, runtimeVersion, providerId: provider.id, modelId, wireApi: 'responses' }) : new Set<RuntimeCapabilityName>();
-        assertRuntimeGovernance(runtimeKind, { strictModelRequests: true, strictTools: true, strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined }, 'controlled_analysis', certified);
+        assertRuntimeGovernance(runtimeKind, { strictTokenUsage: inherited.policy.maxInputTokens !== undefined || inherited.policy.maxOutputTokens !== undefined, strictCostUsage: inherited.policy.maxCostAmount !== undefined }, 'controlled_analysis');
         budget = new TaskBudgetGuard(inherited.policy, { startedAt: task.startedAt ? Date.parse(task.startedAt) : undefined, initial: { modelTurns: snapshot.budgetEvents.filter(event => event.eventType === 'model.turn_started').length, toolCalls: snapshot.toolEvents.filter(event => event.eventType === 'tool.started').length } });
         budget.check(); this.circuit(task).assertCanExecute();
       } catch (error) { if (error instanceof GovernanceError && error.code === 'circuit_open') this.deferCircuit(task); else this.blockGovernance(task, error); return; }

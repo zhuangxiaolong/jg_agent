@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
 import { jiraSnapshot, LocalStore } from '../../../../packages/storage/src';
 import { GitConnector } from '../../../../packages/git-connector/src';
-import { CODEX_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, runtimeEnvironment, createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, createGrokBuildRuntimeAdapter, createRuntimeManager, grokRuntimeReuseKey, GROK_BUILD_RUNTIME_VERSION, JINGGONG_RUNTIME_VERSION, type RuntimeOptions, type GrokRuntimeOptions } from '../../../../packages/agent-runtime/src';
+import { CLAUDE_AGENT_SDK_RUNTIME_VERSION, CODEX_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, runtimeEnvironment, createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createJinggongRuntimeAdapter, createGrokBuildRuntimeAdapter, createRuntimeManager, grokRuntimeReuseKey, GROK_BUILD_RUNTIME_VERSION, JINGGONG_RUNTIME_VERSION, type RuntimeOptions, type GrokRuntimeOptions } from '../../../../packages/agent-runtime/src';
 import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/src';
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
@@ -60,7 +60,7 @@ import { jiraExecutionInstructions, requiresRequirementAdmission } from '../../.
 import { PluginManagerService } from './plugin-manager';
 import { migrateLegacyDataRoot } from './data-migration';
 import { AgentTaskRunner, AUTOMATIC_AGENT_TASK_PREFIX, automaticAgentTaskSummary, inferAutomaticAgentTaskPlan } from './agent-tasks';
-import { automaticAgentTaskAvailability, certifiedControlledAnalysisCapabilities, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash } from '../../../../packages/agent-orchestrator/src';
+import { automaticAgentTaskAvailability, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash } from '../../../../packages/agent-orchestrator/src';
 import { TaskEngineeringService } from './task-engineering';
 import { LearningEngineService } from './learning-engine';
 import { TaskWorkspaceService } from './task-workspaces';
@@ -694,30 +694,27 @@ function emit(sessionId: string, type: AgentEvent['type'], text: string, request
   if (!window.isDestroyed()) window.webContents.send('agent:event', event);
 }
 
-function certifiedAgentCapabilities(session: Session, runtimeVersion = session.runtimeVersion ?? ((session.runtimeKind ?? store.getRuntimeKind()) === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION)): ReadonlySet<string> {
-  const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
-  if ((runtimeKind !== 'codex' && runtimeKind !== 'jinggong') || !session.projectId || !agentTaskRunner) return new Set();
-  const provider = settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? settings.profiles()[0] : undefined);
-  return certifiedControlledAnalysisCapabilities(store.listRuntimeCapabilityCertifications(), { runtimeKind, runtimeVersion, providerId: provider?.id ?? '', modelId: session.model, wireApi: 'responses' });
-}
-
 function agentOrchestrationAvailability(session: Session): AgentOrchestrationAvailability {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
-  const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : runtimeKind === 'codex' ? CODEX_RUNTIME_VERSION : session.runtimeVersion ?? 'unknown';
+  const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : runtimeKind === 'codex' ? CODEX_RUNTIME_VERSION : runtimeKind === 'claude_agent_sdk' ? CLAUDE_AGENT_SDK_RUNTIME_VERSION : session.runtimeVersion ?? 'unknown';
   const provider = settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? settings.profiles()[0] : undefined);
   const identity = { runtimeKind, runtimeVersion, providerId: provider?.id ?? '', modelId: session.model, wireApi: 'responses' };
   const capabilities = store.listRuntimeCapabilityCertifications().filter(item => item.runtimeKind === runtimeKind && item.runtimeVersion === runtimeVersion && item.providerId === identity.providerId && item.modelId === identity.modelId && item.wireApi === identity.wireApi && item.testSuiteVersion === CONTROLLED_ANALYSIS_TEST_SUITE_VERSION).sort((left, right) => Date.parse(right.testedAt) - Date.parse(left.testedAt));
   const latest: AgentOrchestrationAvailability['capabilities'] = {};
   for (const item of capabilities) if (latest[item.capability] === undefined) latest[item.capability] = item.testStatus;
-  const supportedRuntime = runtimeKind === 'codex' || runtimeKind === 'jinggong';
-  const certified = certifiedAgentCapabilities(session, runtimeVersion).size === 4;
-  return { status: !supportedRuntime ? 'unsupported' : certified ? 'available' : 'uncertified', reason: certified ? '当前 Runtime、Provider、Model 和受控分析测试套件已通过认证。' : !supportedRuntime ? `${runtimeKind} Runtime 暂不支持受控只读子 Agent。` : '受控子 Agent 尚未完成当前 Runtime/Provider/Model 的真实认证；能力保持失败关闭。', runtimeKind, runtimeVersion, ...(provider ? { providerId: provider.id } : {}), modelId: session.model, wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capabilities: latest, ...(capabilities[0] ? { testRunId: capabilities[0].testRunId, testedAt: capabilities[0].testedAt, evidenceRef: capabilities[0].evidenceRef } : {}) };
+  const supportedRuntime = runtimeKind === 'codex' || runtimeKind === 'jinggong' || runtimeKind === 'claude_agent_sdk';
+  const available = supportedRuntime && !!agentTaskRunner && !!session.projectId;
+  const reason = available
+    ? '已取消 Runtime、Provider 和 Model 预认证门禁；子 Agent 复用当前会话配置并按任务契约和预算执行。'
+    : !supportedRuntime
+      ? `${runtimeKind} Runtime 暂不支持平台受控子 Agent。`
+      : !session.projectId ? '当前会话未关联项目，不能启动子 Agent。' : '子 Agent 服务尚未就绪。';
+  return { status: available ? 'available' : 'unsupported', reason, runtimeKind, runtimeVersion, ...(provider ? { providerId: provider.id } : {}), modelId: session.model, wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capabilities: latest, ...(capabilities[0] ? { testRunId: capabilities[0].testRunId, testedAt: capabilities[0].testedAt, evidenceRef: capabilities[0].evidenceRef } : {}) };
 }
 
 /** 会话发送前按需求工作面自动生成分析子 Agent，由调度器并行执行并汇总。 */
 function createAutomaticAgentTasks(session: Session, prompt: string): string[] {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
-  if (certifiedAgentCapabilities(session).size === 4) return [];
   if (!agentTaskRunner || !session.projectId || !automaticAgentTaskAvailability(runtimeKind).available) return [];
   const plans = inferAutomaticAgentTaskPlan(prompt);
   if (!plans.length) return [];
@@ -948,14 +945,13 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     else if (event === 'app_server_initialize_start') lifecycleSpans.set('initialize', performanceService?.telemetry.startSpan(traceId, { stage: 'runtime.initialize', operation: `${kind}.app_server_initialize` }));
     else if (event === 'app_server_initialized') performanceService?.telemetry.endSpan(lifecycleSpans.get('initialize'), 'completed');
   };
-  const agentCapabilities = certifiedAgentCapabilities(session, kind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION);
-  const orchestrationProvider = agentCapabilities.size === 4 && agentTaskRunner && provider && (kind === 'codex' || kind === 'jinggong') ? createAgentOrchestrationProvider({
+  const orchestrationProvider = agentTaskRunner && provider && (kind === 'codex' || kind === 'jinggong') ? createAgentOrchestrationProvider({
     store, runner: agentTaskRunner, session, orchestrationId: ticket.orchestrationId, runtimeKind: kind,
     assertCurrent: request => {
       runs.assertCurrent(ticket);
       const current = store.getSession(session.id);
       const currentProvider = current && (settings.profiles().find(item => item.id === (current.providerId ?? '')) ?? (!current.providerId ? settings.profiles()[0] : undefined));
-      if (!current || ticket.runtimeThreadId !== request.threadId || ticket.activeTurnId !== request.turnId || current.runtimeThreadId !== request.threadId || current.projectId !== session.projectId || (current.runtimeKind ?? 'codex') !== kind || current.model !== session.model || currentProvider?.id !== provider.id || certifiedAgentCapabilities(current, kind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : CODEX_RUNTIME_VERSION).size !== 4) throw new Error('平台编排工具已脱离当前会话、活动轮次或认证范围');
+      if (!current || ticket.runtimeThreadId !== request.threadId || ticket.activeTurnId !== request.turnId || current.runtimeThreadId !== request.threadId || current.projectId !== session.projectId || (current.runtimeKind ?? 'codex') !== kind || current.model !== session.model || currentProvider?.id !== provider.id) throw new Error('平台编排工具已脱离当前会话或活动轮次');
     },
     audit: (toolName, requestHash, resultHash, success) => emit(session.id, 'tool', `平台编排工具 ${toolName} 已${success ? '完成' : '拒绝'}（参数摘要 ${requestHash.slice(0, 12)}；结果摘要 ${resultHash.slice(0, 12)}）`),
   }) : undefined;
@@ -1222,7 +1218,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     if (firstPrompt) store.nameSessionFromContent(session.id, settings.redactContent(firstPrompt));
   }
   agentTaskRunner = new AgentTaskRunner({
-    store, settings, dataRoot, resourcesRoot, codexExecutable: executable, jinggongExecutable,
+    store, settings, dataRoot, resourcesRoot, codexExecutable: executable, jinggongExecutable, claudeExecutable,
     // 子 Agent 可与主 Agent 并行分析；调度器只在 Git/会话目录创建阶段暂停。
     isSessionBusy: _sessionId => gitBusy || creating.size > 0,
     publish: event => { if (window && !window.isDestroyed()) window.webContents.send('agent-task:event', event); },
@@ -1896,6 +1892,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     const attachments = (parsed.attachmentIds ?? []).map(id => pendingAttachments(session.id).get(id)).filter((item): item is PendingConversationAttachment => !!item);
     if (attachments.length !== (parsed.attachmentIds ?? []).length) throw new Error('会话附件已失效，请重新选择后发送');
     const prompt = attachmentPrompt(parsed.prompt, attachments);
+    settings.assertCleanText(prompt);
     if (!queuedTurnId && (runs.get(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
       if (runs.get(session.id)?.cancelled) throw new Error('当前任务正在停止，请等待停止完成后再发送');
       if (attachments.length) throw new Error('运行中补充任务暂只支持文字，请在本轮结束后发送附件');

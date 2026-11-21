@@ -53,7 +53,7 @@ export const layoutSchema = z.object({
 export const projectNameSchema = z.string().trim().min(1, '请输入项目显示名称').max(100, '项目显示名称最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '项目显示名称不能包含换行或控制字符');
 export const sessionAliasSchema = z.string().trim().max(100, '会话别名最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '会话别名不能包含换行或控制字符');
 export const systemSchema = z.enum(['MES5', 'MES6', 'WMS', '前端', '通用']);
-export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && (value.runtimeKind !== undefined || value.providerId !== undefined), '会话配置无效');
+export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && Object.keys(value).length > 0, '会话配置无效');
 const jiraUrlSchema = z.string().trim().min(1).max(2000).transform((value, context) => {
   try { return normalizeJiraUrl(value); }
   catch { context.addIssue({ code: 'custom', message: '请输入有效的 HTTP 或 HTTPS Jira 地址，不能包含账号或密码。' }); return z.NEVER; }

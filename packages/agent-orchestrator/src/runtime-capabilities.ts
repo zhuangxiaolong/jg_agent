@@ -55,15 +55,8 @@ export class GovernanceError extends Error {
   constructor(readonly code: string) { super(`任务治理拒绝：${code}`); this.name = 'GovernanceError'; }
 }
 
-/** 自动规划与执行共用同一能力声明，能力不足时不创建注定阻塞的任务。 */
+/** Codex 与 Jinggong 子 Agent 不要求 Runtime/模型预认证，任务执行仍受契约网关与预算约束。 */
 export function automaticAgentTaskAvailability(kind: RuntimeKind): { available: boolean; reason?: string } {
-  if (kind === 'claude_agent_sdk') return { available: false, reason: 'Claude Agent SDK Runtime 尚未接入受控分析子 Agent。' };
   if (kind === 'grok_build_acp') return { available: false, reason: 'Grok Build ACP 暂不支持平台受控子 Agent；请在主会话中执行任务。' };
-  const matrix = runtimeCapabilityMatrix(kind, 'controlled_analysis');
-  const missing: string[] = [];
-  if (matrix.tool_permission_interception.supported !== true) missing.push('完整工具权限拦截');
-  if (matrix.model_request_interception.supported !== true) missing.push('模型请求限额');
-  return missing.length
-    ? { available: false, reason: `当前 Runtime 尚未接入${missing.join('和')}，自动子 Agent 暂不可用；主会话可以正常执行。` }
-    : { available: true };
+  return { available: true, reason: '子 Agent 启动无需 Runtime、Provider 或 Model 预认证，执行时仍按任务契约和预算检查。' };
 }

@@ -7,7 +7,7 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return createAgentTask({ id, sessionId: 'session', projectId: 'project', name: id, role: 'custom', description: `${id} task`, ...overrides });
 }
 
-test('受控子 Agent 认证必须匹配 Runtime 版本、测试套件、实测批次和证据', () => {
+test('Runtime 能力认证数据只匹配当前版本、测试套件、实测批次和证据', () => {
   const capabilities = ['tool_permission_interception', 'model_request_interception', 'independent_agent_context', 'event_stream'] as const;
   const base = capabilities.map(capability => ({ runtimeKind: 'codex' as const, runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capability, testStatus: 'passed' as const, testRunId: 'run-1', testedAt: '2026-11-19T00:00:00.000Z', evidenceRef: 'report.json' }));
   assert.equal(certifiedControlledAnalysisCapabilities(base, { runtimeKind: 'codex', runtimeVersion: '0.156.1', providerId: 'provider', modelId: 'model', wireApi: 'responses' }).size, 4);

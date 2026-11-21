@@ -133,6 +133,8 @@ test('会话可单独选择 Runtime 和推理强度，模型变更仍要求完�
   }
   assert.equal(sessionOptionsSchema.safeParse({}).success, false);
   assert.equal(sessionOptionsSchema.safeParse({ runtimeKind: 'unknown' }).success, false);
+  assert.equal(sessionOptionsSchema.safeParse({ reasoningEffort: 'xhigh' }).success, true);
+  assert.equal(sessionOptionsSchema.safeParse({ system: 'MES5' }).success, true);
   assert.equal(sessionOptionsSchema.safeParse({ providerId: 'legacy-default', model: 'fixture-model' }).success, true);
   assert.deepEqual(sessionOptionsSchema.parse({ runtimeKind: 'codex', reasoningEffort: undefined }), { runtimeKind: 'codex', reasoningEffort: undefined });
 });

@@ -122,7 +122,9 @@ function inline(value: string, keyPrefix: string, onFilePath?: (path: string) =>
       const localPath = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(target);
       const href = localPath ? `file:///${encodeURI(target.replaceAll('\\', '/').replace(/^\/+/, ''))}` : target;
       const fileTarget = localFileTarget(target);
-      output.push(<a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer" onContextMenu={fileTarget ? event => showFileContextMenu(event, fileTarget, onFileContextMenu) : undefined}>{markdownLink[1]}</a>);
+      output.push(fileTarget && onFilePath
+        ? <button type="button" className="markdown-path markdown-path-link" key={`${keyPrefix}-${index}`} onClick={() => onFilePath(fileTarget)} onContextMenu={event => showFileContextMenu(event, fileTarget, onFileContextMenu)} title="在项目文件中打开，右键可打开所在目录">{markdownLink[1]}</button>
+        : <a key={`${keyPrefix}-${index}`} href={href} target="_blank" rel="noreferrer" onContextMenu={fileTarget ? event => showFileContextMenu(event, fileTarget, onFileContextMenu) : undefined}>{markdownLink[1]}</a>);
     }
     else if (token.startsWith('**')) output.push(<strong key={`${keyPrefix}-${index}`}>{token.slice(2, -2)}</strong>);
     else if (token.startsWith('`')) {

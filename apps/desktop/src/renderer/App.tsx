@@ -537,9 +537,24 @@ export function App() {
   async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }, successNotice?: string) {
     if (!session || running || busy) return;
     setBusy('configure'); setError(''); setNotice('');
-    try { await api.configureSession(session.id, patch); await refresh(); if (successNotice) setNotice(successNotice); }
-    catch (reason) { setError(message(reason)); }
-    finally { setBusy(''); }
+    let updated: Session;
+    try {
+      updated = await api.configureSession(session.id, patch);
+    }
+    catch (reason) {
+      if ('reasoningEffort' in patch) setDraftReasoning(session.reasoningEffort || '');
+      setError(message(reason));
+      setBusy('');
+      return;
+    }
+    updateSession(updated);
+    try {
+      await refresh();
+      updateSession(updated);
+      if (successNotice) setNotice(successNotice);
+    } catch (reason) {
+      setError(`会话设置已保存，但界面刷新失败：${message(reason)}`);
+    } finally { setBusy(''); }
   }
   function configureSelectedModel(providerId: string, model: { id: string; name: string }) {
     const preferredRuntime = runtimeForSelectedModel(model.id, model.name);
@@ -1058,7 +1073,7 @@ export function App() {
     element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
   }
   const openMessageFile = useCallback((filePath: string) => {
-    const candidate = project?.path || sessionProject?.path;
+    const candidate = sessionProject?.path || project?.path;
     if (!candidate) { setError('请先选择项目后查看文件'); return; }
     const normalized = filePath.replace(/\\/g, '/');
     const root = candidate.replace(/\\/g, '/').replace(/\/$/, '');
@@ -1075,7 +1090,7 @@ export function App() {
     setMessageFileContextMenu({ kind: 'attachment', sessionId, attachment, x, y });
   }
   function messageProjectFile(filePath: string) {
-    const targetProject = project || sessionProject;
+    const targetProject = sessionProject || project;
     if (!targetProject) return undefined;
     const normalized = filePath.replace(/\\/g, '/');
     const root = targetProject.path.replace(/\\/g, '/').replace(/\/$/, '');
@@ -1206,7 +1221,7 @@ export function App() {
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
-</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(session.reasoningEffort)}`} title="当前会话推理强度">推理 {reasoningLabel(session.reasoningEffort)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
+</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(draftReasoning || undefined)}`} title="当前会话推理强度">推理 {reasoningLabel(draftReasoning || undefined)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
             </div>
           </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>从后往前看，挑战一切不可能</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>项目会话直接使用所选本地目录，执行时遵循本机安全策略。</span></div></div>}
         </main>

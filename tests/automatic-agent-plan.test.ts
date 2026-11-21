@@ -32,11 +32,11 @@ test('用户明确需要子 Agent 时允许一个专门工作面', () => {
   assert.equal(plans[0].name, '需求拆分分析');
 });
 
-test('三个 Runtime 自动子 Agent 可用性如实反映严格治理缺口', () => {
+test('子 Agent 启动不要求 Codex/Jinggong/Claude 预认证，Grok Runtime 保持不可用', () => {
   for (const kind of ['codex', 'jinggong', 'claude_agent_sdk'] as const) {
     const result = automaticAgentTaskAvailability(kind);
-    assert.equal(result.available, false);
-    assert.ok(result.reason);
-    if (kind !== 'claude_agent_sdk') assert.match(result.reason!, /工具权限拦截.*模型请求限额/);
+    assert.equal(result.available, true);
+    assert.match(result.reason!, /无需.*预认证/);
   }
+  assert.equal(automaticAgentTaskAvailability('grok_build_acp').available, false);
 });

@@ -9,7 +9,7 @@ import { LocalStore } from '../packages/storage/src';
 import { classifyRetryFailure, createAgentTask, createTaskContract, reconcileTaskStates, TASK_GOVERNANCE_BLOCKED_PREFIX, TaskBudgetGuard, taskContentHash, transitionAgentTask } from '../packages/agent-orchestrator/src';
 import { ProjectReadBroker } from '../packages/agent-runtime/src/project-read-broker';
 import type { RuntimeAdapter, RuntimeEvent, RuntimeOptions } from '../packages/agent-runtime/src';
-import type { AgentTask, TaskBudgetPolicy, TaskContract } from '../packages/domain/src';
+import type { AgentTask, RuntimeKind, TaskBudgetPolicy, TaskContract } from '../packages/domain/src';
 
 class FixtureRuntime implements RuntimeAdapter {
   readonly kind = 'codex' as const; readonly version = 'fixture'; readonly capabilitiesVersion = 1;
@@ -33,32 +33,45 @@ async function fixture(t: TestContext, projectBudgetPolicy?: () => Partial<TaskB
   const projectId = 'sample-project'; const sessionId = 'sample-session';
   store.saveProject({ id: projectId, path: workspace, name: '运行器临时样本', branch: 'main' });
   store.saveSession({ id: sessionId, projectId, title: '运行器临时测试', workspacePath: workspace, status: 'idle', createdAt: new Date().toISOString(), model: 'fixture-model', runtimeKind: 'codex' });
-  const runtimes: FixtureRuntime[] = []; const runtimeOptions: RuntimeOptions[] = []; let settingsReads = 0;
+  const runtimes: FixtureRuntime[] = []; const runtimeOptions: RuntimeOptions[] = []; const runtimeKinds: RuntimeKind[] = []; let settingsReads = 0;
   const settings = { redactContent: (value: string) => value, assertCleanText: (_value: string) => undefined, memorySecrets: () => [], profiles: () => { settingsReads += 1; return [{ id: 'fixture-provider', baseUrl: 'https://fixture.invalid', models: ['fixture-model'] }]; }, credential: () => ({ read: () => 'synthetic-fixture-key' }) } as unknown as SettingsService;
-  const runner = new AgentTaskRunner({ store, settings, dataRoot: root, resourcesRoot: root, codexExecutable: process.execPath, jinggongExecutable: process.execPath, publish: () => undefined, projectBudgetPolicy, runtimeFactory: (_kind, options) => { runtimeOptions.push(options); const runtime = new FixtureRuntime(); runtimes.push(runtime); return runtime; } });
+  const runner = new AgentTaskRunner({ store, settings, dataRoot: root, resourcesRoot: root, codexExecutable: process.execPath, jinggongExecutable: process.execPath, claudeExecutable: process.execPath, publish: () => undefined, projectBudgetPolicy, runtimeFactory: (kind, options) => { runtimeKinds.push(kind); runtimeOptions.push(options); const runtime = new FixtureRuntime(); runtimes.push(runtime); return runtime; } });
   t.after(async () => { await runner.close(); store.close(); await rm(root, { recursive: true, force: true }); });
   const current = (id = 'task-1') => store.listAgentTasks(sessionId).find(task => task.id === id)!;
-  const add = (id = 'task-1', overrides: Partial<TaskContract> = {}, legacy = false, parentTaskId?: string) => {
-    const task = createAgentTask({ id, sessionId, projectId, name: '运行器样本任务', role: 'testing', description: '仅用于运行器安全回归的临时样本', runtimeKind: 'codex', workspaceMode: 'read', maxAttempts: 2, ...(parentTaskId ? { parentTaskId } : {}) });
+  const add = (id = 'task-1', overrides: Partial<TaskContract> = {}, legacy = false, parentTaskId?: string, runtimeKind: RuntimeKind = 'codex') => {
+    const task = createAgentTask({ id, sessionId, projectId, name: '运行器样本任务', role: 'testing', description: '仅用于运行器安全回归的临时样本', runtimeKind, workspaceMode: 'read', maxAttempts: 2, ...(parentTaskId ? { parentTaskId } : {}) });
     if (legacy) store.saveAgentTasksForSession(sessionId, [...store.listAgentTasks(sessionId), task]);
     else store.saveAgentTaskContract(task, createTaskContract(task, { allowedPaths: ['src/**'], deniedPaths: ['src/private/**'], ...overrides }), 0, 'local-user');
     return current(id);
   };
   const running = (id = 'task-1') => { store.saveAgentTasksForSession(sessionId, store.listAgentTasks(sessionId).map(task => task.id === id ? transitionAgentTask(task, { status: 'RUNNING' }) : task)); return current(id); };
-  return { root, workspace, database, store, runner, settings, runtimes, runtimeOptions, projectId, sessionId, current, add, running, settingsReads: () => settingsReads };
+  return { root, workspace, database, store, runner, settings, runtimes, runtimeOptions, runtimeKinds, projectId, sessionId, current, add, running, settingsReads: () => settingsReads };
 }
 async function until(predicate: () => boolean, timeout = 2500) { const end = Date.now() + timeout; while (!predicate()) { if (Date.now() >= end) assert.fail('等待运行器状态超时'); await new Promise(resolve => setTimeout(resolve, 10)); } }
 
-test('新契约任务严格门禁先于 Runtime/凭据读取/attempt，治理阻塞不能被刷新解锁', async t => {
+test('新契约子 Agent 无需 Runtime 能力预认证即可启动并经过任务工具网关', async t => {
   const f = await fixture(t); f.add(); await f.runner.startForSession(f.sessionId);
-  assert.equal(f.current().status, 'BLOCKED'); assert.equal(f.current().executionStatus, 'BLOCKED');
-  assert.equal(f.current().attempt, 0); assert.equal(f.runtimes.length, 0); assert.equal(f.settingsReads(), 0);
-  assert.ok(f.current().error?.startsWith(TASK_GOVERNANCE_BLOCKED_PREFIX));
-  assert.match(f.current().error!, /未启动、未消耗尝试次数/);
-  assert.ok(f.store.getTaskAuditSnapshot(f.sessionId, 'task-1').events.some(event => event.eventType === 'governance.blocked'));
-  assert.equal(reconcileTaskStates([f.current()])[0].status, 'BLOCKED');
-  for (let index = 0; index < 3; index++) { await f.runner.startForSession(f.sessionId); f.runner.refreshSchedule(); }
-  assert.equal(f.current().attempt, 0); assert.equal(f.current().status, 'BLOCKED'); assert.equal(f.runtimes.length, 0);
+  await until(() => f.runtimes[0]?.turns === 1);
+  assert.equal(f.current().status, 'RUNNING'); assert.equal(f.current().attempt, 1);
+  assert.equal(f.runtimes.length, 1); assert.ok(f.settingsReads() > 0);
+  assert.equal(f.runtimeOptions[0].executionMode, 'controlled_analysis');
+  assert.equal(typeof f.runtimeOptions[0].toolGateway, 'function');
+  assert.equal(typeof f.runtimeOptions[0].modelRequestGateway, 'function');
+  assert.equal(f.store.getTaskAuditSnapshot(f.sessionId, 'task-1').events.some(event => event.eventType === 'governance.blocked'), false);
+  f.runtimes[0].listener?.({ type: 'status', threadId: 'fixture-thread', text: 'completed' });
+  await until(() => f.current().status === 'COMPLETED');
+});
+
+test('Claude 会话可启动受控只读分析子 Agent', async t => {
+  const f = await fixture(t); f.add('task-1', {}, false, undefined, 'claude_agent_sdk');
+  await f.runner.startForSession(f.sessionId);
+  await until(() => f.runtimes[0]?.turns === 1);
+  assert.equal(f.current().status, 'RUNNING');
+  assert.equal(f.runtimeKinds[0], 'claude_agent_sdk');
+  assert.equal(f.runtimeOptions[0].executionMode, 'controlled_analysis');
+  assert.equal(typeof f.runtimeOptions[0].toolGateway, 'function');
+  f.runtimes[0].listener?.({ type: 'status', threadId: 'fixture-thread', text: 'completed' });
+  await until(() => f.current().status === 'COMPLETED');
 });
 
 test('旧任务维持可启动流程，工程任务门禁不会全局禁用旧会话', async t => {
@@ -98,10 +111,12 @@ test('项目并发上限会等待现有任务退出，预算来源持久化为�
   f.add('legacy-running', {}, true); f.running('legacy-running'); f.add(); await f.runner.startForSession(f.sessionId);
   assert.equal(f.current().status, 'PENDING'); assert.equal(f.current().attempt, 0);
   f.store.saveAgentTasksForSession(f.sessionId, f.store.listAgentTasks(f.sessionId).map(task => task.id === 'legacy-running' ? transitionAgentTask(task, { status: 'COMPLETED' }) : task));
-  await f.runner.startForSession(f.sessionId); assert.equal(f.current().status, 'BLOCKED');
+  await f.runner.startForSession(f.sessionId); await until(() => f.current().status === 'RUNNING');
+  assert.equal(f.current().attempt, 1);
   const inherited = f.store.getTaskAuditSnapshot(f.sessionId, 'task-1').budgetEvents.find(event => event.eventType === 'budget.inherited');
   assert.equal((inherited?.payload.policy as TaskBudgetPolicy).maxToolCalls, 5);
   assert.deepEqual((inherited?.payload.sources as Record<string, string[]>).maxToolCalls, ['project']);
+  await f.runner.cancel(f.sessionId, 'task-1');
 });
 
 test('开发型任务在受控执行未支持时阻塞，绝不使用父会话目录启动', async t => {
@@ -194,13 +209,15 @@ test('重启后未知工具结果会保持中断，即使尝试刷新也不自�
   } finally { restored.close(); }
 });
 
-test('失败后重试重读新状态版本，且新契约恢复后仍须先过严格门禁', async t => {
+test('失败后重试重读新状态版本，无需 Runtime 能力预认证', async t => {
   const f = await fixture(t); f.add(); const task = f.running();
   const active = { task, finished: false, cancelled: false, output: '', retryFailure: classifyRetryFailure({ status: 503 }), submittedTurn: false };
   const internal = f.runner as unknown as { active: Map<string, unknown>; finish(active: unknown, status: 'FAILED', error: string): Promise<void> };
   internal.active.set(task.id, active); await internal.finish(active, 'FAILED', '临时服务故障');
-  await until(() => f.current().status === 'BLOCKED');
-  assert.equal(f.current().attempt, 1); assert.match(f.current().error!, /TASK_GOVERNANCE_BLOCKED/);
+  await until(() => f.current().attempt === 2 && f.current().status === 'RUNNING');
+  assert.equal(f.runtimes.length, 1);
+  assert.equal(typeof f.runtimeOptions[0].toolGateway, 'function');
+  await f.runner.cancel(f.sessionId, task.id);
 });
 
 test('模型完成但工具没有确认结果时，finish 更新审计版本后保持 INTERRUPTED', async t => {

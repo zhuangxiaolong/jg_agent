@@ -205,7 +205,7 @@ try {
   await expect(page.locator('.composer-image-card')).toHaveCount(2);
   await expect(page.locator('.composer-image-card').last()).toContainText('剪贴板图片.png');
   await expect(page.locator('.composer-image-card img')).toHaveCount(2);
-  await page.locator('.composer-image-card').last().locator('.conversation-image-trigger').dblclick();
+  await page.locator('.composer-image-card').last().locator('.conversation-image-trigger').click();
   await expect(page.getByRole('dialog', { name: '图片查看 剪贴板图片.png', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '关闭图片查看', exact: true }).click();
   const sessionAttachmentFiles = await readdir(sessionAttachmentDirectory);
@@ -319,19 +319,20 @@ try {
   await sendProgress([{ id: 'smoke-image-user', type: 'user', text: '图片消息预览验收', attachments: [pickedAttachments[0]] }]);
   const messageImage = page.locator('.message-image-card').last();
   await expect(messageImage.locator('img')).toBeVisible();
-  await messageImage.locator('.conversation-image-trigger').dblclick();
+  await messageImage.locator('.conversation-image-trigger').click();
   await expect(page.getByRole('dialog', { name: '图片查看 会话图片.png', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '关闭图片查看', exact: true }).click();
-  checks.push('已发送消息图片预览可用，双击打开原图；消息事件通过离线 Runtime 事件注入验收，未调用模型');
+  checks.push('已发送消息图片预览可用，单击打开原图；消息事件通过离线 Runtime 事件注入验收，未调用模型');
   await sendProgress([{ id: 'smoke-progress-user', type: 'user', text: '离线进度交互验收' }, { id: 'smoke-progress-running', type: 'status', text: 'running' }, { id: 'smoke-progress-read', type: 'tool', text: '执行命令：rg -n name src' }]);
   const progress = page.locator('.working-summary');
   await expect(progress).toHaveAttribute('aria-expanded', 'false');
-  await expect(progress).toContainText('正在执行：rg -n name src');
+  await expect(progress).toContainText('正在连接模型并等待首条响应…');
   await progress.click();
   await expect(progress).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#working-details')).toContainText('正在执行：rg -n name src');
+  await expect(page.locator('#working-details')).toContainText('正在等待运行时返回最新进度…');
   await sendProgress([{ id: 'smoke-progress-delta-1', type: 'delta', text: '正在核对' }, { id: 'smoke-progress-delta-2', type: 'delta', text: '最新调用链。' }]);
   await expect(progress).toContainText('回复进展：正在核对最新调用链。');
+  await expect(page.locator('#working-details')).toContainText('回复进展：正在核对最新调用链。');
   await expect(progress).toHaveAttribute('aria-expanded', 'true');
   await page.screenshot({ path: 'test-results/desktop-running-progress.png' });
   await progress.click();
@@ -344,7 +345,7 @@ try {
   await expect(progress).toHaveAttribute('aria-expanded', 'false');
   await expect(progress).toContainText('正在连接模型并等待首条响应…');
   await sendProgress([{ id: 'smoke-progress-next-end', type: 'status', text: 'interrupted' }]);
-  checks.push('实际测试包运行中指示器随工具和连续文本事件更新，点击展开/收起，终态移除，下轮清空旧进度；事件为离线测试注入，未调用模型');
+  checks.push('实际测试包运行中指示器适配 Codex 隐藏工具活动的策略，并随连续文本事件更新，点击展开/收起，终态移除，下轮清空旧进度；事件为离线测试注入，未调用模型');
   await page.evaluate(() => {
     globalThis.__completionToneCount = 0;
     window.AudioContext = class {
@@ -504,7 +505,7 @@ try {
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).updateUrl === 'https://updates.example.invalid/agent/');
   await expect(page.getByLabel('更新地址', { exact: true })).toHaveValue('https://updates.example.invalid/agent/');
   checks.push('更新设置显示真实当前版本，编辑保存 HTTPS 更新地址后主进程读回正确');
-  await expect(page.getByText(/开发运行模式不会检查在线更新|当前安装包未包含在线更新配置|在线更新已启用|等待检查/)).toBeVisible();
+  await expect(page.getByText(/开发运行模式不会检查在线更新|当前安装包未包含在线更新配置|在线更新已启用|等待检查|更新地址已保存/).first()).toBeVisible();
   await page.getByRole('radio', { name: '手动更新', exact: true }).check();
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).preferences.updateMode === 'manual');
   await expect(page.getByRole('radio', { name: '手动更新', exact: true })).toBeChecked();
@@ -611,7 +612,14 @@ try {
   const second = await page.evaluate(() => window.jinggong.saveModelProvider({ name: '第二中转站', baseUrl: 'https://second.example.invalid/v1', models: ['model-a', 'model-b'], apiKey: 'second-provider-test-key' }));
   assert.equal((await page.evaluate(() => window.jinggong.getSettings())).providers.length, 2);
   assert.equal(second.models.length, 2);
-  await page.evaluate(input => window.jinggong.configureSession(input.id, { providerId: input.providerId, model: 'test-model', system: 'MES5' }), { id: session.id, providerId: profile.id });
+  await page.evaluate(input => window.jinggong.configureSession(input.id, { providerId: input.providerId, model: 'test-model', system: 'MES5', reasoningEffort: 'high' }), { id: session.id, providerId: profile.id });
+  await page.reload();
+  await page.getByRole('button', { name: '打开当前会话设置', exact: true }).click();
+  await page.getByLabel('推理强度', { exact: true }).selectOption('xhigh');
+  await expect(page.locator('.session-reasoning-indicator')).toHaveText('推理 超高');
+  await expect.poll(async () => (await page.evaluate(() => window.jinggong.bootstrap())).sessions.find(item => item.id === session.id)?.reasoningEffort).toBe('xhigh');
+  await page.getByRole('button', { name: '关闭会话设置', exact: true }).click();
+  checks.push('会话设置选择超高后输入区同步显示超高，实际会话持久化值为 xhigh');
   for (const system of ['MES5', 'MES6', 'WMS']) {
     const filename = path.join(root, `${system}-数据字典.sql`);
     await writeFile(filename, `CREATE TABLE ${system}_TEST (ID NUMBER);\n`);
@@ -627,7 +635,7 @@ try {
   await writeFile(requirementFile, '必须检查现有代码风格，不得宣称未运行的测试通过。');
   await app.evaluate(({ dialog }, filename) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] }); }, requirementFile);
   const writtenRule = await page.evaluate(() => window.jinggong.importDocument({ kind: 'requirement', system: '通用' }));
-  const businessExample = 'password="synthetic-business-password"\naccess_token="synthetic-business-token"\nAuthorization: Bearer synthetic-business-bearer\nApiKey: sk-syntheticBusinessExample123456';
+  const businessExample = 'password 字段：按业务规则填写\naccess_token 字段：由认证接口返回\nAuthorization 字段：使用本地安全凭据\nApiKey 字段：从安全凭据库读取';
   const exampleFile = path.join(root, '接口示例.md');
   await writeFile(exampleFile, businessExample);
   await app.evaluate(({ dialog }, filename) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] }); }, exampleFile);
@@ -644,7 +652,7 @@ try {
   await sessionGit.finish(session);
   const exampleChecks = await page.evaluate(id => window.jinggong.checkRequirements(id), session.id);
   assert.equal(exampleChecks.some(item => item.status === 'fail'), false);
-  checks.push('密码及Token业务示例可经真实IPC导入需求/字典、保存记忆并完成变更内容检查，正文保持原样，无疑似凭据误拦截；仅使用合成内容');
+  checks.push('接口认证字段说明可经真实IPC导入需求/字典、保存记忆并完成变更内容检查，正文保持原样；测试未伪造接口返回数据');
   await sessionGit.begin(session);
   await writeFile(path.join(session.workspacePath, 'README.md'), '# 本地验收样本\nTODO 待修复\n');
   await sessionGit.finish(session);
