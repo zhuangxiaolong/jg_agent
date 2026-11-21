@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '../../../../packages/domain/src';
+import { ExpertAvatar } from './ExpertAvatar';
 import type { ExpertProfile, ExpertRun, ExpertSelection } from '../../../../packages/domain/src/expert';
 
 export function ExpertSession({ session, running, open }: {session:Session; running:boolean; open:()=>void}) {
@@ -22,14 +23,17 @@ export function ExpertSession({ session, running, open }: {session:Session; runn
     try {await api.select(session.id,next);setSelection(next);setError('');} catch(e){setError(String(e));} finally {setBusy(false);}
   }
   if (!api) return null;
-  const defaultName = profiles.find(p=>p.isDefault)?.name ?? '专家';
+  const defaultProfile = profiles.find(p=>p.isDefault);
   const scope = selection.scope === 'auto' ? session.manualKnowledgeScope && session.manualKnowledgeScope !== 'auto' ? session.manualKnowledgeScope : session.system : selection.scope;
-  const selectedName = selection.profileId === 'off' ? '普通 Agent' : profiles.find(p=>p.id === selection.profileId)?.name;
-  return <details className="expert-session"><summary>{selectedName ?? (['MES5','MES6','WMS'].includes(scope ?? '') ? defaultName : '普通 Agent')}{runs[0] && ' · 最近运行 '+runs[0].name} · 专家设置</summary>
+  const selected = selection.profileId === 'auto'
+    ? (['MES5','MES6','WMS'].includes(scope ?? '') ? defaultProfile : undefined)
+    : profiles.find(p=>p.id===selection.profileId);
+  return <details className="expert-session"><summary>{selected && <ExpertAvatar id={selected.id} size={20}/>}
+    {selected?.name ?? '普通 Agent'}{runs[0] && <> · 最近运行 <ExpertAvatar id={runs[0].profileId} size={18}/> {runs[0].name}</>} · 专家设置</summary>
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <label>产品知识范围<select value={selection.scope} disabled={running || busy} onChange={e=>void select({...selection,scope:e.target.value as ExpertSelection['scope']})}>{['auto','off','MES5','MES6','WMS','SRM','JMOM','PDA'].map(s=><option key={s} value={s}>{s === 'auto' ? '自动 · '+(scope ?? '未知') : s === 'off' ? '关闭手册' : s}</option>)}</select></label>
     <button type="button" onClick={open}>专家中心</button>{error && <p role="alert">{error}</p>}
-    {runs.map(run=><details key={run.id}><summary>{run.createdAt.slice(0,19).replace('T',' ')} UTC · {run.name} · {run.status}</summary>
+    {runs.map(run=><details key={run.id}><summary><ExpertAvatar id={run.profileId} size={20}/> {run.createdAt.slice(0,19).replace('T',' ')} UTC · {run.name} · {run.status}</summary>
       <p>{run.router} → {run.name} v{run.version} · {run.reason} · {run.workflowId}</p>
       <p>{run.scope.join(' + ')} · {run.runtime} · {run.provider} · {run.model}</p><code>{run.hash}</code>
       {run.error && <p>{run.error}</p>}<p>本轮检索及加载记录</p><ul>{run.sources.map((s,i)=><li key={i}>{s.kind} · {s.label} {s.version} · <code>{s.hash.slice(0,12)}</code></li>)}</ul>

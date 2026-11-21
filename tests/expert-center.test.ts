@@ -71,7 +71,13 @@ test('v17 升级保留会话并备份原始字节，持久化档案、隔离来�
     assert.ok(!payloads[0].instructions.includes('【本轮专业工作流】'));assert.ok(payloads[1].instructions.includes('【本轮专业工作流】'));
     const record=store.expertComparisons()[0];assert.equal(record.expert.status,'completed');assert.equal(record.baseline.answer,'测试替身结果');
     call('grade',record.id,'expert',{scores:[3,4,5,2,3,4,5],citation:'不适用',mismatch:false,complete:true,notes:'人工样例'});
+    const speakers = [undefined, {id:copy.id,name:'后端评审'}, {id:'project-manager',name:'项目经理专家'}];
+    speakers.forEach((expert,index)=>store.appendEvent({
+      id:'answer-'+index, sessionId:session.id, type:index===1?'delta':'message',
+      text:'测试回复', createdAt:new Date().toISOString(), expert
+    }));
     store.close();store=await LocalStore.open(filename);
+    assert.deepEqual(store.events(session.id).map(event=>event.expert),speakers);
     assert.equal(store.expertComparisons()[0].expert.grade?.scores.length,7);
     assert.equal(store.expertProfiles().length,11);assert.equal(store.expertCases().length,40);
     assert.equal(store.expertSelection(session.id).profileId,copy.id);

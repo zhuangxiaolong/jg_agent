@@ -107,7 +107,11 @@ try {
   await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, standaloneShare);
   await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('navigation', { name:'设置分类' }).getByRole('button',{name:'专家中心'}).click();
-  await expect(page.getByLabel('专家档案')).toHaveValue('mes-wms-engineering');
+  const directory = page.getByRole('group',{name:'专家档案'});
+  await expect(directory.getByRole('button',{pressed:true})).toContainText('MES/WMS 需求与研发总专家');
+  await expect.poll(()=>directory.locator('img').evaluateAll(images => new Set(images.filter(image=>image.naturalWidth>0).map(image=>image.src)).size)).toBe(10);
+  await directory.getByRole('button',{name:'后端开发专家'}).click();
+  await expect(directory.getByRole('button',{pressed:true})).toContainText('后端开发专家');
   await page.getByRole('button',{name:'复制档案',exact:true}).click();
   await expect(page.getByRole('button',{name:'删除档案'})).toBeEnabled();
   await page.getByRole('button',{name:'删除档案'}).click();
@@ -433,8 +437,10 @@ try {
   });
   try {
     const samples = ['// 中文与表情😀\n\tconst value = "<tag>&内容";\n\n  return value;', 'SELECT "字段" FROM "表"; -- ' + '长代码'.repeat(150)];
-    await app.evaluate(({ BrowserWindow }, { sessionId, samples }) => BrowserWindow.getAllWindows()[0].webContents.send('agent:event', { id: 'smoke-code-copy', sessionId, type: 'message', text: '## 代码复制验收\n\n```csharp\n' + samples[0] + '\n```\n\n```\n' + samples[1] + '\n```', createdAt: new Date().toISOString() }), { sessionId: session.id, samples });
+    await app.evaluate(({ BrowserWindow }, { sessionId, samples }) => BrowserWindow.getAllWindows()[0].webContents.send('agent:event', { id: 'smoke-code-copy', expert: {id:'mes-wms-backend',name:'后端开发专家'}, sessionId, type: 'message', text: '## 代码复制验收\n\n```csharp\n' + samples[0] + '\n```\n\n```\n' + samples[1] + '\n```', createdAt: new Date().toISOString() }), { sessionId: session.id, samples });
     const copiedMessage = page.locator('article.message').filter({ has: page.getByRole('heading', { name: '代码复制验收', exact: true }) });
+    await expect(copiedMessage.locator('.message-meta strong')).toHaveText('后端开发专家');
+    await expect(copiedMessage.locator('.message-avatar img')).toHaveAttribute('src','assets/experts/mes-wms-backend.png');
     const copyButtons = copiedMessage.getByRole('button', { name: '复制代码', exact: true });
     await expect(copyButtons).toHaveCount(2);
     for (let index = 0; index < samples.length; index++) {

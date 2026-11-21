@@ -671,8 +671,8 @@ function saveSessionJiraIssue(session: Session, issue: JiraIssue): Session {
   store.saveSession(updated);
   return updated;
 }
-function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity'], attachments?: ConversationAttachment[]): void {
-  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? text : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), ...(attachments ? { attachments } : {}), createdAt: new Date().toISOString() };
+function emit(sessionId: string, type: AgentEvent['type'], text: string, requestId?: number | string, terminalOverride?: 'session.cancelled', approval?: AgentEvent['approval'], activity?: AgentEvent['activity'], attachments?: ConversationAttachment[], expert?: AgentEvent['expert']): void {
+  const event: AgentEvent = { id: randomUUID(), sessionId, type, text: ['user', 'message', 'delta'].includes(type) ? text : clean(text), requestId, ...(approval ? { approval } : {}), ...(activity ? { activity } : {}), ...(expert ? { expert } : {}), ...(attachments ? { attachments } : {}), createdAt: new Date().toISOString() };
   store.appendEvent(event);
   if (type === 'status' && (text === 'completed' || text === 'failed' || text === 'interrupted')) {
     const ticket = runs.get(sessionId);
@@ -1152,7 +1152,9 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
       await sessionGit.finish(current).catch(error => emit(current.id, 'error', `会话变更归属核验失败：${error instanceof Error ? error.message : String(error)}`));
       if (!runs.isCurrent(ticket) || ticket.cancelled) { terminalSessions.delete(current.id); terminalOutcomes.delete(current.id); return; }
     }
-    emit(current.id, event.type, event.text, event.requestId, undefined, event.approval, event.activity);
+    const speaker = (event.type === 'message' || event.type === 'delta') && expert?.profile
+      ? { id: expert.profile.id, name: expert.profile.name } : undefined;
+    emit(current.id, event.type, event.text, event.requestId, undefined, event.approval, event.activity, undefined, speaker);
     if (event.type === 'status' && event.text === 'completed' && current.workspacePath) {
       try {
         const diffs = (await sessionGit.prepare(current)).diffs;

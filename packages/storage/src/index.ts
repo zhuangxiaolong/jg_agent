@@ -1410,6 +1410,7 @@ export class LocalStore {
     if (event.requestId !== undefined) value.requestId = event.requestId;
     if (event.approval !== undefined) value.approval = safeRuntimeApproval(event.approval);
     if (event.activity !== undefined) value.activity = event.activity;
+    if (event.expert && (event.type === 'message' || event.type === 'delta')) value.expert = { id: event.expert.id, name: event.expert.name };
     if (event.attachments !== undefined) value.attachments = event.attachments.map(item => ({ id: item.id, name: item.name, mimeType: item.mimeType, size: item.size, kind: item.kind }));
     this.transaction(() => this.db.run('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)', [value.id, value.sessionId, JSON.stringify(value)]));
   }

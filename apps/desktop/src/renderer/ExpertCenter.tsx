@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ExpertApi, ExpertCase, ExpertComparison, ExpertGrade, ExpertProfile } from '../../../../packages/domain/src/expert';
 import type { Session } from '../../../../packages/domain/src';
 import './expert-center.css';
+import { ExpertAvatar } from './ExpertAvatar';
 
 const dimensions = ['任务理解','产品版本','引用质量','专业完整度','可执行性','风险边界','交付可用性'];
 const average = (scores:number[]) => scores.reduce((sum,n)=>sum+n,0)/scores.length;
@@ -56,7 +57,12 @@ export function ExpertCenter({api,sessions}:{api:ExpertApi;sessions:Session[]}) 
   const savedCase = draft && editingCase && (Object.keys(draft) as Array<keyof ExpertCase>).every(key=>draft[key]===editingCase[key]);
   return <section className="expert-center"><h3>专家中心</h3><div className="expert-actions">{['档案','评测工作台'].map(t=><button disabled={tab===t} key={t} onClick={()=>setTab(t)}>{t}</button>)}</div>
     {message && <p className="form-error" role="alert">{message}</p>}
-    {tab==='档案' && <><label>专家档案<select value={selected} onChange={e=>{setProfile(e.target.value);setEditing(undefined);}}>{profiles.map(p=><option key={p.id} value={p.id}>{p.name}{p.isDefault?' · 默认':''}{p.enabled?'':' · 停用'}</option>)}</select></label>
+    {tab==='档案' && <><div className="expert-directory" role="group" aria-label="专家档案">
+      {profiles.map(p=><button type="button" key={p.id} aria-pressed={selected===p.id}
+        onClick={()=>{setProfile(p.id);setEditing(undefined);}}>
+        <ExpertAvatar id={p.id} size={36}/><span>{p.name}{p.isDefault && <small>默认</small>}{!p.enabled && <small>已停用</small>}</span>
+      </button>)}
+    </div>
     {profile && <><p>{profile.familyId} · {profile.role ?? '路由专家'} · v{profile.version} · {profile.builtin?'内置':'自定义'}</p><code>{profile.contentHash}</code>
     <h4>工作流</h4><ol>{profile.steps.map((s,i)=><li key={i}>{s}</li>)}</ol><p>知识来源 · {profile.sources.join('、')}</p><p>Skill 标签 · {profile.skillTags.join('、') || '按任务匹配'}</p><p>输出 · {profile.output}</p><p>验收 · {profile.checks}</p>
     <div className="expert-actions"><button disabled={busy} onClick={()=>void change('copy')}>复制档案</button><button disabled={busy || !profile.enabled || profile.isDefault} onClick={()=>void change('default')}>设为默认</button><button disabled={busy || profile.isDefault} onClick={()=>void change('toggle')}>{profile.enabled?'停用':'启用'}</button>

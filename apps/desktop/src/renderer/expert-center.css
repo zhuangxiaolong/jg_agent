@@ -1,3 +1,9 @@
+.expert-avatar { border-radius:50%; object-fit:contain; vertical-align:middle; flex:none; background:var(--accent-bg); }
+.expert-directory { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(175px,100%),1fr)); gap:4px; margin:12px 0; }
+.expert-directory button { display:flex; align-items:center; gap:8px; padding:6px; min-width:0; text-align:left; border:1px solid transparent; border-radius:6px; }
+.expert-directory button[aria-pressed=true] { background:var(--accent-bg); border-color:var(--accent); }
+.expert-directory button span { overflow-wrap:anywhere; }
+.expert-directory small { display:block; color:var(--muted); }
 .expert-center label, .expert-session section > label { display:grid; gap:4px; margin:8px 0; }
 .expert-center label:has(input[type=checkbox]) { display:block; }
 .expert-center select,.expert-center textarea,.expert-center input:not([type=checkbox]),.expert-session select { width:100%; min-width:0; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:5px; }
