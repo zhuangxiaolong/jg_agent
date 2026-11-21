@@ -1,0 +1,6 @@
+*** Begin Patch
+*** Update File: apps/desktop/src/renderer/JiraWorkflow.tsx
+@@
+-    <label className="workflow-comment">测试结果与补充说明<textarea aria-label="Jira 测试结果与补充说明" rows={3} value={comment} maxLength={28000} disabled={pending} onChange={event => setComment(event.target.value)} placeholder="简述测试结论及必要补充，建议不超过 50 字" /><small>{Array.from(comment).length} 字 · 建议不超过 50 字{Array.from(comment).length > 50 ? '，请精简' : ''}</small></label>
++    <label className="workflow-comment">测试结果与补充说明<textarea aria-label="Jira 测试结果与补充说明" rows={3} value={comment} maxLength={28000} disabled={pending} onChange={event => setComment(event.target.value)} onPaste={event => { const files = Array.from(event.clipboardData.files); if (!files.length) return; event.preventDefault(); void addAttachments(files); }} placeholder="简述测试结论及必要补充，建议不超过 50 字；可 Ctrl+V 粘贴图片或文件" /><small>{Array.from(comment).length} 字 · 建议不超过 50 字{Array.from(comment).length > 50 ? '，请精简' : ''}</small></label>
+*** End Patch

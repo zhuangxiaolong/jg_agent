@@ -1,0 +1,1355 @@
+=== C:/Users/Administrator/Desktop/2027年战略规划-综合管理组 副本.pptx ===
+slides=19
+{"id":"sl/y90nupkv","index":0,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/547294r6","kind":"shape"},{"id":"sh/k3yl0zql","kind":"shape"},{"id":"sh/7qp4be9c","kind":"shape"},{"id":"sh/65g3298r","kind":"textbox","text":"ANNUAL STRATEGY REVIEW"},{"id":"sh/ts7md4r2","kind":"textbox","text":"2027年战略规划暨经营目标"},{"id":"sh/sryl4zqx","kind":"textbox","text":"广东精工智能系统有限公司 · 数字化工厂事业部"},{"id":"sh/fu94fe98","kind":"textbox","text":"综合管理组　|　2026年11月　|　汇报人：弥田甜"},{"id":"sh/utg3698n","kind":"textbox","text":"汇报范围：26年对账 · 27年目标与路径 · 资源与请拍板事项"}]}
+{"id":"sl/hwbqtkby","index":1,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/65cvm9kz","kind":"shape"},{"id":"sh/t83uho3q","kind":"shape"},{"id":"sh/s7udoj25","kind":"textbox","text":"目 录"},{"id":"sh/j21cbel8","kind":"shape"},{"id":"sh/ihsbi9k3","kind":"textbox","text":"01"},{"id":"sh/54judo3e","kind":"textbox","text":"26年对账：账本与问题"},{"id":"sh/k3atkj2t","kind":"shape"},{"id":"sh/ve1c7ulc","kind":"textbox","text":"02"},{"id":"sh/adsbepkr","kind":"textbox","text":"27年经营目标：数字承诺与费用测算"},{"id":"sh/3e1gzuls","kind":"shape"},{"id":"sh/idsz6p4n","kind":"textbox","text":"03"},{"id":"sh/5gji143y","kind":"textbox","text":"打赢路径：绩效升级与三件重点工作"},{"id":"sh/4fah8zmd","kind":"shape"},{"id":"sh/vqhgvalw","kind":"textbox","text":"04"},{"id":"sh/up8z2p4b","kind":"textbox","text":"重中之重：事业部经营管理AI系统"},{"id":"sh/hczyxk32","kind":"shape"},{"id":"sh/grqh4fmh","kind":"textbox","text":"05"},{"id":"sh/7mhgra50","kind":"textbox","text":"部门工作重点：人与供应商"},{"id":"sh/6l8zy54f","kind":"shape"},{"id":"sh/cf25c7y1","kind":"textbox","text":"06"},{"id":"sh/dgv6lcfm","kind":"textbox","text":"资源需求与请拍板事项"},{"id":"sh/qdknahgv","kind":"shape"},{"id":"sh/bet4j2xg","kind":"textbox","text":"愿景：做全球领先的精益数智工厂落地服务商！"},{"id":"im/h8j6xkvm","kind":"image"},{"id":"sh/lkv6pwfi","kind":"shape"}]}
+{"id":"sl/ofy9wn61","index":2,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/yl8fq903","kind":"shape"},{"id":"sh/1sfy9kja","kind":"textbox","text":"收款是唯一未闭合的责任线：缺口 650.8 万，相当于 10 月单月收款额的 1.35 倍"},{"id":"sh/0r6xgfi5","kind":"shape"},{"id":"sh/sbaxwfql","kind":"shape"},{"id":"sh/dwjypkr6","kind":"textbox","text":"收款 · 全年唯一硬缺口"},{"id":"sh/q9sfu58v","kind":"textbox","text":"650.8"},{"id":"sh/ra1gna9g","kind":"textbox","text":"万"},{"id":"sh/0zah0zqx","kind":"textbox","text":"目标 4801 万 · 已收 4150.2 万 · 达成 86.4%"},{"id":"sh/103yt4ri","kind":"textbox","text":"缺口需在 11-12 月拆到在建项目与验收节点，按周跟踪"},{"id":"sh/exszyp8r","kind":"shape"},{"id":"sh/fy1gru9c","kind":"textbox","text":"签单"},{"id":"sh/o3uh4zqt","kind":"textbox","text":"101.1%"},{"id":"sh/p43yx4re","kind":"textbox","text":"5882.6 / 5820 万"},{"id":"sh/japsj2xs","kind":"textbox","text":"已超额 62.6 万"},{"id":"sh/y9graxw7","kind":"shape"},{"id":"sh/5cralcfy","kind":"textbox","text":"交付"},{"id":"sh/kby9c7ed","kind":"textbox","text":"113.1%"},{"id":"sh/b6psfixw","kind":"textbox","text":"2508.4 / 2217.5 万"},{"id":"sh/a5gr6dwb","kind":"textbox","text":"已超额 290.9 万"},{"id":"sh/x87ahsf2","kind":"shape"},{"id":"sh/w7y98neh","kind":"textbox","text":"利润"},{"id":"sh/f29srmx0","kind":"textbox","text":"93.9%"},{"id":"sh/u10bihwf","kind":"textbox","text":"376.2 / 400.7 万"},{"id":"sh/29gvm1sz","kind":"textbox","text":"缺口 24.5 万"},{"id":"sh/3apwf6tk","kind":"shape"},{"id":"sh/obidobap","kind":"textbox","text":"判断：签单、交付两条规模线均已达标或超额，但毛利率仅 29.56%（目标 36%）、9-10 月净利率跌至 2.35% / 1.26%——规模回来了，利润没回来，经营质量是 27 年规划的原点。（口径：2026 年 1-10 月责任制累计）"},{"id":"sh/pcrehgba","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/elgvi1sn","kind":"textbox","text":"03"},{"id":"im/yhkjedwr","kind":"image"},{"id":"sh/gnydkbat","kind":"shape"},{"id":"sh/1o7edgbe","kind":"shape"},{"id":"sh/yh0fels7","kind":"textbox","text":"一、26年对账-责任线收官"}]}
+{"id":"sl/jyx0ra1s","index":3,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/cf2hw3il","kind":"shape"},{"id":"sh/dgby58jq","kind":"textbox","text":"数据说话：规模达标而质量下滑——四笔账，每一笔都对应 27 年的一场硬仗"},{"id":"sh/qtkzud0f","kind":"shape"},{"id":"sh/betg3i10","kind":"shape"},{"id":"sh/0j2h0nih","kind":"textbox","text":"01"},{"id":"sh/lkvy9sz2","kind":"textbox","text":"交付延期，回款被卡死"},{"id":"sh/yhkzyd0b","kind":"textbox","text":"69 个在手项目，暂停 5 个（一战区占 4）　暂停项目基本是 2024 年签单，最久已超 2 年未验收"},{"id":"sh/zitg7i1w","kind":"textbox","text":"里程碑签字 50 条：一战区 18 / 二战区 32　同类业务二战区推进快 78%，差距在管理不在能力"},{"id":"sh/gnixojid","kind":"textbox","text":"绩效考核数据不精准　人天与进度靠人工报，延期追责没有依据"},{"id":"sh/1oryxojy","kind":"textbox","text":"→ 27 年：项目台账上 AI 平台，异常自动通报 + 长尾攻克小组"},{"id":"sh/hkje1kbm","kind":"shape"},{"id":"sh/gjaxsfa1","kind":"textbox","text":"02"},{"id":"sh/vi1wzatg","kind":"textbox","text":"盈利结构失衡，毛利单边下滑"},{"id":"sh/uhsfq5sv","kind":"textbox","text":"毛利率 29.56%，低于目标 36% 整 6.4pct　9 月 25.15% → 10 月 23.15%，逐月走低"},{"id":"sh/583e54bi","kind":"textbox","text":"软件（不含外包）2387 万，仅占签单 40.6%　硬件 1000 万 + 外包 328 万才是利润来源"},{"id":"sh/4naxwzad","kind":"textbox","text":"智能硬件采购报价太高　对外报价失去竞争力，多个项目直接丢单"},{"id":"sh/3m1w3uts","kind":"textbox","text":"→ 27 年：立项毛利红线 + 外协报价库 + 硬件限价"},{"id":"sh/ilsfups7","kind":"shape"},{"id":"sh/dc3e94bu","kind":"textbox","text":"03"},{"id":"sh/sbux0za9","kind":"textbox","text":"一线经营单元全面亏损"},{"id":"sh/ql43ex4f","kind":"textbox","text":"一战区 -153.8 / 二战区 -181.3 / 市场组 -6.6 万　三个一线单元合计亏损 341.7 万"},{"id":"sh/bmdk7250","kind":"textbox","text":"利润 718.0 万全部来自非自主经营单位　战区年度回款达成仅 44.6% / 47.6%，均未过半"},{"id":"sh/c7mlg7ml","kind":"textbox","text":"一战区替换率 51.7%、新人占比 63.2%　人换得太快，交付经验留不下来"},{"id":"sh/d8v29cn6","kind":"textbox","text":"→ 27 年：战区自主经营扭亏 + 回款到项目经理"},{"id":"sh/y943ih4r","kind":"shape"},{"id":"sh/zadkbm5w","kind":"textbox","text":"04"},{"id":"sh/0bmlkrmh","kind":"textbox","text":"内部管理粗放（综合管理组自身）"},{"id":"sh/lcf2dwn2","kind":"textbox","text":"费用超预算 107 万　税金提成外包硬件 +362.7 万、差旅 +46.0 万是主要超支"},{"id":"sh/mdo3mh4n","kind":"textbox","text":"AI 创新中心 664.5 万 + 数采组 158.6 万无预算列支　新业务投入没进预算科目，事后才算账"},{"id":"sh/nexkfm58","kind":"textbox","text":"台账靠 Excel、招聘台账空白　数据滞后口径不一，招聘与绩效都没有数据底座"},{"id":"sh/76dgby9o","kind":"textbox","text":"→ 27 年：AI 系统替掉手工台账 + 预算刚性 + 绩效升级"},{"id":"sh/65kzit83","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划　|　口径：2026 年 1-10 月实际"},{"id":"sh/t8vyd8re","kind":"textbox","text":"04"},{"id":"im/lcny5cbi","kind":"image"},{"id":"sh/fudgfy9k","kind":"shape"},{"id":"sh/u94zmt8z","kind":"shape"},{"id":"sh/hwvih8rq","kind":"textbox","text":"一、26年对账-四笔必须面对的账"}]}
+{"id":"sl/i107q5of","index":4,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/va58by90","kind":"shape"},{"id":"sh/u9writsf","kind":"textbox","text":"签单超额，钱没赚到：节奏、毛利、回款三条曲线同时在恶化"},{"id":"sh/03axwv21","kind":"shape"},{"id":"sh/l4jy503m","kind":"textbox","text":"月度签单（万元）· 4/7/8 三月占全年 66%，10 月断档"},{"id":"ch/2h0bap0r","kind":"chart","title":""},{"id":"sh/z21g3qlg","kind":"textbox","text":"月度毛利率（%）· 目标 36%，Q4 跌至 25.2% / 23.2%"},{"id":"ch/c7itgjyt","kind":"chart","title":""},{"id":"sh/9s3y9k3i","kind":"shape"},{"id":"sh/m5sfy5k7","kind":"textbox","text":"信号 01"},{"id":"sh/n61g7als","kind":"textbox","text":"毛利单边下滑"},{"id":"sh/ovqxobmt","kind":"textbox","text":"全年 29.56%，低于目标 6.4pct；主营业务成本占收入 70.4%，成本刚性压不下来"},{"id":"sh/pwzexg3e","kind":"shape"},{"id":"sh/6tw3mxo7","kind":"textbox","text":"信号 02"},{"id":"sh/7u54vips","kind":"textbox","text":"签单节奏畸形"},{"id":"sh/8velon6d","kind":"textbox","text":"10 月签单 98.5 万，环比 -83%；全年靠 3 个大月撑，Q4 无单可做、无款可收"},{"id":"sh/twnmxs7y","kind":"shape"},{"id":"sh/y5c3idob","kind":"textbox","text":"信号 03"},{"id":"sh/j65kripg","kind":"textbox","text":"回款严重滞后"},{"id":"sh/krelkn61","kind":"textbox","text":"战区年度回款达成 44.6% / 47.6%；在手未收 2693.9 万，其中延期项目 481.2 万"},{"id":"sh/lsn2ts7m","kind":"shape"},{"id":"sh/a1c3edoz","kind":"textbox","text":"判断：三个信号指向同一件事——经营没有按月管，只有年底算总账。27 年把「月度均衡签单、按期回款、立项毛利红线」写进考核，而不是只考签单额。"},{"id":"sh/b2lknypk","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划　|　数据来源：2026年1-10月经营数据"},{"id":"sh/dwb6tgr2","kind":"textbox","text":"05"},{"id":"im/x83epsfa","kind":"image"},{"id":"sh/ru9or69w","kind":"shape"},{"id":"sh/qt0ni18b","kind":"shape"},{"id":"sh/5sr6pwr6","kind":"textbox","text":"一、26年对账-数据透视三个反常信号"}]}
+{"id":"sl/x8f69ofe","index":5,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/4zq5g7i1","kind":"shape"},{"id":"sh/50zm9cjm","kind":"textbox","text":"从\"规模经营\"切换到\"利润经营\"：净利率首次成为第一目标"},{"id":"sh/utonax0z","kind":"shape"},{"id":"sh/vuh4321k","kind":"shape"},{"id":"sh/jydkbyhc","kind":"textbox","text":"签单目标 · 全年"},{"id":"sh/yx4j2tgr","kind":"textbox","text":"10000"},{"id":"sh/l0v2d8z2","kind":"textbox","text":"万"},{"id":"sh/kzml43yh","kind":"textbox","text":"为 26 年责任制目标 5820 万的 1.72 倍"},{"id":"sh/72xkfyh8","kind":"shape"},{"id":"sh/61436dgn","kind":"textbox","text":"8500"},{"id":"sh/t4f2h8ze","kind":"textbox","text":"万"},{"id":"sh/836l83yt","kind":"textbox","text":"收款目标"},{"id":"sh/n6tk3eh4","kind":"textbox","text":"为 26 年责任制目标 4801 万的 1.77 倍"},{"id":"sh/25kju9gj","kind":"shape"},{"id":"sh/sbih4feh","kind":"textbox","text":"1732.4"},{"id":"sh/dcridkfm","kind":"textbox","text":"万"},{"id":"sh/q9gz25wb","kind":"textbox","text":"净利润目标"},{"id":"sh/rapgbaxw","kind":"textbox","text":"总费用测算 6767.6 万（成本 4809 + 期间费用 1958.6）"},{"id":"sh/47yh0ve5","kind":"shape"},{"id":"sh/587y90fq","kind":"textbox","text":"20.38%"},{"id":"sh/i5gzy5wz","kind":"textbox","text":"净利率目标"},{"id":"sh/36pg7qxk","kind":"textbox","text":"26 年 1-10 月实际 9.07%，Q4 已跌至 2.35% / 1.26%——这是 27 年最硬的一条承诺"},{"id":"sh/o32hcze9","kind":"shape"},{"id":"sh/p4bil4fu","kind":"textbox","text":"口径说明：利润模型按收款（收入）口径 8500 万测算：收入 8500 − 主营业务成本 4809 − 期间费用 1958.6 = 净利润 1732.4 万，毛利率 43.42%。较 26 年实际 29.56% 提升 13.9pct，靠软件占比提升、外包压缩、硬件限价三条腿撑起来。"},{"id":"sh/lo3edwvm","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/knud4ru1","kind":"textbox","text":"06"},{"id":"im/itc36dkz","kind":"image"},{"id":"sh/ylcv2hcv","kind":"shape"},{"id":"sh/tcnehwvi","kind":"shape"},{"id":"sh/8bux8rux","kind":"textbox","text":"二、27年经营目标-核心指标"}]}
+{"id":"sl/gnmp4jqx","index":6,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/k3a9gzq5","kind":"shape"},{"id":"sh/f6x8vq9g","kind":"textbox","text":"签单目标 10000 万定在保守档与期望档之间——增量要靠 AI 产品打出来"},{"id":"sh/elor258v","kind":"shape"},{"id":"sh/4r2pcr6t","kind":"shape"},{"id":"ch/t47mhsni","kind":"chart","title":"2027年签单预测三档（万元）"},{"id":"sh/ipkna1on","kind":"shape"},{"id":"sh/3qto36p8","kind":"textbox","text":"三档合计"},{"id":"sh/gn258r6h","kind":"textbox","text":"8106 / 16811 / 29278 万"},{"id":"sh/hob61w72","kind":"textbox","text":"保守档不够，期望档有余量"},{"id":"sh/ulkn6hob","kind":"shape"},{"id":"sh/vmtozmpw","kind":"textbox","text":"目标定位"},{"id":"sh/0jmpkb61","kind":"textbox","text":"10000 万"},{"id":"sh/1kf6dg76","kind":"textbox","text":"≈ 保守档 × 1.23，需 AI 产品打出期望档增量"},{"id":"sh/90b6xgfq","kind":"shape"},{"id":"sh/oz25oby5","kind":"textbox","text":"结构纪律"},{"id":"sh/ny9ov6hk","kind":"textbox","text":"硬件配套 ≤ 20%"},{"id":"sh/mx0nmlgz","kind":"textbox","text":"守住毛利结构，硬件只做配套不做主力"},{"id":"sh/1wr6tgze","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/0bi5kbyt","kind":"textbox","text":"07"},{"id":"im/qtkn25wv","kind":"image"},{"id":"sh/e90ni1gn","kind":"shape"},{"id":"sh/d8r6pwzi","kind":"shape"},{"id":"sh/c7y5gryx","kind":"textbox","text":"二、27年经营目标-签单结构三档预测"}]}
+{"id":"sl/fu1gfa1s","index":7,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/yhobal4f","kind":"shape"},{"id":"sh/lkful03q","kind":"textbox","text":"MES + WMS 占软件期望档的 92%——软件盘的胜负手在交付产能"},{"id":"sh/kj6tcvm5","kind":"shape"},{"id":"sh/7mxcnalw","kind":"shape"},{"id":"tb/bud4vq1w","kind":"table","text":"产品\t单价区间（万/项目）\t年订单假设（单）\t保守签单（万）\t期望签单（万）\t乐观签单（万）\nMES\t50 – 100\t40 – 60\t2,000\t3,750\t6,000\nWMS\t40 – 70\t40 – 60\t1,600\t2,750\t4,200\nAPS\t50 – 65\t3 – 6\t150\t259\t390\nIOT\t30 – 100\t3 – 6\t90\t293\t600\n合计\t—\t—\t3,840\t7,051\t11,190"},{"id":"sh/9ozupk32","kind":"shape"},{"id":"sh/8nqtgfmh","kind":"textbox","text":"判断：软件是基本盘，期望档 7051 万占三块期望合计的 42%；签单能否兑现，取决于 FDE 与交付团队的产能是否跟上。"},{"id":"sh/nqdsb6ls","kind":"shape"},{"id":"sh/2p4b2147","kind":"textbox","text":"口径：单价与订单数为测算假设——MES/WMS 按中大型项目 40-60 单测算，APS/IOT 为新品起步量。"},{"id":"sh/qh0jmp87","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/r29kfu9s","kind":"textbox","text":"08"},{"id":"im/hsvulwjm","kind":"image"},{"id":"sh/d4b2h4ri","kind":"shape"},{"id":"sh/e5kjqp83","kind":"shape"},{"id":"sh/z6tkju9o","kind":"textbox","text":"二、27年经营目标-数字化软件基本盘"}]}
+{"id":"sl/udsvah03","index":8,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/pc7il0f2","kind":"shape"},{"id":"sh/m50j2pwv","kind":"textbox","text":"毛利率 43.42%：比 26 年实际高 13.9 个百分点，钱从收入结构里省出来"},{"id":"sh/n69kvudg","kind":"shape"},{"id":"sh/x0bm1ofi","kind":"shape"},{"id":"sh/wz2lsjyx","kind":"textbox","text":"收款口径收入"},{"id":"sh/vyt4zehc","kind":"textbox","text":"8500"},{"id":"sh/axk3q9gr","kind":"textbox","text":"万"},{"id":"sh/9wbmx4z6","kind":"textbox","text":"−"},{"id":"sh/8vilozy1","kind":"shape"},{"id":"sh/nu94vuhg","kind":"textbox","text":"−主营业务成本"},{"id":"sh/mt03m9gv","kind":"textbox","text":"4809"},{"id":"sh/tsvm98fq","kind":"textbox","text":"万"},{"id":"sh/srm503y5","kind":"textbox","text":"="},{"id":"sh/h03m5gna","kind":"shape"},{"id":"sh/gzulwbmp","kind":"textbox","text":"毛利润"},{"id":"sh/ve143654","kind":"textbox","text":"3691"},{"id":"sh/uds3u14j","kind":"textbox","text":"万"},{"id":"sh/tcjm1wny","kind":"textbox","text":"−"},{"id":"sh/8balsrmd","kind":"shape"},{"id":"sh/7a14zm5s","kind":"textbox","text":"−期间费用"},{"id":"sh/69s3qh4n","kind":"textbox","text":"1958.6"},{"id":"sh/d8nmd0n2","kind":"textbox","text":"万"},{"id":"sh/s7e54vmx","kind":"textbox","text":"="},{"id":"sh/adojyxkf","kind":"shape"},{"id":"sh/bex07ilk","kind":"textbox","text":"净利润"},{"id":"sh/cf610n25","kind":"textbox","text":"1732.4"},{"id":"sh/xgzi9s3q","kind":"textbox","text":"万"},{"id":"sh/29ojudk3","kind":"textbox","text":"主营业务成本率　占比 71.1%"},{"id":"sh/nax03ilo","kind":"textbox","text":"26 年 1-10 月 29.56% → +13.9pp　毛利率 43.42%"},{"id":"sh/ob61wn29","kind":"textbox","text":"期间费用率　占比 28.9%"},{"id":"sh/pcfi5s3u","kind":"textbox","text":"26 年 1-10 月 9.07% → 翻倍　净利率 20.38%"},{"id":"sh/658j6hk7","kind":"shape"},{"id":"sh/76hkf2ls","kind":"textbox","text":"毛利率提升从哪来"},{"id":"sh/3qtgru1k","kind":"textbox","text":"高毛利的数字化软件与 AI 产品占收入主体，硬件仅做配套（≤20%）；26 年低毛利外包/硬件占比上升的被动局面被扭转。"},{"id":"sh/ipkfy9kz","kind":"shape"},{"id":"sh/5sbyt4ja","kind":"textbox","text":"净利率 20.38% 靠什么守住"},{"id":"sh/4r2x0zip","kind":"textbox","text":"收入规模摊薄固定成本 + 期间费用月度预警管控；期间费用 1958.6 万占比 28.9%，逐月盯住预算红线。"},{"id":"sh/rutgve1g","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/qtkf290v","kind":"textbox","text":"09"},{"id":"im/k36hwr2t","kind":"image"},{"id":"sh/sf2h4ji1","kind":"shape"},{"id":"sh/fidgze1c","kind":"shape"},{"id":"sh/eh4z6t07","kind":"textbox","text":"二、27年经营目标-盈利模型"}]}
+{"id":"sl/m90b6t0r","index":9,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/d87uxg3m","kind":"shape"},{"id":"sh/q5gb21kb","kind":"textbox","text":"新增 75 人中 81% 投向 FDE 与 AI——编制跟着\"AI 产品主攻\"走"},{"id":"sh/r6pcv6lw","kind":"shape"},{"id":"sh/0bit8b2d","kind":"shape"},{"id":"sh/1cru1g3y","kind":"textbox","text":"26 年现有人员"},{"id":"sh/e9gb61k7","kind":"textbox","text":"116"},{"id":"sh/fapcz6ls","kind":"textbox","text":"↓ 招聘 +75"},{"id":"sh/ozitcv29","kind":"shape"},{"id":"sh/p0ru503u","kind":"textbox","text":"27 年人员编制"},{"id":"sh/xwnupgvy","kind":"textbox","text":"191"},{"id":"sh/wvetgbud","kind":"shape"},{"id":"sh/bu5cnqd8","kind":"textbox","text":"综合管理组 +4 人明细"},{"id":"sh/atwbelcn","kind":"textbox","text":"PMO × 2　专职推进经营管理AI系统"},{"id":"sh/lk7ut0va","kind":"textbox","text":"行政 × 1　人财事务专人专岗"},{"id":"sh/kjytkvup","kind":"textbox","text":"总账会计 × 1　财务核算升级"},{"id":"tb/gj6h43it","kind":"table","text":"板块\t现有\t计划招聘\t27年编制\n交付与战区（一战/二战/售后）\t76\t—\t76\n产品组\t11\t—\t11\n市场与品牌（华东/华南/品牌/市场）\t12\t10\t22\n综合管理组\t6\t4\t10\nAI创新中心\t5\t5\t10\nFDE\t—\t56\t56\n职能其他（管委会/BRS/数采）\t6\t—\t6\n合计\t116\t75\t191"},{"id":"sh/yxgbilcj","kind":"shape"},{"id":"sh/1o3ahwvq","kind":"textbox","text":"判断：交付与战区零增编，增量全部给到 AI 创新中心（5→10）与 FDE（0→56）——产能是软件签单兑现的前置条件；综合管理组新增 4 人（PMO×2、行政×1、总账会计×1）支撑 AI 系统推进与财务核算升级，招聘需在 Q1 启动。"},{"id":"sh/0nut8rul","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/q9srixs3","kind":"textbox","text":"10"},{"id":"im/s3axkfad","kind":"image"},{"id":"sh/cva9k7a9","kind":"shape"},{"id":"sh/dwjqtcbu","kind":"shape"},{"id":"sh/exsrmhsf","kind":"textbox","text":"二、27年经营目标-人员编制"}]}
+{"id":"sl/jetc3ut0","index":10,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/03qxg7mx","kind":"shape"},{"id":"sh/14ze9c3i","kind":"textbox","text":"总费用 6767.6 万、费用率 79.6%——20.38% 的净利率，是每一分费用管出来的"},{"id":"sh/ydcfq1kb","kind":"shape"},{"id":"sh/jylwj6lw","kind":"shape"},{"id":"sh/3qhsfypc","kind":"textbox","text":"收入"},{"id":"sh/ip8bmtor","kind":"textbox","text":"8500万"},{"id":"sh/5sjah872","kind":"textbox","text":"27年经营预测"},{"id":"sh/4rato36h","kind":"shape"},{"id":"sh/v2hsbyp0","kind":"textbox","text":"主营业务成本"},{"id":"sh/u18bit8f","kind":"textbox","text":"4809万"},{"id":"sh/h4zado76","kind":"textbox","text":"占收入 56.6%"},{"id":"sh/g3qtkj6l","kind":"shape"},{"id":"sh/fy1cnipk","kind":"textbox","text":"期间费用"},{"id":"sh/exsbudoz","kind":"textbox","text":"1958.6万"},{"id":"sh/c3mpof6h","kind":"textbox","text":"占收入 23.0%"},{"id":"sh/x4vqhknm","kind":"shape"},{"id":"sh/a147m5ob","kind":"textbox","text":"净利润"},{"id":"sh/b2d8fa5w","kind":"textbox","text":"1732.4万"},{"id":"sh/k7mpsfmd","kind":"textbox","text":"净利率 20.38%"},{"id":"sh/l8fqlkny","kind":"shape"},{"id":"sh/y547qp47","kind":"textbox","text":"费用明细：工资 3698.6 / 社保 421.0 / 公积金 31.0 / 奖金与市场提成 247.7 / 差旅报销 416.7 / 业务招待 60.0 / 福利 90.0 / 推广 200.0 / 租金 40.0 / 税金·外包·硬件 1554.6 万（合计 6767.6 万）"},{"id":"tb/sv2l87qx","kind":"table","text":"部门费用 TOP\t费用小计\t费用占比\nFDE（56人产能池）\t1565.7万\t23.14%\n税金/外包/硬件等\t1554.6万\t22.97%\n第一战区\t676.8万\t10.00%\n第二战区\t640.3万\t9.46%\n市场\t423.0万\t6.25%\nAI创新中心\t410.2万\t6.06%\n综合管理组\t189.4万\t2.80%"},{"id":"sh/8b69wzm9","kind":"shape"},{"id":"sh/twfqp4nu","kind":"textbox","text":"判断：费用小计 6767.6 万 = 成本 4809 + 期间费用 1958.6，费用占比按部门分摊——FDE 与外协外购两项合计 46%，是 27 年成本管控的主战场；综合管理组自身费用占比仅 2.80%，管好别人的钱，先管好自己的账。"},{"id":"sh/hgryt0b2","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/wfihkvah","kind":"textbox","text":"11"},{"id":"im/w7e9kfyt","kind":"image"},{"id":"sh/ud0zi5sb","kind":"shape"},{"id":"sh/5kbyxkby","kind":"shape"},{"id":"sh/4j2hofad","kind":"textbox","text":"二、27年经营目标-费用测算"}]}
+{"id":"sl/8f2psfyx","index":11,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/qtonil4j","kind":"shape"},{"id":"sh/t0vm1wnq","kind":"textbox","text":"收入重点靠提成，而不是靠底薪——让分配向结果倾斜，绩效与经营结果强挂钩"},{"id":"sh/8zml8rm5","kind":"shape"},{"id":"sh/y5kjixk3","kind":"shape"},{"id":"sh/j6tkbil8","kind":"textbox","text":"销售岗示例（结果导向）· 月度综合收入"},{"id":"sh/k721kn2t","kind":"textbox","text":"15000"},{"id":"sh/l8b2dsje","kind":"textbox","text":"元"},{"id":"sh/69kjmxkz","kind":"shape"},{"id":"sh/7atkf21k","kind":"shape"},{"id":"sh/8bm1o725","kind":"textbox","text":"底薪 30%"},{"id":"sh/tcv2hcjq","kind":"shape"},{"id":"sh/md0jadkv","kind":"textbox","text":"绩效 20%"},{"id":"sh/ne903ylg","kind":"shape"},{"id":"sh/rmxcfyxg","kind":"textbox","text":"业绩提成 50%"},{"id":"sh/6lob6twb","kind":"shape"},{"id":"sh/tozuh8fm","kind":"textbox","text":"4500元"},{"id":"sh/snqt83e1","kind":"textbox","text":"固定底薪 30%"},{"id":"sh/fqhcjixs","kind":"textbox","text":"保障基本，占比压到最低"},{"id":"sh/ep8badw7","kind":"shape"},{"id":"sh/1szul8fy","kind":"textbox","text":"3000元"},{"id":"sh/grqtc3ed","kind":"textbox","text":"目标绩效 20%"},{"id":"sh/vuds7exo","kind":"textbox","text":"与月度考核结果挂钩"},{"id":"sh/ut4by9w3","kind":"shape"},{"id":"sh/kz298ful","kind":"textbox","text":"7500元"},{"id":"sh/l0bq1kv6","kind":"textbox","text":"业绩提成 50%"},{"id":"sh/yxkr65cv","kind":"textbox","text":"与签单、收款、毛利直接联动"},{"id":"sh/zyt8zadg","kind":"shape"},{"id":"sh/cvi94vup","kind":"textbox","text":"01"},{"id":"sh/xwbqx0va","kind":"textbox","text":"浮动占七成"},{"id":"sh/at0725cj","kind":"textbox","text":"固定部分降至 30%、浮动占 70%——干得多拿得多，上不封顶，收入差距由结果拉开"},{"id":"sh/bu98vad4","kind":"shape"},{"id":"sh/wrm9gzut","kind":"textbox","text":"02"},{"id":"sh/hsva94ve","kind":"textbox","text":"结果决定提成"},{"id":"sh/2hc3m5cb","kind":"textbox","text":"业绩提成与签单、收款、毛利直接联动：没回款的签单不提成，低毛利单打折计提"},{"id":"sh/3ilkfadw","kind":"shape"},{"id":"sh/4julovuh","kind":"textbox","text":"03"},{"id":"sh/p432h0v2","kind":"textbox","text":"绩效分级兑现"},{"id":"sh/uds3ilcf","kind":"textbox","text":"目标绩效按月度考核分级发放；连续末位启动改进与淘汰机制，考核不再走过场"},{"id":"sh/felkbqd0","kind":"shape"},{"id":"sh/gfulkvul","kind":"textbox","text":"节奏：27 年 Q1 销售岗先行试点，季度复盘后推广至交付与职能岗——绩效方案由综合管理组牵头制定，经总经理确认后发布。"},{"id":"sh/hg32d0vq","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/69s3elw3","kind":"textbox","text":"12"},{"id":"im/m58rytwf","kind":"image"},{"id":"sh/9476tof6","kind":"shape"},{"id":"sh/83y5kje1","kind":"shape"},{"id":"sh/n2porexg","kind":"textbox","text":"三、27年-绩效考核升级：与结果挂钩"}]}
+{"id":"sl/hgzapcr6","index":12,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/2h436lk3","kind":"shape"},{"id":"sh/nidkfqlo","kind":"textbox","text":"事业部层面只考三件事：签单毛利把控、收款提升、交付提升"},{"id":"sh/ojml8v29","kind":"shape"},{"id":"sh/pkv2h03u","kind":"shape"},{"id":"sh/etkj2lk7","kind":"shape"},{"id":"sh/futkb6ls","kind":"textbox","text":"01"},{"id":"sh/jmp8nix8","kind":"textbox","text":"签单毛利把控"},{"id":"sh/ilgrudwn","kind":"shape"},{"id":"sh/5o7qpsfe","kind":"textbox","text":"【原则】立项前先算毛利：软件、硬件、外包分开测算，报价先过毛利关"},{"id":"sh/kny9wnet","kind":"shape"},{"id":"sh/7qp8r2d4","kind":"textbox","text":"【硬件】供应商优中选优、三家比价、同品持续降价——26 年报价过高直接丢单的教训"},{"id":"sh/6pgryxwz","kind":"shape"},{"id":"sh/tcratsva","kind":"textbox","text":"【结构】提高软件与自有产品占比（26 年软件不含外包仅占签单 40.6%），压减外包外购"},{"id":"sh/sby90nep","kind":"textbox","text":"【复盘】项目毛利偏差纳入月度经营分析，逐单复盘"},{"id":"sh/nu58fyx0","kind":"shape"},{"id":"sh/mtw7mtwf","kind":"shape"},{"id":"sh/cza5wzud","kind":"textbox","text":"毛利率"},{"id":"sh/d0j6p4vy","kind":"textbox","text":"29.56% → 43.42%"},{"id":"sh/qxsnupc7","kind":"shape"},{"id":"sh/by1onuds","kind":"shape"},{"id":"sh/ova5sfuh","kind":"textbox","text":"02"},{"id":"sh/pwj6lkvm","kind":"textbox","text":"收款提升"},{"id":"sh/2t8nqpcb","kind":"shape"},{"id":"sh/3u1ojudw","kind":"textbox","text":"【清单】在手未收 2693.9 万按项目、客户、验收节点拆到项目经理"},{"id":"sh/8rup4jul","kind":"shape"},{"id":"sh/9s36xob6","kind":"textbox","text":"【重点】延期项目未收 481.2 万单列，逐单定节点、定责任人"},{"id":"sh/5wf2pgbi","kind":"shape"},{"id":"sh/4v6lwbax","kind":"textbox","text":"【节奏】每周收款周报，每月回款对账会，逾期项目升级督办"},{"id":"sh/jaxkn6tc","kind":"textbox","text":"【分配】回款到账才计提成，未回款不计"},{"id":"sh/i943u1sr","kind":"shape"},{"id":"sh/t0f2tgbe","kind":"shape"},{"id":"sh/sz6l0va9","kind":"textbox","text":"回款达成"},{"id":"sh/ryxkrqto","kind":"textbox","text":"86.4% → 100%"},{"id":"sh/6xo3yls3","kind":"shape"},{"id":"sh/14zmx0bq","kind":"shape"},{"id":"sh/g3ql4va5","kind":"textbox","text":"03"},{"id":"sh/y90zix8n","kind":"textbox","text":"交付提升"},{"id":"sh/za90r298","kind":"shape"},{"id":"sh/0b2hk7qt","kind":"textbox","text":"【机制】里程碑周通报、月度五联跟进：项目×里程碑×收款×交付×异常"},{"id":"sh/lcbitsry","kind":"shape"},{"id":"sh/mdkzmx8j","kind":"textbox","text":"【攻坚】暂停项目 5 个 Q1 清零；严重延期项目专项复盘、重设目标与里程碑"},{"id":"sh/net0v294","kind":"shape"},{"id":"sh/8f21o7qp","kind":"textbox","text":"【长尾】交付周期超 1.5 年项目清单，成立攻克小组专项清验收"},{"id":"sh/9gbixcra","kind":"textbox","text":"【联动】验收签字与收款节点绑定，交付即回款"},{"id":"sh/a1kjqh8v","kind":"shape"},{"id":"sh/v2t0zm9g","kind":"shape"},{"id":"sh/76dgnm58","kind":"textbox","text":"里程碑达成"},{"id":"sh/654zeho3","kind":"textbox","text":"按节点达成 · 长尾清零"},{"id":"sh/t8vipwne","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/s7mhgr6t","kind":"textbox","text":"13"},{"id":"im/ihgrq94r","kind":"image"},{"id":"sh/ihkzahor","kind":"shape"},{"id":"sh/54vylcni","kind":"shape"},{"id":"sh/k3mhc76x","kind":"textbox","text":"三、27年-事业部三件重点工作"}]}
+{"id":"sl/6lsnupw7","index":13,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/d4vq5czy","kind":"shape"},{"id":"sh/nyhsb610","kind":"textbox","text":"不是一套 OA，而是事业部经营的主数据平台——合同、项目、采购、财务、人事全流程线上化"},{"id":"sh/2xob21kf","kind":"shape"},{"id":"tb/07atsj6l","kind":"table","text":"业务模块\t建设定位\t核心建设内容\n合同管理\t合同全生命周期管控\t合同台账、审批签署、履约回款跟踪、模板管理\n项目管理\t项目交付过程管控\t项目台账搭建（框架与恩枝老师对齐）：里程碑延期、人天目标异常由 AI 自动通报\n硬件采购与供应商\t采购流程与规范\t采购-供应商-订单-出入库全流程线上化\n财务与费控\t财务业务一体化\t经营数据、资金管理、全面预算、应收应付、发票、费用报销\n人力资源\t人事流程数字化\t基础人事表单优先：员工档案、入离职、考勤；绩效/招聘\n行政办公\t行政事务在线化\t通用审批、会议、固定资产、公告知识库\n经营分析\t经营数据驱动决策\t经营驾驶舱、人均产值分析、有人天投入但无进度项目的自动识别\n平台底座\t统一技术底座\t组织权限SSO、流程引擎、消息中心、集成网关、审计\n知识库搭建\t公司知识沉淀、资料库\t公司知识沉淀、资料库\n个人工作台\t个人专属工作空间\t常用模块/功能自定义添加、个人工作计划、待办提醒"},{"id":"sh/ozqt4b2l","kind":"shape"},{"id":"sh/bmhcf61c","kind":"textbox","text":"切入点：1 月前完成整体规划——现有本地【人事、项目、财务与经营分析】表单全部上系统，数据从 Excel 分散记账变成系统统一底座，经营分析才有实时性和真实性。"},{"id":"sh/al8b6lkr","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/xozuhgj2","kind":"textbox","text":"14"},{"id":"im/5kzipsvm","kind":"image"},{"id":"sh/rqds3m1s","kind":"shape"},{"id":"sh/qp4buhk7","kind":"shape"},{"id":"sh/uhkje5o7","kind":"textbox","text":"四、重中之重：事业部经营管理AI系统"}]}
+{"id":"sl/vaxsvy10","index":14,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/wbi1w76p","kind":"shape"},{"id":"sh/xcri5cna","kind":"textbox","text":"四季四步：从表单上系统，到数据联动，到审批在线，到全面 AI 应用"},{"id":"sh/ydkjyhof","kind":"shape"},{"id":"sh/jet07m50","kind":"shape"},{"id":"sh/kf210r6l","kind":"shape"},{"id":"sh/lgbi9wn6","kind":"textbox","text":"1月前"},{"id":"sh/ehgzmdob","kind":"textbox","text":"规划·上系统"},{"id":"sh/zip0vi5w","kind":"shape"},{"id":"sh/hwf21g7e","kind":"textbox","text":"完成整体规划与选型"},{"id":"sh/gbml8vqt","kind":"textbox","text":"架构、数据标准、供应商一次定清"},{"id":"sh/vadkzqp8","kind":"shape"},{"id":"sh/u9436l8n","kind":"textbox","text":"四类本地表单上系统"},{"id":"sh/50fm507a","kind":"textbox","text":"人事、项目、财务与经营分析全部迁移"},{"id":"sh/4z6lcvq5","kind":"textbox","text":"交付物"},{"id":"sh/3yxk3qpk","kind":"textbox","text":"《系统建设方案》+ 上线表单清单，总经理验收"},{"id":"sh/ixo3al8z","kind":"textbox","text":"→"},{"id":"sh/l4b2tw76","kind":"shape"},{"id":"sh/k32l0bql","kind":"shape"},{"id":"sh/h4zy107m","kind":"textbox","text":"Q1"},{"id":"sh/g3qxsvq1","kind":"textbox","text":"数据联动"},{"id":"sh/f2hgzqpg","kind":"shape"},{"id":"sh/u18fq58b","kind":"textbox","text":"表单关系打通"},{"id":"sh/p8jy5k7y","kind":"textbox","text":"合同-项目-财务数据一处录入、处处可用"},{"id":"sh/47axwfqd","kind":"shape"},{"id":"sh/36hg3aps","kind":"textbox","text":"经营数据跑起来"},{"id":"sh/258fu587","kind":"textbox","text":"月度经营分析会用系统口径出数"},{"id":"sh/5cfetg7e","kind":"textbox","text":"交付物"},{"id":"sh/kb6xkbqt","kind":"textbox","text":"数据联动清单 + 首份系统化经营月报"},{"id":"sh/ah4vuhor","kind":"textbox","text":"→"},{"id":"sh/vidcnm5c","kind":"shape"},{"id":"sh/wjmdwr6x","kind":"shape"},{"id":"sh/xkvupwni","kind":"textbox","text":"Q2-Q3"},{"id":"sh/i54vy1o3","kind":"textbox","text":"审批上线"},{"id":"sh/j6dcrm58","kind":"shape"},{"id":"sh/k7md0r6t","kind":"textbox","text":"OA 审批全量迁移"},{"id":"sh/58futwne","kind":"textbox","text":"现有线下/纸面审批流程清零"},{"id":"sh/y9kbmxoj","kind":"shape"},{"id":"sh/zatcf2p4","kind":"textbox","text":"流程留痕可追溯"},{"id":"sh/3i507uhk","kind":"textbox","text":"审批时效月度通报，超时流程整改"},{"id":"sh/ihwjy90z","kind":"textbox","text":"交付物"},{"id":"sh/547i94zq","kind":"textbox","text":"审批流程全量上线清单 + 时效月报"},{"id":"sh/4je10zi5","kind":"textbox","text":"→"},{"id":"sh/ve503u1o","kind":"shape"},{"id":"sh/udwjup03","kind":"shape"},{"id":"sh/hgni54zu","kind":"textbox","text":"Q4"},{"id":"sh/gfe1wzi9","kind":"textbox","text":"全面AI应用"},{"id":"sh/fapkfyhs","kind":"shape"},{"id":"sh/e9gj6t07","kind":"textbox","text":"优化与联调"},{"id":"sh/wfax0byp","kind":"textbox","text":"全系统压力测试与体验优化"},{"id":"sh/xgjy9gfa","kind":"shape"},{"id":"sh/atsfylgz","kind":"textbox","text":"AI 全面应用"},{"id":"sh/be1g7qh4","kind":"textbox","text":"经营预警、智能报表、AI 辅助决策上线"},{"id":"sh/kjax4vy1","kind":"textbox","text":"交付物"},{"id":"sh/lk3yd0fm","kind":"textbox","text":"三大 AI 场景验收报告，转入常态运营"},{"id":"sh/yhsf2lgv","kind":"shape"},{"id":"sh/ji1gbqxg","kind":"textbox","text":"保障：新增 PMO 2 人专职推进，综合管理组负责人任项目 Owner，月度向总经理汇报进度——系统建设与\"请拍板\"第 3 项资源投入联动。"},{"id":"sh/8nuh8vyx","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/to3yh0fi","kind":"textbox","text":"15"},{"id":"im/wryx4zup","kind":"image"},{"id":"sh/svmhov2d","kind":"shape"},{"id":"sh/rutgvqls","kind":"shape"},{"id":"sh/6tkfmlk7","kind":"textbox","text":"四、AI系统-实施路线图"}]}
+{"id":"sl/gny5sjyp","index":15,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/lg7mxk3e","kind":"shape"},{"id":"sh/ydw325k3","kind":"textbox","text":"招聘 75 人、培养到位、留住人、触达一线——191 人编制要真正变成产能"},{"id":"sh/ze54valo","kind":"shape"},{"id":"sh/8jyl8z25","kind":"shape"},{"id":"sh/9k7m143q","kind":"shape"},{"id":"sh/je9ory5s","kind":"textbox","text":"01"},{"id":"sh/id0nyt47","kind":"textbox","text":"招聘与人才结构"},{"id":"sh/50b6t8ny","kind":"shape"},{"id":"sh/4f2503md","kind":"textbox","text":"【门槛】招聘本科起步，所有岗位统一学历门槛：26 年本科及以上占比 58.82%（70/119 人）"},{"id":"sh/va9one5w","kind":"shape"},{"id":"sh/u90nu94b","kind":"textbox","text":"【编制】27 年编制 191 人（现有 116 + 招聘 75）；综合管理组 +4：PMO×2、行政×1、总账会计×1"},{"id":"sh/hcr6ponm","kind":"shape"},{"id":"sh/wbi5wjmh","kind":"textbox","text":"【重点】FDE 56 人、AI 创新中心 5→10 人——软件签单产能的前置条件"},{"id":"sh/f6tozi50","kind":"textbox","text":"【筛选】统一面试评价口径，业务与人事双线把关，宁缺勿滥"},{"id":"sh/e5k76d4f","kind":"shape"},{"id":"sh/a1oryhon","kind":"shape"},{"id":"sh/b2x87mp8","kind":"textbox","text":"人力到位率按月跟踪"},{"id":"sh/c3690r6t","kind":"shape"},{"id":"sh/x4fa9c7e","kind":"shape"},{"id":"sh/ypor2hoz","kind":"textbox","text":"02"},{"id":"sh/zqhsbmpk","kind":"textbox","text":"培训与能力建设"},{"id":"sh/krq94r6p","kind":"shape"},{"id":"sh/lszadwna","kind":"textbox","text":"【盘点】每月盘点培训需求，识别组织薄弱环节"},{"id":"sh/e94rqxof","kind":"shape"},{"id":"sh/fud8z2p0","kind":"textbox","text":"【计划】制定每月培训提升计划，按月执行、按月复盘"},{"id":"sh/h032lkvu","kind":"shape"},{"id":"sh/gzulszu9","kind":"textbox","text":"【分层】新员工入职培训、项目经理专项、管理层外出培训"},{"id":"sh/vylkjudo","kind":"textbox","text":"【跟进】培训后效果跟进，纳入员工成长档案"},{"id":"sh/uxc3qpc3","kind":"shape"},{"id":"sh/54nmp4bq","kind":"shape"},{"id":"sh/43elwzul","kind":"textbox","text":"每月 1 期、全年 12 期"},{"id":"sh/32l4nud0","kind":"shape"},{"id":"sh/i1c3upcf","kind":"shape"},{"id":"sh/l8j2d0vm","kind":"textbox","text":"03"},{"id":"sh/k7alkfu1","kind":"textbox","text":"团队激活与一线触达"},{"id":"sh/cf6hozyl","kind":"shape"},{"id":"sh/dgfyx4z6","kind":"textbox","text":"【活跃度】推动各部门内部组织活跃度，让团队自己转起来"},{"id":"sh/qtozmpgf","kind":"shape"},{"id":"sh/ruxgvuh0","kind":"textbox","text":"【文化】开展团建、生日会等文化活动，提升团队凝聚力与归属感"},{"id":"sh/4rmxkzip","kind":"shape"},{"id":"sh/psfyt4zu","kind":"textbox","text":"【面谈】每月与一线员工（如老师）一对一面谈，设定明确的约谈数量目标"},{"id":"sh/2p4fip0j","kind":"textbox","text":"【诉求】面谈记录归档，员工诉求形成清单，逐条跟进闭环"},{"id":"sh/3qdgruh4","kind":"shape"},{"id":"sh/onqhwjyt","kind":"shape"},{"id":"sh/9ozy5oze","kind":"textbox","text":"管理触角延伸到基层"},{"id":"sh/julsbm5s","kind":"shape"},{"id":"sh/itcbih47","kind":"textbox","text":"跨部门协同　打破两战区壁垒，定期审视跨部门协作卡点，提升整体组织运转效率"},{"id":"sh/5gnadwni","kind":"shape"},{"id":"sh/4vetkrmd","kind":"textbox","text":"留人关怀　新员工融入跟进 + 季度人才盘点 + 离职原因复盘（26 年离职率 23%）"},{"id":"sh/ri5sfm5o","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/6hwbmh43","kind":"textbox","text":"16"},{"id":"im/svqtonml","kind":"image"},{"id":"sh/sjetorm9","kind":"shape"},{"id":"sh/7m1s325k","kind":"shape"},{"id":"sh/mlsraxoz","kind":"textbox","text":"五、27年-部门工作重点（1）组织与人才"}]}
+{"id":"sl/14bup87q","index":16,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/5gfq9ozu","kind":"shape"},{"id":"sh/ido7y903","kind":"textbox","text":"复盘挖根因、过程有跟踪、分析能闭环——管理动作都要有追踪、有结果"},{"id":"sh/jex87eho","kind":"shape"},{"id":"sh/wbmpwjix","kind":"shape"},{"id":"sh/xcfq54zi","kind":"shape"},{"id":"sh/ap47u907","kind":"textbox","text":"01"},{"id":"sh/vad83ehc","kind":"textbox","text":"项目复盘与异常处置"},{"id":"sh/g7qp83yh","kind":"shape"},{"id":"sh/h8zqh8z2","kind":"textbox","text":"【月度】针对项目交付中的重大异常事件，PMO 组织深度复盘，深挖根本原因"},{"id":"sh/belkn65g","kind":"shape"},{"id":"sh/qdcju1ov","kind":"textbox","text":"【根治】跟进根治方案落地，杜绝同类问题复发，结论进项目台账与案例库"},{"id":"sh/dgn2pwn6","kind":"shape"},{"id":"sh/cfu1wb6l","kind":"textbox","text":"【专项】严重延期项目专项复盘：打破部门壁垒、协调资源推进，重新设定清晰目标与里程碑"},{"id":"sh/zi5kr65c","kind":"textbox","text":"【通报】复盘结论与责任人在项目例会通报，纳入项目考核"},{"id":"sh/yhwjy14r","kind":"shape"},{"id":"sh/lkn2tgni","kind":"shape"},{"id":"sh/0je10bmx","kind":"textbox","text":"同类异常不复发"},{"id":"sh/fm10fm58","kind":"shape"},{"id":"sh/elsjmhon","kind":"shape"},{"id":"sh/i10nupob","kind":"textbox","text":"02"},{"id":"sh/j294nupg","kind":"textbox","text":"交付过程管理"},{"id":"sh/43i5wz61","kind":"shape"},{"id":"sh/54rmpk7m","kind":"textbox","text":"【周】里程碑红黄绿灯，按周向全事业部通报（26 年签字仅 50 条：一战区 18 / 二战区 32）"},{"id":"sh/adgnq58z","kind":"shape"},{"id":"sh/vep4japk","kind":"textbox","text":"【月】交付目标跟进表：项目×里程碑×收款×交付×异常，五联对齐"},{"id":"sh/wfi5sf65","kind":"shape"},{"id":"sh/h0rmlk7q","kind":"textbox","text":"【长尾】交付周期超 1.5 年项目清单 + 攻克小组；暂停项目 5 个先清零"},{"id":"sh/m9g3m583","kind":"textbox","text":"【专项】WMS 改善专项（与恩枝老师对接）；定期项目分享交流会讲透延期要害"},{"id":"sh/nap4fapo","kind":"shape"},{"id":"sh/p4vql8r6","kind":"shape"},{"id":"sh/o3mps3ql","kind":"textbox","text":"长尾项目年内清零"},{"id":"sh/32d8jy90","kind":"shape"},{"id":"sh/2147qt8f","kind":"shape"},{"id":"sh/10vqhoru","kind":"textbox","text":"03"},{"id":"sh/gzmpojq9","kind":"textbox","text":"经营分析与全员改善"},{"id":"sh/fydofy9o","kind":"shape"},{"id":"sh/exk7mt8j","kind":"textbox","text":"【月度】经营分析复盘各项管理指标达成情况，一切用数据说话"},{"id":"sh/twb6dory","kind":"shape"},{"id":"sh/sv2pkjad","kind":"textbox","text":"【责任】各部门负责人基于数据提出切实可行的改善建议，不能只报数字"},{"id":"sh/szuxknq9","kind":"shape"},{"id":"sh/t03ytsru","kind":"textbox","text":"【闭环】建议纳入下月跟踪表，形成\"分析—建议—执行—复盘\"管理闭环"},{"id":"sh/6dcfid83","kind":"textbox","text":"【看板】推动全员改善系统与管理动作数字化看板，各项改善有追踪、有结果"},{"id":"sh/7ylgri9o","kind":"shape"},{"id":"sh/g3eho7ql","kind":"shape"},{"id":"sh/h4nyxsrq","kind":"textbox","text":"月度闭环率 100%"},{"id":"sh/u1wfmx8f","kind":"shape"},{"id":"sh/f25gv290","kind":"textbox","text":"AI 台账：项目台账搭在 AI 平台上（框架与恩枝老师对齐），自动通报里程碑延期、人天目标异常；经营分析同步看人均产值、有人天投入但无进度的项目。"},{"id":"sh/w7axc3q1","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/x8jyl8rm","kind":"textbox","text":"17"},{"id":"im/eh4bex4v","kind":"image"},{"id":"sh/e10jy1sj","kind":"shape"},{"id":"sh/1oritgba","kind":"shape"},{"id":"sh/03i10bap","kind":"textbox","text":"五、27年-部门工作重点（2）项目管理与经营"}]}
+{"id":"sl/y5wne50z","index":17,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/v6lo3yp8","kind":"shape"},{"id":"sh/w7u5cjqt","kind":"textbox","text":"请总经理当场确认三件事——散会即生效，目标即可分解到季度到人"},{"id":"sh/h8365o7e","kind":"shape"},{"id":"sh/mhsn698b","kind":"shape"},{"id":"sh/72loze9w","kind":"textbox","text":"01"},{"id":"sh/bmhk7apo","kind":"shape"},{"id":"sh/al83y5o3","kind":"textbox","text":"编制授权"},{"id":"sh/x8z29knu","kind":"textbox","text":"27 年编制 191 人（现有 116 + 招聘 75，本科起步）：FDE 56 人、AI 创新中心扩至 10 人、综合管理组新增 4 人（PMO×2、行政×1、总账会计×1）——Q1 即期启动招聘"},{"id":"sh/cnql0f69","kind":"shape"},{"id":"sh/za14bu50","kind":"textbox","text":"02"},{"id":"sh/y9832pof","kind":"shape"},{"id":"sh/lcjmdkn6","kind":"textbox","text":"激励政策"},{"id":"sh/kbal4z6l","kind":"textbox","text":"销售岗薪酬结构改革（底薪 30% + 绩效 20% + 提成 50%）与末位改进机制确认；考核指标从\"签单额\"改为\"签单额 + 回款 + 毛利\"三项（26 年签单超额 1.1% 而毛利低于目标 6.4pct 的教训）；AI 产品签单专项激励"},{"id":"sh/fexkzqpg","kind":"shape"},{"id":"sh/edo3qlob","kind":"textbox","text":"03"},{"id":"sh/4j2h0rmt","kind":"shape"},{"id":"sh/5kvi9wne","kind":"textbox","text":"系统与预算"},{"id":"sh/ixkzyh43","kind":"textbox","text":"经营管理AI系统 1 月前完成整体规划：预算落地、数据责任人授权、PMO 专职编制到位；同时把 AI 创新中心、数采组等新业务纳入预算科目（26 年 823 万无预算列支）"},{"id":"sh/3it07m58","kind":"shape"},{"id":"sh/gv2hwrmx","kind":"textbox","text":"三件事确认后：27 年目标分解到季度、到部门、到人，综合管理组按月向总经理交账。"},{"id":"sh/hwbi5cni","kind":"textbox","text":"广东精工智能系统有限公司　|　2027年战略规划"},{"id":"sh/utkzuh4r","kind":"textbox","text":"18"},{"id":"im/29sr2xs3","kind":"image"},{"id":"sh/0r618bm1","kind":"shape"},{"id":"sh/1sfihg3m","kind":"shape"},{"id":"sh/9szehsv6","kind":"textbox","text":"六、资源需求与请拍板事项"}]}
+{"id":"sl/nid43ytk","index":18,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/u58zux03","kind":"shape"},{"id":"im/ihsjul0j","kind":"image"},{"id":"sh/4vah07il","kind":"shape"},{"id":"sh/5wji9czq","kind":"shape"},{"id":"sh/itszyx0f","kind":"textbox","text":"2027：净利率 20%，用 AI 打赢翻身仗"},{"id":"sh/3u1072h0","kind":"shape"},{"id":"sh/czah4rih","kind":"textbox","text":"感谢大家聆听！　为梦想加油"},{"id":"sh/d0jidcz2","kind":"textbox","text":"数字化工厂事业部 · 综合管理组　|　2026年11月"}]}
+slide0 layout {
+  "schema": "openai.presentation.layout/v5",
+  "unit": "px",
+  "slide": {
+    "id": "sl/y90nupkv",
+    "index": 0,
+    "layout": {
+      "id": "ly/ux4ruhcv",
+      "name": "DEFAULT"
+    },
+    "masterLayoutId": "ly/atofqts7",
+    "backgroundColor": "rgba(255,255,255,1)",
+    "position": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ly/ux4ruhcv",
+      "name": "DEFAULT",
+      "parentLayoutId": "ly/atofqts7",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "ly/atofqts7",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/547294r6",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 1280,
+        "height": 720
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "fillColor": "#FFFFFF",
+      "style": {
+        "fontSize": 24,
+        "typeface": "Calibri",
+        "color": "#000000",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      }
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/k3yl0zql",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 268,
+        "width": 1280,
+        "height": 132
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "fillColor": "#00B050",
+      "style": {
+        "fontSize": 24,
+        "typeface": "Calibri",
+        "color": "#000000",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      }
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/7qp4be9c",
+      "editable": true,
+      "position": {
+        "left": 602,
+        "top": 552,
+        "width": 76,
+        "height": 3
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "fillColor": "#00B050",
+      "style": {
+        "fontSize": 24,
+        "typeface": "Calibri",
+        "color": "#000000",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      }
+    },
+    {
+      "order": 4,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/65g3298r",
+      "editable": true,
+      "position": {
+        "left": 60,
+        "top": 232,
+        "width": 304,
+        "height": 18
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "text": "ANNUAL STRATEGY REVIEW",
+      "style": {
+        "fontSize": 15,
+        "typeface": "Microsoft YaHei",
+        "color": "#00B050",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "wrap": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "ANNUAL STRATEGY REVIEW",
+          "lineSpacingPercent": 100000,
+          "runs": [
+            {
+              "index": 1,
+              "text": "ANNUAL STRATEGY REVIEW",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#00B050",
+              "bold": true,
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 5,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/ts7md4r2",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 302,
+        "width": 1280,
+        "height": 68
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "text": "2027年战略规划暨经营目标",
+      "style": {
+        "fontSize": 56,
+        "typeface": "Microsoft YaHei",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "center",
+        "wrap": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2027年战略规划暨经营目标",
+          "lineSpacingPercent": 100000,
+          "style": {
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "2027",
+              "fontSize": 56,
+              "typeface": "Microsoft YaHei",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 2,
+              "text": "年战略规划暨经营目标",
+              "fontSize": 56,
+              "typeface": "Microsoft YaHei",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 6,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/sryl4zqx",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 432,
+        "width": 1280,
+        "height": 27
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "text": "广东精工智能系统有限公司 · 数字化工厂事业部",
+      "style": {
+        "fontSize": 22,
+        "typeface": "Microsoft YaHei",
+        "color": "#16301F",
+        "bold": true,
+        "italic": false,
+        "alignment": "center",
+        "wrap": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "广东精工智能系统有限公司 · 数字化工厂事业部",
+          "lineSpacingPercent": 100000,
+          "style": {
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "广东精工智能系统有限公司",
+              "fontSize": 22,
+              "typeface": "Microsoft YaHei",
+              "color": "#16301F",
+              "bold": true,
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 2,
+              "text": " · ",
+              "fontSize": 22,
+              "typeface": "Microsoft YaHei",
+              "color": "#16301F",
+              "bold": true,
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 3,
+              "text": "数字化工厂事业部",
+              "fontSize": 22,
+              "typeface": "Microsoft YaHei",
+              "color": "#16301F",
+              "bold": true,
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 7,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/fu94fe98",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 472,
+        "width": 1280,
+        "height": 20
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "text": "综合管理组　|　2026年11月　|　汇报人：弥田甜",
+      "style": {
+        "fontSize": 16,
+        "typeface": "Microsoft YaHei",
+        "color": "#5F7768",
+        "bold": false,
+        "italic": false,
+        "alignment": "center",
+        "wrap": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "综合管理组　|　2026年11月　|　汇报人：弥田甜",
+          "lineSpacingPercent": 100000,
+          "style": {
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "综合管理组　",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 2,
+              "text": "|",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 3,
+              "text": "　",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 4,
+              "text": "2026",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 5,
+              "text": "年",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 6,
+              "text": "11",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 7,
+              "text": "月　",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 8,
+              "text": "|",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 9,
+              "text": "　汇报人：弥田甜",
+              "fontSize": 16,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 8,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/utg3698n",
+      "editable": true,
+      "position": {
+        "left": 0,
+        "top": 568,
+        "width": 1280,
+        "height": 18
+      },
+      "rotation": 0,
+      "geometry": "rect",
+      "text": "汇报范围：26年对账 · 27年目标与路径 · 资源与请拍板事项",
+      "style": {
+        "fontSize": 15,
+        "typeface": "Microsoft YaHei",
+        "color": "#5F7768",
+        "bold": false,
+        "italic": false,
+        "alignment": "center",
+        "wrap": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "汇报范围：26年对账 · 27年目标与路径 · 资源与请拍板事项",
+          "lineSpacingPercent": 100000,
+          "style": {
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "汇报范围：",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 2,
+              "text": "26",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 3,
+              "text": "年对账",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 4,
+              "text": " · 27",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 5,
+              "text": "年目标与路径",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 6,
+              "text": " · ",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "index": 7,
+              "text": "资源与请拍板事项",
+              "fontSize": 15,
+              "typeface": "Microsoft YaHei",
+              "color": "#5F7768",
+              "alignment": "center",
+              "wrap": "none",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    }
+  ]
+}
+=== C:/Users/Administrator/Desktop/第二战区2027年度经营目标达成行动方案_周六会议版.pptx ===
+slides=17
+{"id":"sl/y90nupkv","index":0,"layout":{"id":"ly/ux4ruhcv","name":"DEFAULT"},"elements":[{"id":"sh/547294r6","kind":"shape"},{"id":"sh/k3yl0zql","kind":"shape"},{"id":"sh/7qp4be9c","kind":"shape"},{"id":"sh/65g3298r","kind":"textbox","text":"THE SECOND WAR ZONE  /  2027"},{"id":"sh/ts7md4r2","kind":"textbox","text":"第二战区"},{"id":"sh/sryl4zqx","kind":"textbox","text":"2027年度经营目标\n达成行动方案"},{"id":"sh/fu94fe98","kind":"textbox","text":"4,250万元回款挑战目标  ·  季度作战计划  ·  责任到组到人"},{"id":"sh/utg3698n","kind":"shape"},{"id":"sh/wn6dc7eh","kind":"textbox","text":"2026预计回款 1,100万"},{"id":"sh/hofulsf2","kind":"textbox","text":"36人 → 54人完整配置"},{"id":"sh/ul4vaxgb","kind":"textbox","text":"2027交付产值 4,000万"},{"id":"sh/vmdcj2xw","kind":"textbox","text":"周六经营规划讨论会  |  2026年11月14日"}]}
+{"id":"sl/hwbqtkby","index":1,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/9072xkry","kind":"textbox","text":"本次会议要形成5项明确决策"},{"id":"sh/ozy1ofad","kind":"textbox","text":"会议目标：把4250万元从年度数字，转化为季度计划、组别责任和项目现金流清单。"},{"id":"sh/b29kza94","kind":"shape"},{"id":"sh/a10jqpsj","kind":"shape"},{"id":"sh/x4r21kru","kind":"shape"},{"id":"sh/w3i1sfa9","kind":"textbox","text":"01  回款口径"},{"id":"sh/r65knqtk","kind":"textbox","text":"4250万元为2027全年挑战目标；\n其中568万元为现有项目预计转入2027年回收，属于目标内金额。"},{"id":"sh/q5wjelsz","kind":"shape"},{"id":"sh/ove9o7yd","kind":"shape"},{"id":"sh/9wnqhczy","kind":"textbox","text":"02  季度节奏"},{"id":"sh/mtwrmxg7","kind":"textbox","text":"Q1 700万、Q2 1000万、Q3 1200万、Q4 1350万；\n按季度到账，而不是按交付完成额。"},{"id":"sh/nu58f2hs","kind":"shape"},{"id":"sh/wjy9sry9","kind":"shape"},{"id":"sh/xk7qlczu","kind":"textbox","text":"03  组别责任"},{"id":"sh/ahwrqhgj","kind":"textbox","text":"一组1500万、二组1500万、AI专项组1000万交付产值；\n回款责任按项目归属认领。"},{"id":"sh/bip8jmho","kind":"shape"},{"id":"sh/cnupgny5","kind":"shape"},{"id":"sh/do3q9szq","kind":"textbox","text":"04  组织投入"},{"id":"sh/t8byxkn2","kind":"textbox","text":"现有36人，完整配置54人；\nAI专项组10人按付费项目和交付负荷分阶段到位。"},{"id":"sh/s72xofmh","kind":"shape"},{"id":"sh/76twva5c","kind":"shape"},{"id":"sh/65kfmpor","kind":"textbox","text":"05  管理节奏"},{"id":"sh/hcvy14ne","kind":"textbox","text":"建立每周回款例会、每月组经营分析、每季度目标校准；\n项目经理对到账计划负责。"},{"id":"sh/gbmxszmt","kind":"shape"},{"id":"sh/fadgzu58","kind":"shape"},{"id":"sh/u94fqp4n","kind":"textbox","text":"会议最终输出"},{"id":"sh/p0vy54na","kind":"textbox","text":"确认568万元项目名单和所属组；确认季度×组别回款初步拆分；确定AI付费试点名单、组长及资源到位条件。"},{"id":"sh/4zmxwzmp","kind":"shape"}]}
+{"id":"sl/ofy9wn61","index":2,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/cza94vmx","kind":"textbox","text":"先正视经营压力：人数增加50%，回款目标接近4倍"},{"id":"sh/d0jax03i","kind":"textbox","text":"2026年全年回款预计约1,100万元；2027年4250万元是挑战目标，不是按扩编自然增长就能实现的预测。"},{"id":"sh/298ryl4v","kind":"shape"},{"id":"sh/3ah8rqlg","kind":"shape"},{"id":"sh/obq90bml","kind":"shape"},{"id":"sh/pcjqtg36","kind":"textbox","text":"2026预计回款"},{"id":"sh/m5cra54z","kind":"textbox","text":"1,100万"},{"id":"sh/n6ls3alk","kind":"textbox","text":"36人，预计全年"},{"id":"sh/n2l4fq98","kind":"shape"},{"id":"sh/m1c3mlsn","kind":"shape"},{"id":"sh/943mhgre","kind":"textbox","text":"2027挑战回款"},{"id":"sh/83ulovat","kind":"textbox","text":"4,250万"},{"id":"sh/v6l4jq94","kind":"textbox","text":"54人完整配置"},{"id":"sh/a5c3ql8z","kind":"shape"},{"id":"sh/x8nml0ra","kind":"shape"},{"id":"sh/w7ulsvqp","kind":"textbox","text":"回款目标倍数"},{"id":"sh/ja54na9g","kind":"textbox","text":"3.86倍"},{"id":"sh/i9w3u58v","kind":"textbox","text":"较2026预计全年"},{"id":"sh/e10f2twf","kind":"shape"},{"id":"sh/f29gbyx0","kind":"shape"},{"id":"sh/03ix43e5","kind":"textbox","text":"人均回款要求"},{"id":"sh/14ryd8fq","kind":"textbox","text":"78.7万"},{"id":"sh/6d0fytg3","kind":"textbox","text":"2026约30.6万/人"},{"id":"sh/re9g7yxo","kind":"shape"},{"id":"sh/sfix03y9","kind":"textbox","text":"规模与效率变化"},{"id":"sh/tgry9ofu","kind":"textbox","text":"人数"},{"id":"sh/a9kfadwn","kind":"shape"},{"id":"sh/batgjixs","kind":"textbox","text":"36 → 54人  (+50%)"},{"id":"sh/l4fi9cza","kind":"textbox","text":"回款"},{"id":"sh/k3m1g7yp","kind":"shape"},{"id":"sh/z2d07mh4","kind":"textbox","text":"1,100 → 4,250万  (3.86倍)"},{"id":"sh/y14jehgj","kind":"textbox","text":"人均回款需要提升约2.57倍"},{"id":"sh/x0vi5czy","kind":"shape"},{"id":"sh/czmhc7id","kind":"shape"},{"id":"sh/byd032h8","kind":"textbox","text":"经营结论"},{"id":"sh/ax4zax0n","kind":"textbox","text":"靠扩编不能自动解决回款。必须同时做到：\n1. 已有项目按节点兑现\n2. 项目上线、验收、请款形成闭环\n3. 新签项目合同付款条件前置\n4. AI项目从免费试点转为付费合同"},{"id":"sh/hwzihwzi","kind":"textbox","text":"注意：54人为年底完整编制，并非全年平均在岗人数；若分阶段招聘，人均经营压力还会更高。"},{"id":"sh/wv61obyx","kind":"shape"}]}
+{"id":"sl/jyx0ra1s","index":3,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/1cj2d8b6","kind":"textbox","text":"4250万元回款必须先说清楚钱从哪里来"},{"id":"sh/0ba143al","kind":"textbox","text":"568万元为现有项目预计放到2027年收取的款项，计入4250万元，不是额外增加。"},{"id":"sh/rm1k7yt4","kind":"shape"},{"id":"sh/ql8jytsj","kind":"shape"},{"id":"sh/doj29oba","kind":"textbox","text":"2027年回款目标"},{"id":"sh/sna103ap","kind":"textbox","text":"4,250万元"},{"id":"sh/3ihk3et8","kind":"textbox","text":"="},{"id":"sh/ih8ju9sn","kind":"textbox","text":"568万元"},{"id":"sh/kbm987y5","kind":"textbox","text":"+"},{"id":"sh/5cva1cfq","kind":"textbox","text":"3,682万元"},{"id":"sh/i94r6xgz","kind":"textbox","text":"现有项目结转回款"},{"id":"sh/jadsz2xk","kind":"textbox","text":"其余项目现金来源待逐笔验证"},{"id":"sh/w72947yt","kind":"shape"},{"id":"sh/x8vaxsfe","kind":"shape"},{"id":"sh/a5kr2xg3","kind":"textbox","text":"第一部分｜568万元"},{"id":"sh/v6tsv2xo","kind":"textbox","text":"把已有项目逐笔列清楚：\n• 客户、项目、合同付款节点\n• 预计到账金额和月份\n• 是否存在验收/上线前置条件\n• 责任组、PM、客户决策人\n• 风险及下一步催收动作"},{"id":"sh/g36tgryd","kind":"shape"},{"id":"sh/h4fa9wfy","kind":"shape"},{"id":"sh/p0batw72","kind":"textbox","text":"第二部分｜3,682万元"},{"id":"sh/oz29krqh","kind":"textbox","text":"必须由项目和合同支撑：\n• 其他存量合同阶段款\n• 2027新签合同首款\n• 2027新签项目后续节点款\n• 上线、验收及尾款到账\n• 不能用销售意向替代到账计划"},{"id":"sh/3ytsrmpw","kind":"shape"},{"id":"sh/2xkrih8b","kind":"shape"},{"id":"sh/1wbapc7q","kind":"textbox","text":"现金流核验原则"},{"id":"sh/gv29g7q5","kind":"textbox","text":"每笔回款必须具备：\n合同依据 + 付款条件 + 责任人\n客户确认 + 预计到账日期\n\n没有合同或客户确认的金额，先列机会池，不计入确定性预测。"},{"id":"sh/fu9sn2p0","kind":"textbox","text":"会议要求：568万元按实际项目所属组认领；其余3,682万元逐项目补齐来源，禁止重复统计。"},{"id":"sh/et0reh8f","kind":"shape"}]}
+{"id":"sl/i107q5of","index":4,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/dgbulwnm","kind":"textbox","text":"年度目标：交付产值4,000万元，回款挑战4,250万元"},{"id":"sh/cf2tcr61","kind":"textbox","text":"组别产值责任沿用原规划；回款组别初步额度按产值权重测算，最终必须以项目归属和现金流台账校准。"},{"id":"sh/z2tcnm5s","kind":"shape"},{"id":"sh/yhkbe1o7","kind":"shape"},{"id":"sh/l4bupwny","kind":"textbox","text":"组织"},{"id":"sh/032tgr6d","kind":"shape"},{"id":"sh/n6dcr65o","kind":"textbox","text":"主要职责"},{"id":"sh/m5kbi1oj","kind":"shape"},{"id":"sh/w32dkbuh","kind":"textbox","text":"年度交付产值"},{"id":"sh/x4vedgvm","kind":"shape"},{"id":"sh/ahkvi1cb","kind":"textbox","text":"回款参考额度"},{"id":"sh/v2twb6dw","kind":"shape"},{"id":"sh/k7mxovud","kind":"textbox","text":"产值权重"},{"id":"sh/58vehgvy","kind":"shape"},{"id":"sh/i54fmlc7","kind":"textbox","text":"交付一组"},{"id":"sh/j6dwfqds","kind":"shape"},{"id":"sh/sb6xsvu9","kind":"textbox","text":"MES/WMS/IOT + 项目内硬件协同"},{"id":"sh/tcfel0vu","kind":"shape"},{"id":"sh/hgrmpwj2","kind":"textbox","text":"1,500万"},{"id":"sh/gfi5grih","kind":"shape"},{"id":"sh/fe94nm1w","kind":"textbox","text":"1,594万"},{"id":"sh/ud0ne10b","kind":"shape"},{"id":"sh/pkr6tgjy","kind":"textbox","text":"37.5%"},{"id":"sh/4ji5kbid","kind":"shape"},{"id":"sh/3i94r61s","kind":"textbox","text":"交付二组"},{"id":"sh/2h0ni107","kind":"shape"},{"id":"sh/5o7mhcju","kind":"textbox","text":"MES/WMS/IOT + 项目内硬件协同"},{"id":"sh/kny587i9","kind":"shape"},{"id":"sh/atcjidg7","kind":"textbox","text":"1,500万"},{"id":"sh/vu5kbihc","kind":"shape"},{"id":"sh/wve1knyx","kind":"textbox","text":"1,594万"},{"id":"sh/xwn2dszi","kind":"shape"},{"id":"sh/ihw3mxg3","kind":"textbox","text":"37.5%"},{"id":"sh/ji5kf2ho","kind":"shape"},{"id":"sh/kjelony9","kind":"textbox","text":"AI专项组"},{"id":"sh/5kn2hszu","kind":"shape"},{"id":"sh/e1sjatgz","kind":"textbox","text":"AI场景实施、部署、集成、验收"},{"id":"sh/zmlk3yhk","kind":"shape"},{"id":"sh/fid07u98","kind":"textbox","text":"1,000万"},{"id":"sh/ehkzepsn","kind":"shape"},{"id":"sh/1kvi94re","kind":"textbox","text":"1,062万"},{"id":"sh/gjmhgzqt","kind":"shape"},{"id":"sh/3md0bu94","kind":"textbox","text":"25.0%"},{"id":"sh/2l4zip8j","kind":"shape"},{"id":"sh/povid4ra","kind":"textbox","text":"合计"},{"id":"sh/onmhkzqp","kind":"shape"},{"id":"sh/bqx0fe9g","kind":"textbox","text":"APS主体外包，不计内部产值"},{"id":"sh/qp4jm98v","kind":"shape"},{"id":"sh/8f6hcj6t","kind":"textbox","text":"4,000万"},{"id":"sh/9gfy5o7e","kind":"shape"},{"id":"sh/mdoza9o3","kind":"textbox","text":"4,250万"},{"id":"sh/nexg3epo","kind":"shape"},{"id":"sh/0r6h8z6x","kind":"textbox","text":"100%"},{"id":"sh/lcfy147i","kind":"shape"},{"id":"sh/yp4z69or","kind":"shape"},{"id":"sh/zqxgzupc","kind":"textbox","text":"回款额度怎么来的"},{"id":"sh/cnmh4z61","kind":"textbox","text":"按年度产值结构 37.5% / 37.5% / 25% 对4250万元做初步拆分，目的是先明确责任框架。"},{"id":"sh/dovyx476","kind":"shape"},{"id":"sh/t8n6lwvy","kind":"shape"},{"id":"sh/s7u5crud","kind":"textbox","text":"为什么还要二次校准"},{"id":"sh/r6lojmds","kind":"textbox","text":"568万元由实际项目所属组认领；如果项目现金流集中在某一组，组别额度必须随项目表调整，不能为了比例平均分摊。"},{"id":"sh/65cnahc7","kind":"shape"}]}
+{"id":"sl/x8f69ofe","index":5,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/yhg7epsj","kind":"textbox","text":"季度回款目标：700万 → 1,000万 → 1,200万 → 1,350万"},{"id":"sh/zi98nu94","kind":"textbox","text":"按实际到账金额统计；每季度必须提前一个季度锁定付款条件、验收资料和客户付款安排。"},{"id":"sh/87ipkzal","kind":"shape"},{"id":"sh/98rqt4r6","kind":"shape"},{"id":"sh/ml07i9sv","kind":"shape"},{"id":"sh/7m98ru9g","kind":"textbox","text":"Q1"},{"id":"sh/oryp8fah","kind":"textbox","text":"1–3月"},{"id":"sh/pc76hkr2","kind":"textbox","text":"700万"},{"id":"sh/h4bupgn6","kind":"textbox","text":"季度回款目标（万元）"},{"id":"sh/w32twb6l","kind":"textbox","text":"月均约 233 万  ·  累计 700 万"},{"id":"sh/v2tcn650","kind":"shape"},{"id":"sh/u1kbu1ov","kind":"textbox","text":"建账、梳理存量项目\n兑现首批阶段款\n锁定AI付费试点"},{"id":"sh/5svutgni","kind":"shape"},{"id":"sh/47mt0b6x","kind":"shape"},{"id":"sh/j6dcr65c","kind":"textbox","text":"Q2"},{"id":"sh/i54bylor","kind":"textbox","text":"4–6月"},{"id":"sh/twfux0ne","kind":"textbox","text":"1,000万"},{"id":"sh/svmt4v6t","kind":"textbox","text":"季度回款目标（万元）"},{"id":"sh/cbe5g3ih","kind":"textbox","text":"月均约 333 万  ·  累计 1,700 万"},{"id":"sh/dcnm98zm","kind":"shape"},{"id":"sh/qpwnet0b","kind":"textbox","text":"推进上线与验收\n完成AI首批付费交付\n兑现二季度合同节点"},{"id":"sh/bq547yhw","kind":"shape"},{"id":"sh/0fy5k3id","kind":"shape"},{"id":"sh/lg76d8zy","kind":"textbox","text":"Q3"},{"id":"sh/ydgnit07","kind":"textbox","text":"7–9月"},{"id":"sh/zep4byhs","kind":"textbox","text":"1,200万"},{"id":"sh/gju58ji9","kind":"textbox","text":"季度回款目标（万元）"},{"id":"sh/1k3mhozu","kind":"textbox","text":"月均约 400 万  ·  累计 2,900 万"},{"id":"sh/jet8nm1c","kind":"shape"},{"id":"sh/idk7ehkr","kind":"textbox","text":"批量推进验收回款\n复制AI场景订单\n处理逾期和延期项目"},{"id":"sh/50bqpcj2","kind":"shape"},{"id":"sh/4f2pgr2h","kind":"shape"},{"id":"sh/va98j210","kind":"textbox","text":"Q4"},{"id":"sh/u907axkf","kind":"textbox","text":"10–12月"},{"id":"sh/hcrqlcj6","kind":"textbox","text":"1,350万"},{"id":"sh/wbipc72l","kind":"textbox","text":"季度回款目标（万元）"},{"id":"sh/7698f214","kind":"textbox","text":"月均约 450 万  ·  累计 4,250 万"},{"id":"sh/m5076xkj","kind":"shape"},{"id":"sh/2dkbalg3","kind":"textbox","text":"集中验收、请款和尾款\n清理应收及重大风险\n锁定2028项目储备"},{"id":"sh/netcjqxo","kind":"shape"},{"id":"sh/of2tcvy9","kind":"textbox","text":"管理要求"},{"id":"sh/pgbul0fu","kind":"textbox","text":"每月滚动预测未来90天到账金额；季度目标至少提前30天落实到客户、合同节点、责任人和到账日期。"},{"id":"sh/ep0b6lg7","kind":"shape"}]}
+{"id":"sl/gnmp4jqx","index":6,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/cb2tkvap","kind":"textbox","text":"季度×组别：先建立责任参考，再用项目清单落地"},{"id":"sh/dcbud0ra","kind":"textbox","text":"下表按全年产值权重比例分配回款参考额度，属于会议讨论初版，不是已核实的合同现金流预测。"},{"id":"sh/ydkbm5sv","kind":"shape"},{"id":"sh/zedcfa9g","kind":"shape"},{"id":"sh/kzmdova1","kind":"textbox","text":"季度"},{"id":"sh/l0vuh0rm","kind":"shape"},{"id":"sh/eh0ba1sr","kind":"textbox","text":"季度合计"},{"id":"sh/fi9c369c","kind":"shape"},{"id":"sh/baxkjqlk","kind":"textbox","text":"交付一组"},{"id":"sh/a9ojq5kz","kind":"shape"},{"id":"sh/xcz2l03q","kind":"textbox","text":"交付二组"},{"id":"sh/cbq1sv25","kind":"shape"},{"id":"sh/n6x0fqlo","kind":"textbox","text":"AI专项组"},{"id":"sh/25ojml43","kind":"shape"},{"id":"sh/p8fih03e","kind":"textbox","text":"执行规则"},{"id":"sh/o761ov2t","kind":"shape"},{"id":"sh/f2d0b6lc","kind":"textbox","text":"Q1"},{"id":"sh/eh4jil4r","kind":"shape"},{"id":"sh/id4ju1oz","kind":"textbox","text":"700万"},{"id":"sh/jedkn654","kind":"shape"},{"id":"sh/4fm1wb6p","kind":"textbox","text":"263万"},{"id":"sh/50v2pgna","kind":"shape"},{"id":"sh/q143ylov","kind":"textbox","text":"263万"},{"id":"sh/r2dkrq5g","kind":"shape"},{"id":"sh/s3ml0v61","kind":"textbox","text":"174万"},{"id":"sh/d4f2t0nm","kind":"shape"},{"id":"sh/e5o32lor","kind":"textbox","text":"568万元存量项目按真实所属组及到账季度计入，不额外叠加"},{"id":"sh/f6xkvq5c","kind":"shape"},{"id":"sh/p0zmlk7u","kind":"textbox","text":"Q2"},{"id":"sh/ozq5szq9","kind":"shape"},{"id":"sh/nyh4jupo","kind":"textbox","text":"1,000万"},{"id":"sh/2x8nqp83","kind":"shape"},{"id":"sh/x4j6p47q","kind":"textbox","text":"375万"},{"id":"sh/c3a5wzq5","kind":"shape"},{"id":"sh/b2h4nupk","kind":"textbox","text":"375万"},{"id":"sh/a18nup8z","kind":"shape"},{"id":"sh/lsj6t47m","kind":"textbox","text":"250万"},{"id":"sh/kra50jqh","kind":"shape"},{"id":"sh/wneps3ap","kind":"textbox","text":"同一合同同一付款节点只能计入一个季度、一个责任组"},{"id":"sh/honq18ru","kind":"shape"},{"id":"sh/ulc7qdsj","kind":"textbox","text":"Q3"},{"id":"sh/vm58zi94","kind":"shape"},{"id":"sh/8jupo3ad","kind":"textbox","text":"1,200万"},{"id":"sh/9k3qx8ry","kind":"shape"},{"id":"sh/mxc7mts7","kind":"textbox","text":"450万"},{"id":"sh/7yl8vy9s","kind":"shape"},{"id":"sh/sfy907ah","kind":"textbox","text":"450万"},{"id":"sh/tg7q9sr2","kind":"shape"},{"id":"sh/na9sz6tk","kind":"textbox","text":"300万"},{"id":"sh/290bq1cz","kind":"shape"},{"id":"sh/pcra1wba","kind":"textbox","text":"项目跨组协作时明确主责组，其他组只承担协同责任"},{"id":"sh/obitsrup","kind":"shape"},{"id":"sh/betc36tg","kind":"textbox","text":"Q4"},{"id":"sh/adkbu1cv","kind":"shape"},{"id":"sh/xgbu5gbm","kind":"textbox","text":"1,350万"},{"id":"sh/cf2twbu1","kind":"shape"},{"id":"sh/ripsrmtc","kind":"textbox","text":"506万"},{"id":"sh/6hgbihcr","kind":"shape"},{"id":"sh/uponm90b","kind":"textbox","text":"506万"},{"id":"sh/vah4fehw","kind":"shape"},{"id":"sh/gbq5ojih","kind":"textbox","text":"338万"},{"id":"sh/hczmhoz2","kind":"shape"},{"id":"sh/6loni90f","kind":"textbox","text":"季度金额按预计到账日，不按开票日、上线日或验收计划日统计"},{"id":"sh/7mx4buh0","kind":"shape"},{"id":"sh/8n65kzil","kind":"textbox","text":"全年"},{"id":"sh/tofmd4z6","kind":"shape"},{"id":"sh/yh4nep0j","kind":"textbox","text":"4,250万"},{"id":"sh/jix47uho","kind":"shape"},{"id":"sh/1c3qdsj6","kind":"textbox","text":"1,594万"},{"id":"sh/0bupkn21","kind":"shape"},{"id":"sh/fal8bi1g","kind":"textbox","text":"1,594万"},{"id":"sh/e9c7ixkv","kind":"shape"},{"id":"sh/d8jq9sja","kind":"textbox","text":"1,062万"},{"id":"sh/s7apgn2p","kind":"shape"},{"id":"sh/r6187i14","kind":"textbox","text":"实际责任额度需按项目池校准"},{"id":"sh/q5s7edkj","kind":"shape"},{"id":"sh/54jq58je","kind":"shape"},{"id":"sh/4japc32t","kind":"textbox","text":"568万元如何落位"},{"id":"sh/gj2doje1","kind":"textbox","text":"由原项目负责人和所属组确认月份，不做平均分配。"},{"id":"sh/hkvuxovm","kind":"shape"},{"id":"sh/uhkvm9wv","kind":"shape"},{"id":"sh/fitcvedg","kind":"textbox","text":"3682万元如何补齐"},{"id":"sh/4nmdsjux","kind":"textbox","text":"必须补充其他存量阶段款、新签首款及新签项目后续节点。"},{"id":"sh/povu1ovi","kind":"shape"}]}
+{"id":"sl/fu1gfa1s","index":7,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/18byd4zy","kind":"textbox","text":"组织责任：双组稳住基本盘，AI专项组承担新增长"},{"id":"sh/g72x4zyd","kind":"textbox","text":"人员沿用原编制：当前36人，完整配置54人；AI专项组先建核心班底，再按项目兑现扩编。"},{"id":"sh/ri9g7uhw","kind":"shape"},{"id":"sh/6h0fypgb","kind":"shape"},{"id":"sh/tkby9kzm","kind":"shape"},{"id":"sh/sjix0zy1","kind":"textbox","text":"交付一组"},{"id":"sh/je9g3ahk","kind":"textbox","text":"11 → 14人"},{"id":"sh/id0fu50z","kind":"textbox","text":"产值 1,500万\n回款参考 1,594万"},{"id":"sh/o7ydoret","kind":"textbox","text":"MES / WMS / IOT\n项目内硬件协同"},{"id":"sh/98rehwve","kind":"shape"},{"id":"sh/m5gvmhwn","kind":"shape"},{"id":"sh/n6pwfmd8","kind":"textbox","text":"交付二组"},{"id":"sh/0jydkreh","kind":"textbox","text":"13 → 14人"},{"id":"sh/1k7edwv2","kind":"textbox","text":"产值 1,500万\n回款参考 1,594万"},{"id":"sh/ehgvihwr","kind":"textbox","text":"MES / WMS / IOT\n项目内硬件协同"},{"id":"sh/zipwbmdc","kind":"shape"},{"id":"sh/kfixwbe1","kind":"shape"},{"id":"sh/lgbepgvm","kind":"textbox","text":"AI专项组"},{"id":"sh/tw7e9gnq","kind":"textbox","text":"0 → 10人"},{"id":"sh/svydgb65","kind":"textbox","text":"产值 1,000万\n回款参考 1,062万"},{"id":"sh/7u5w765k","kind":"textbox","text":"AI方案、实施、集成\n客户验收、场景复制"},{"id":"sh/6twve1oz","kind":"shape"},{"id":"sh/5sne5wne","kind":"shape"},{"id":"sh/kredcr6t","kind":"textbox","text":"共享开发中心"},{"id":"sh/jq5w365o","kind":"textbox","text":"现有10人 → 规划15人\n\nMES/WMS/IOT/AI开发\n统一排期、按项目人天归集\n优先保障关键上线与验收"},{"id":"sh/i5wva1o3","kind":"shape"},{"id":"sh/x4ne1wni","kind":"textbox","text":"人员总盘"},{"id":"sh/w3ed8r6x","kind":"textbox","text":"当前36人"},{"id":"sh/m9sb2x4v","kind":"textbox","text":"→"},{"id":"sh/na1sb2lg","kind":"textbox","text":"规划54人"},{"id":"sh/8bat47ml","kind":"textbox","text":"净增18人；按付费项目、已签合同和交付负荷分阶段到位"},{"id":"sh/9w3uds36","kind":"textbox","text":"当前36人：交付25人（交付一组11、交付二组13、另1名交付人员未单列）+开发10人+负责人1人。规划54人：交付38人+开发15人+负责人1人。"},{"id":"sh/y5sbed4j","kind":"shape"}]}
+{"id":"sl/udsvah03","index":8,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/1cfmhgne","kind":"textbox","text":"交付一组：把MES/WMS/IOT项目做成现金回收"},{"id":"sh/0b65obm9","kind":"textbox","text":"年度交付产值1,500万元；回款参考责任1,594万元。具体金额按本组项目现金流清单校准。"},{"id":"sh/nex4jq5k","kind":"shape"},{"id":"sh/mdonql4z","kind":"shape"},{"id":"sh/9gzml0nq","kind":"shape"},{"id":"sh/ofq5svm5","kind":"textbox","text":"年度交付产值"},{"id":"sh/bih4na5w","kind":"textbox","text":"1,500万"},{"id":"sh/ah8nu54b","kind":"textbox","text":"MES/WMS/IOT + 硬件协同"},{"id":"sh/oza1gfyh","kind":"shape"},{"id":"sh/p0ji9kf2","kind":"shape"},{"id":"sh/2xsjepgb","kind":"textbox","text":"年度回款参考"},{"id":"sh/3y107axw","kind":"textbox","text":"1,594万"},{"id":"sh/cnu1kzyd","kind":"textbox","text":"按产值权重初步测算"},{"id":"sh/do3id4fy","kind":"shape"},{"id":"sh/qlcjipgn","kind":"shape"},{"id":"sh/bml0buxs","kind":"textbox","text":"规划人数"},{"id":"sh/0ru1ozyp","kind":"textbox","text":"14人"},{"id":"sh/lsn2h4fa","kind":"textbox","text":"现有11人，净增3人"},{"id":"sh/98ji147e","kind":"shape"},{"id":"sh/87a18zqt","kind":"shape"},{"id":"sh/76h0zup8","kind":"textbox","text":"季度回款"},{"id":"sh/ml8j6p8n","kind":"textbox","text":"263/375/450/506"},{"id":"sh/hcji5o7a","kind":"textbox","text":"万元"},{"id":"sh/wba1cjqp","kind":"shape"},{"id":"sh/va103ep4","kind":"shape"},{"id":"sh/u9sja98z","kind":"textbox","text":"Q1｜建账与兑现"},{"id":"sh/xgzitk76","kind":"textbox","text":"逐项目确认2027付款节点；优先推动已上线、已具备请款条件的项目；把568万元中属于本组的款项落到客户与月份。"},{"id":"sh/cf6h0fql","kind":"shape"},{"id":"sh/2l4faloj","kind":"shape"},{"id":"sh/nmdg3q54","kind":"textbox","text":"Q2｜上线与验收"},{"id":"sh/onmxcv69","kind":"textbox","text":"对重点项目倒排上线、试运行、验收和请款资料；未完成客户条件逐项明确客户责任人和关闭日期。"},{"id":"sh/pofy50nu","kind":"shape"},{"id":"sh/apofe5of","kind":"shape"},{"id":"sh/bqxg7q50","kind":"textbox","text":"Q3｜项目群攻坚"},{"id":"sh/cr6xgv6l","kind":"textbox","text":"按项目群集中处理延期、变更、遗留问题；一项目一付款计划，提前30天锁定验收资料。"},{"id":"sh/xcfy90n6","kind":"shape"},{"id":"sh/qtkf21ob","kind":"shape"},{"id":"sh/rutwv65w","kind":"textbox","text":"Q4｜收尾与回款"},{"id":"sh/7y14jyd8","kind":"textbox","text":"战区级客户共同拜访；优先收取验收款和尾款；未达到付款条件的项目形成专项清单，不把预估当到账。"},{"id":"sh/mdsnatcn","kind":"textbox","text":"组长每周汇报：本组本周到账 / 本月预计到账 / 未来90天回款覆盖 / 验收障碍 / 超期应收 / 人天成本。"},{"id":"sh/903ml8be","kind":"shape"}]}
+{"id":"sl/m90b6t0r","index":9,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/xc3mho32","kind":"textbox","text":"交付二组：提高项目经理经营能力，减少延期与尾款滞留"},{"id":"sh/cbu58j2h","kind":"textbox","text":"年度交付产值1,500万元；回款参考责任1,594万元。与一组使用同一经营标准，项目池和客户责任独立核算。"},{"id":"sh/zelojyl8","kind":"shape"},{"id":"sh/ydcnatkn","kind":"shape"},{"id":"sh/l036l83y","kind":"shape"},{"id":"sh/kzu5c32t","kind":"textbox","text":"年度交付产值"},{"id":"sh/725onyl4","kind":"textbox","text":"1,500万"},{"id":"sh/m1cnetkj","kind":"textbox","text":"MES/WMS/IOT + 硬件协同"},{"id":"sh/s7yt4b21","kind":"shape"},{"id":"sh/d87uxg3m","kind":"shape"},{"id":"sh/q5gb21kb","kind":"textbox","text":"年度回款参考"},{"id":"sh/r6pcv6lw","kind":"textbox","text":"1,594万"},{"id":"sh/0bit8b2d","kind":"textbox","text":"按产值权重初步测算"},{"id":"sh/1cru1g3y","kind":"shape"},{"id":"sh/e9gb61k7","kind":"shape"},{"id":"sh/fapcz6ls","kind":"textbox","text":"规划人数"},{"id":"sh/ozitcv29","kind":"textbox","text":"14人"},{"id":"sh/p0ru503u","kind":"textbox","text":"现有13人，净增1人"},{"id":"sh/xwnupgvy","kind":"shape"},{"id":"sh/wvetgbud","kind":"shape"},{"id":"sh/bu5cnqd8","kind":"textbox","text":"季度回款"},{"id":"sh/atwbelcn","kind":"textbox","text":"263/375/450/506"},{"id":"sh/lk7ut0va","kind":"textbox","text":"万元"},{"id":"sh/kjytkvup","kind":"shape"},{"id":"sh/jypcrqd4","kind":"shape"},{"id":"sh/yxgbilcj","kind":"textbox","text":"Q1｜清理存量"},{"id":"sh/1o3ahwvq","kind":"textbox","text":"按客户逐项确认合同余额、上线状态、验收障碍和请款材料；对延期项目形成管理层介入清单。"},{"id":"sh/0nut8rul","kind":"shape"},{"id":"sh/q9srixs3","kind":"shape"},{"id":"sh/ru18r2to","kind":"textbox","text":"Q2｜节点转现金"},{"id":"sh/cva9k7a9","kind":"textbox","text":"PM主导客户周沟通，变更先签后做；上线款、验收款、尾款分开跟踪，禁止只报项目完成率。"},{"id":"sh/dwjqtcbu","kind":"shape"},{"id":"sh/exsrmhsf","kind":"shape"},{"id":"sh/zyl8vmt0","kind":"textbox","text":"Q3｜提升周转"},{"id":"sh/0zu9ora5","kind":"textbox","text":"识别高投入低回款项目，调整资源优先级；关键客户由组长联合战区负责人推动验收和付款。"},{"id":"sh/103qxcbq","kind":"shape"},{"id":"sh/u187adsv","kind":"shape"},{"id":"sh/f2h8jitg","kind":"textbox","text":"Q4｜回款收官"},{"id":"sh/bmpgrah8","kind":"textbox","text":"逐笔确认客户付款审批流程和付款日期；所有遗留项目指定关闭责任人，推动验收和尾款到账。"},{"id":"sh/algfy50n","kind":"textbox","text":"组长每周汇报：项目延期天数、客户待办、验收签字计划、未来90天收款、变更签证金额、项目毛利风险。"},{"id":"sh/xo7ytkzy","kind":"shape"}]}
+{"id":"sl/jetc3ut0","index":10,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/xcryxg7y","kind":"textbox","text":"AI专项组：先跑通付费闭环，再扩成规模化交付"},{"id":"sh/wbih4b6d","kind":"textbox","text":"年度交付产值1,000万元；回款参考额度1,062万元。AI收入仍是挑战机会，必须以付费合同和验收标准为前提。"},{"id":"sh/n69grmpw","kind":"shape"},{"id":"sh/250zy18b","kind":"shape"},{"id":"sh/98rytw72","kind":"shape"},{"id":"sh/o7ih0r6h","kind":"textbox","text":"年度交付产值"},{"id":"sh/72t03qp0","kind":"textbox","text":"1,000万"},{"id":"sh/61kzalof","kind":"textbox","text":"AI场景实施与集成"},{"id":"sh/ofqtgnyt","kind":"shape"},{"id":"sh/9gza9sze","kind":"shape"},{"id":"sh/mdobedg3","kind":"textbox","text":"规划人数"},{"id":"sh/nehs7iho","kind":"textbox","text":"10人"},{"id":"sh/0b6tc3yx","kind":"textbox","text":"从0开始，分阶段组建"},{"id":"sh/1cfa58zi","kind":"shape"},{"id":"sh/epobatgr","kind":"shape"},{"id":"sh/zaxs3yhc","kind":"textbox","text":"回款参考额度"},{"id":"sh/cn6t83y1","kind":"textbox","text":"1,062万"},{"id":"sh/dofa18z6","kind":"textbox","text":"按产值权重初步测算"},{"id":"sh/tsnip0ny","kind":"shape"},{"id":"sh/87ehgv6d","kind":"shape"},{"id":"sh/7650nq5s","kind":"textbox","text":"季度回款"},{"id":"sh/65wzelo7","kind":"textbox","text":"174/250/300/338"},{"id":"sh/l43ilgn2","kind":"textbox","text":"万元"},{"id":"sh/k3uhcb6h","kind":"shape"},{"id":"sh/j2lgjq5w","kind":"shape"},{"id":"sh/y1czalob","kind":"textbox","text":"Q1｜产品与客户验证"},{"id":"sh/p07ixkn6","kind":"textbox","text":"组长和核心骨干到位；筛选2–3个明确付费场景；形成报价、合同范围、交付边界和验收标准；免费试点不计产值和回款。"},{"id":"sh/4zyhofml","kind":"shape"},{"id":"sh/m58fih43","kind":"shape"},{"id":"sh/n61wbmlo","kind":"textbox","text":"Q2｜首批付费交付"},{"id":"sh/o7axk7m9","kind":"textbox","text":"至少完成首批付费项目签约与首款回收；完成场景部署、系统集成、用户验证和验收证据；沉淀标准交付模板。"},{"id":"sh/98jedc3u","kind":"shape"},{"id":"sh/eh8fex47","kind":"shape"},{"id":"sh/z2hw72lc","kind":"textbox","text":"Q3｜复制与扩展"},{"id":"sh/03qxg7mx","kind":"textbox","text":"围绕已验证场景复制第二批客户；建立方案包、实施清单、测试用例和交付人天模型；复盘毛利和回款周期。"},{"id":"sh/14ze9c3i","kind":"shape"},{"id":"sh/ydcfq1kb","kind":"shape"},{"id":"sh/jylwj6lw","kind":"textbox","text":"Q4｜产品化与兑现"},{"id":"sh/3qhsfypc","kind":"textbox","text":"形成可复用案例和标准报价；完成年度项目验收、回款及客户复购机会；未形成订单的编制不提前补满。"},{"id":"sh/ip8bmtor","kind":"shape"},{"id":"sh/5sjah872","kind":"textbox","text":"AI专项组扩编闸门：有付费客户 / 有合同范围 / 有验收标准 / 有明确交付毛利，满足后再补齐岗位。"},{"id":"sh/4rato36h","kind":"shape"}]}
+{"id":"sl/8f2psfyx","index":11,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/1gbm9s3a","kind":"textbox","text":"共享开发中心与公司综合组：交付资源必须服务于回款节点"},{"id":"sh/0f2lgnmp","kind":"textbox","text":"开发中心不是简单接需求；按项目关键路径和回款优先级排期，PMO/测试/质量提供规则和质量治理。"},{"id":"sh/ra943il8","kind":"shape"},{"id":"sh/q903ad4n","kind":"shape"},{"id":"sh/dcbm583y","kind":"shape"},{"id":"sh/sb2lcnmd","kind":"textbox","text":"共享开发中心｜10 → 15人"},{"id":"sh/b6d4f2lc","kind":"textbox","text":"1. 统一接收需求，必须绑定项目与责任PM\n2. 按上线、验收、付款关键路径排优先级\n3. 双周滚动排期，任务有负责人和交付日期\n4. 缺陷和接口阻塞设升级机制\n5. 开发人天按项目归集，支持成本核算"},{"id":"sh/a543mx4r","kind":"shape"},{"id":"sh/wvupgz6t","kind":"shape"},{"id":"sh/xw3q94ne","kind":"textbox","text":"公司综合组｜PMO / 测试 / 质量"},{"id":"sh/atc7epon","kind":"textbox","text":"1. 统一项目主计划和变更管理标准\n2. 检查上线、验收、请款证据完整性\n3. 对重大延期和质量风险专项督办\n4. 支持项目复盘和交付质量评估\n5. 不替代战区对项目经营结果负责"},{"id":"sh/bulo7u58","kind":"shape"},{"id":"sh/orapcf6h","kind":"shape"},{"id":"sh/9sj65kn2","kind":"textbox","text":"项目经理｜现金流第一责任执行人"},{"id":"sh/mps7a5or","kind":"textbox","text":"1. 合同节点拆到月，到账日期明确\n2. 客户待办、验收资料、付款审批可追踪\n3. 变更先确认范围和费用\n4. 每周更新风险和预测金额\n5. 对项目范围、成本、验收、回款闭环负责"},{"id":"sh/nq1o3a5w","kind":"shape"},{"id":"sh/0nap8f6l","kind":"textbox","text":"开发排期优先级规则"},{"id":"sh/1oj61kn6","kind":"shape"},{"id":"sh/hkbm5wzu","kind":"textbox","text":"P0"},{"id":"sh/gj25cry9","kind":"textbox","text":"影响客户付款/验收/生产上线"},{"id":"sh/fit436ho","kind":"shape"},{"id":"sh/uh0na1g3","kind":"textbox","text":"P1"},{"id":"sh/tgrm1wzy","kind":"textbox","text":"影响阶段交付和合同节点"},{"id":"sh/sfi58ryd","kind":"shape"},{"id":"sh/7u94zmhs","kind":"textbox","text":"P2"},{"id":"sh/6t0n6hg7","kind":"textbox","text":"一般体验优化和非关键需求"},{"id":"sh/dcv6dgz2","kind":"textbox","text":"APS主体实施与交付由外包供应商负责，不占内部交付编制；接口协调人天按项目实际归集。"},{"id":"sh/cbm5kbyh","kind":"shape"}]}
+{"id":"sl/hgzapcr6","index":12,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/q50nydsj","kind":"textbox","text":"战区负责人：从“盯项目细节”转向“盯经营结果与关键客户”"},{"id":"sh/bq9orito","kind":"textbox","text":"你的核心任务是把目标拆下去、把资源配到位、把关键客户和关键问题拿下来。"},{"id":"sh/o3i5w3ad","kind":"shape"},{"id":"sh/p4r6p8by","kind":"shape"},{"id":"sh/21gnuts7","kind":"shape"},{"id":"sh/32ponyts","kind":"textbox","text":"现在—2026.12"},{"id":"sh/gzy5s3a1","kind":"textbox","text":"把底数锁定"},{"id":"sh/1076lobm","kind":"textbox","text":"核实568万元项目名单、所属组、客户付款条件和预计月份；把其余3682万元拆成项目来源；确认各组组长与AI核心班底。"},{"id":"sh/hcfy9k3u","kind":"shape"},{"id":"sh/gb6x0zm9","kind":"shape"},{"id":"sh/vaxg7ulo","kind":"textbox","text":"Q1｜700万"},{"id":"sh/u9ofyp43","kind":"textbox","text":"建机制、拿首款"},{"id":"sh/t8fy5k3i","kind":"textbox","text":"主持月度经营分析；每周过未来90天现金流；亲自推动前十大回款风险客户；检查各组项目现金计划是否落到PM。"},{"id":"sh/876xwfmx","kind":"shape"},{"id":"sh/7mdg3als","kind":"shape"},{"id":"sh/6l4fu547","kind":"textbox","text":"Q2｜1,000万"},{"id":"sh/lkvy103m","kind":"textbox","text":"验证AI、提升兑现"},{"id":"sh/kjmxsfm1","kind":"textbox","text":"推动首批AI付费试点；评估三个组长经营能力；对资源冲突作决定；每月核验组别产值、回款、成本和毛利。"},{"id":"sh/cnqh8fux","kind":"shape"},{"id":"sh/xozyhkbi","kind":"shape"},{"id":"sh/q18f65cr","kind":"textbox","text":"Q3｜1,200万"},{"id":"sh/bmhgfatc","kind":"textbox","text":"补缺口、调资源"},{"id":"sh/oz6x4vul","kind":"textbox","text":"做年度目标中期复盘；按实际到账与未来90天预测找缺口；对延期、验收、逾期项目组织客户高层沟通。"},{"id":"sh/p0zyd0b6","kind":"shape"},{"id":"sh/2xof2lcv","kind":"shape"},{"id":"sh/3yxgbqdg","kind":"textbox","text":"Q4｜1,350万"},{"id":"sh/8vahgzu5","kind":"textbox","text":"集中验收、收官"},{"id":"sh/9wjyp4bq","kind":"textbox","text":"亲自推动重大客户验收和付款审批；清理长期挂账项目；控制低毛利和无合同变更；形成2028年合同与人员储备。"},{"id":"sh/jqlkfyds","kind":"shape"}]}
+{"id":"sl/6lsnupw7","index":13,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/xc7eds76","kind":"textbox","text":"管理机制：每周盯现金、每月算经营、每季调资源"},{"id":"sh/wbydknq1","kind":"textbox","text":"战区负责人不替组长做日常项目管理；组长必须对组内交付、验收和回款结果负责。"},{"id":"sh/jepwf2pc","kind":"shape"},{"id":"sh/idgvmx8r","kind":"shape"},{"id":"sh/5grehs7i","kind":"textbox","text":"角色"},{"id":"sh/kfidonqx","kind":"shape"},{"id":"sh/zi5c3y98","kind":"textbox","text":"必须承担的责任"},{"id":"sh/ehwvat8n","kind":"shape"},{"id":"sh/c3e1gjyd","kind":"textbox","text":"管理节奏 / 输出"},{"id":"sh/x4ni9ofy","kind":"shape"},{"id":"sh/a1wze9g7","kind":"textbox","text":"战区负责人"},{"id":"sh/b2507exs","kind":"shape"},{"id":"sh/kre1k3y9","kind":"textbox","text":"目标、资源、干部、重大客户、跨组冲突"},{"id":"sh/ls7idofu","kind":"shape"},{"id":"sh/y5wjitgj","kind":"textbox","text":"周回款例会 / 月经营分析 / 季度复盘"},{"id":"sh/z650byxo","kind":"shape"},{"id":"sh/0buh8zy5","kind":"textbox","text":"交付一、二组长"},{"id":"sh/1w3i14fq","kind":"shape"},{"id":"sh/hsvy50re","kind":"textbox","text":"组内产值、回款、成本、延期、客户关系"},{"id":"sh/grmxwvqt","kind":"shape"},{"id":"sh/fqdg3q98","kind":"textbox","text":"每周组会；逐项目检查未来90天到账"},{"id":"sh/up4fal83","kind":"shape"},{"id":"sh/pwvy90rq","kind":"textbox","text":"AI专项组长"},{"id":"sh/4vmh0vq5","kind":"shape"},{"id":"sh/3udg7q9k","kind":"textbox","text":"AI付费订单、交付质量、复制性、毛利、回款"},{"id":"sh/2t4fyl8z","kind":"shape"},{"id":"sh/d0fydk7m","kind":"textbox","text":"双周AI项目评审；月度商业化复盘"},{"id":"sh/cz6h4fq1","kind":"shape"},{"id":"sh/atg3idk7","kind":"textbox","text":"项目经理"},{"id":"sh/bup4rils","kind":"shape"},{"id":"sh/cvylkn2d","kind":"textbox","text":"项目范围、主计划、客户待办、验收资料、收款计划"},{"id":"sh/xw7mts3y","kind":"shape"},{"id":"sh/yxgnmxkj","kind":"textbox","text":"每周更新项目现金流和风险清单"},{"id":"sh/jyp4fil4","kind":"shape"},{"id":"sh/kzy5on2p","kind":"textbox","text":"共享开发中心"},{"id":"sh/lkrmhsju","kind":"shape"},{"id":"sh/6l0nqxkf","kind":"textbox","text":"开发排期、关键交付、缺陷、资源人天"},{"id":"sh/7m94j210","kind":"shape"},{"id":"sh/fi5432t4","kind":"textbox","text":"双周迭代；P0问题及时升级"},{"id":"sh/uhw3axcj","kind":"shape"},{"id":"sh/h4nm5sba","kind":"textbox","text":"公司综合组"},{"id":"sh/gjelc7up","kind":"shape"},{"id":"sh/365472tg","kind":"textbox","text":"PMO标准、质量监督、测试和重大风险检查"},{"id":"sh/25w3excv","kind":"shape"},{"id":"sh/p87m9cb6","kind":"textbox","text":"按项目节点检查，不代替战区经营"},{"id":"sh/47y5g7u1","kind":"shape"},{"id":"sh/jal4vidw","kind":"textbox","text":"周会只看5个数：本周到账、月度目标完成、未来90天预测、逾期应收、验收/请款待办。"},{"id":"sh/i9c32dcr","kind":"shape"}]}
+{"id":"sl/vaxsvy10","index":14,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/547mhg3m","kind":"textbox","text":"回款预警：用领先指标管理，不等季度末才发现缺口"},{"id":"sh/k3y5ov21","kind":"textbox","text":"以下阈值为第二战区建议管理线，周六会议可结合公司制度与财务口径确认。"},{"id":"sh/76p4jqls","kind":"shape"},{"id":"sh/65gnqlk7","kind":"shape"},{"id":"sh/t87ml0ji","kind":"textbox","text":"指标"},{"id":"sh/s7y5sv2x","kind":"shape"},{"id":"sh/na5476l8","kind":"textbox","text":"口径"},{"id":"sh/m9c3e1kn","kind":"shape"},{"id":"sh/wrm9kvep","kind":"textbox","text":"绿灯"},{"id":"sh/hsvat0fa","kind":"shape"},{"id":"sh/upkrilwj","kind":"textbox","text":"黄灯"},{"id":"sh/vqdsrqx4","kind":"shape"},{"id":"sh/4vm9ovel","kind":"textbox","text":"红灯"},{"id":"sh/5wvax0f6","kind":"shape"},{"id":"sh/it4rm5wv","kind":"textbox","text":"季度回款达成率"},{"id":"sh/judsvqxg","kind":"shape"},{"id":"sh/0z29cbyh","kind":"textbox","text":"实际到账 / 季度计划"},{"id":"sh/l0bqlgf2","kind":"shape"},{"id":"sh/1kjyt83e","kind":"textbox","text":"≥100%"},{"id":"sh/gjax03m9","kind":"shape"},{"id":"sh/fi1grylo","kind":"textbox","text":"85%–99%"},{"id":"sh/ehsfyt43","kind":"shape"},{"id":"sh/p8jyx83q","kind":"textbox","text":"<85%"},{"id":"sh/o7ah4nm5","kind":"shape"},{"id":"sh/361gvilk","kind":"textbox","text":"未来90天回款覆盖"},{"id":"sh/25sf2d4z","kind":"shape"},{"id":"sh/dc3y1s3m","kind":"textbox","text":"已确认预计到账 / 未来90天目标"},{"id":"sh/cbuh8nmh","kind":"shape"},{"id":"sh/uh4v2pkj","kind":"textbox","text":"≥1.2倍"},{"id":"sh/vixcvu14","kind":"shape"},{"id":"sh/wj6d4z2p","kind":"textbox","text":"1.0–1.2倍"},{"id":"sh/hkfexkja","kind":"shape"},{"id":"sh/ilov6pkv","kind":"textbox","text":"<1.0倍"},{"id":"sh/jmxwzu1g","kind":"shape"},{"id":"sh/4n6d8z21","kind":"textbox","text":"逾期应收账龄"},{"id":"sh/5ofe14j6","kind":"shape"},{"id":"sh/6p8va9kr","kind":"textbox","text":"付款到期日已过未到账"},{"id":"sh/rqhw3e1c","kind":"shape"},{"id":"sh/f6dcnetg","kind":"textbox","text":"≤30天"},{"id":"sh/e54ve9cv","kind":"shape"},{"id":"sh/18vup4bm","kind":"textbox","text":"31–60天"},{"id":"sh/07mdgzu1","kind":"shape"},{"id":"sh/nadwrets","kind":"textbox","text":">60天"},{"id":"sh/294vi9c7","kind":"shape"},{"id":"sh/pwfetobi","kind":"textbox","text":"验收节点"},{"id":"sh/ovmdkjud","kind":"shape"},{"id":"sh/3etcfut8","kind":"textbox","text":"达到验收条件至客户签字"},{"id":"sh/idkv6pc3","kind":"shape"},{"id":"sh/87e10r6p","kind":"textbox","text":"计划内"},{"id":"sh/987itwnu","kind":"shape"},{"id":"sh/m5wjyhoj","kind":"textbox","text":"延迟≤30天"},{"id":"sh/n650rm54","kind":"shape"},{"id":"sh/03e1w76d","kind":"textbox","text":"延迟>30天"},{"id":"sh/l4nipcny","kind":"shape"},{"id":"sh/y1wjuho7","kind":"shape"},{"id":"sh/z250nm5s","kind":"textbox","text":"绿灯｜按计划推进"},{"id":"sh/4zi18b6h","kind":"textbox","text":"组长持续跟踪，资源按计划安排。"},{"id":"sh/50r21gn2","kind":"shape"},{"id":"sh/dgnilgf6","kind":"shape"},{"id":"sh/sfe1sbe1","kind":"textbox","text":"黄灯｜责任人限期纠偏"},{"id":"sh/ru50j6xg","kind":"textbox","text":"PM提交客户动作和到账修正计划；组长复核。"},{"id":"sh/qtcjq1gv","kind":"shape"},{"id":"sh/5s3ihwfa","kind":"shape"},{"id":"sh/4ru1oryp","kind":"textbox","text":"红灯｜战区级升级"},{"id":"sh/3ql0fmx4","kind":"textbox","text":"战区负责人介入客户高层、资源调整和回款专项。"},{"id":"sh/ipcjm1gj","kind":"shape"}]}
+{"id":"sl/gny5sjyp","index":15,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/8z2h8bq1","kind":"textbox","text":"会后30天：把会议共识变成项目级执行清单"},{"id":"sh/9kby1g7m","kind":"textbox","text":"建议从2026年11月16日启动，12月中旬形成可执行的2027现金流版本。"},{"id":"sh/ytkf2h8j","kind":"shape"},{"id":"sh/zutgvm94","kind":"shape"},{"id":"sh/kv2h4rqp","kind":"shape"},{"id":"sh/lwbyxwra","kind":"textbox","text":"第1周"},{"id":"sh/ip4zel83","kind":"textbox","text":"锁定568万元项目清单"},{"id":"sh/3qdg7qpo","kind":"textbox","text":"项目、客户、所属组、金额、付款条件、预计到账月、责任PM；与财务核对。"},{"id":"sh/fm1gzq5o","kind":"shape"},{"id":"sh/e1sf65o3","kind":"shape"},{"id":"sh/1ojy10ne","kind":"textbox","text":"第2周"},{"id":"sh/gnax8v6t","kind":"textbox","text":"拆解3682万元来源"},{"id":"sh/nqlg3a5k","kind":"textbox","text":"逐项目补齐存量阶段款、新签首款、新签后续节点；没有依据的机会单独列示。"},{"id":"sh/2pcfa5oz","kind":"shape"},{"id":"sh/ps3y5knq","kind":"shape"},{"id":"sh/oruhcf65","kind":"textbox","text":"第3周"},{"id":"sh/bulg7u5g","kind":"textbox","text":"落实各组季度任务"},{"id":"sh/atczepob","kind":"textbox","text":"一组、二组、AI组确认客户清单、验收/请款计划、组长与PM责任人。"},{"id":"sh/mpgj6t8j","kind":"shape"},{"id":"sh/7qp0zepo","kind":"shape"},{"id":"sh/8by18jq9","kind":"textbox","text":"第4周"},{"id":"sh/9c7i1o7u","kind":"textbox","text":"形成经营看板和资源计划"},{"id":"sh/ylwj2987","kind":"textbox","text":"确定周会模板、回款预警、AI付费试点清单及54人扩编闸门。"},{"id":"sh/zm50veps","kind":"shape"},{"id":"sh/kne14jqd","kind":"shape"},{"id":"sh/lo7ixo7y","kind":"textbox","text":"周六会议需要现场确认的事项"},{"id":"sh/ih0jedob","kind":"textbox","text":"1. 4250万元季度目标是否按700/1000/1200/1350执行？\n\n2. 568万元由哪些项目组成，分别归哪个组、哪个季度？\n\n3. 3682万元由哪些合同/项目补齐？\n\n4. AI专项组负责人、首批付费场景和扩编条件是什么？\n\n5. 组长周报、回款例会和月度经营分析何时启动？"},{"id":"sh/ji9k7ypw","kind":"shape"},{"id":"sh/tcbmdcre","kind":"textbox","text":"会议结论：每一笔回款都要有项目、有合同节点、有责任人、有客户动作、有预计到账日期。"},{"id":"sh/sb2l47at","kind":"shape"}]}
+{"id":"sl/14bup87q","index":16,"layout":{"id":"ly/p83mt83u","name":"MASTER"},"elements":[{"id":"sh/1c7e50ni","kind":"textbox","text":"附：项目现金流拆解表｜这是4250万元目标的底层依据"},{"id":"sh/gbedwfmx","kind":"textbox","text":"会后由各项目经理填报，组长审核，战区汇总；财务核对合同节点及已收/未收金额。"},{"id":"sh/rm5czq50","kind":"shape"},{"id":"sh/6lwvql4v","kind":"shape"},{"id":"sh/t8ne10n6","kind":"textbox","text":"客户/项目"},{"id":"sh/snedsvml","kind":"shape"},{"id":"sh/jilcvq54","kind":"textbox","text":"责任组/PM"},{"id":"sh/ihcvml4j","kind":"shape"},{"id":"sh/4by9or6l","kind":"textbox","text":"合同节点"},{"id":"sh/pc7qhwn6","kind":"shape"},{"id":"sh/29grm1of","kind":"textbox","text":"预计回款"},{"id":"sh/3ap8fm50","kind":"shape"},{"id":"sh/gnepkr69","kind":"textbox","text":"金额(万)"},{"id":"sh/honqdwnu","kind":"shape"},{"id":"sh/ulw7ihoj","kind":"textbox","text":"到账月份"},{"id":"sh/fm58bm54","kind":"shape"},{"id":"sh/0ji9wb6t","kind":"textbox","text":"付款条件/证据"},{"id":"sh/14rqpgne","kind":"shape"},{"id":"sh/90nq9gfi","kind":"textbox","text":"风险/下一步"},{"id":"sh/8ze9gbyx","kind":"shape"},{"id":"sh/ny5876xc","kind":"textbox","text":"示例客户A"},{"id":"sh/mxw7e1gr","kind":"shape"},{"id":"sh/lwnq5gf6","kind":"textbox","text":"一组 / 张三"},{"id":"sh/0vepcbyl","kind":"shape"},{"id":"sh/zul836xg","kind":"textbox","text":"上线款"},{"id":"sh/ytc7a1gv","kind":"shape"},{"id":"sh/d83q1wfa","kind":"textbox","text":"预计"},{"id":"sh/c7up8ryp","kind":"shape"},{"id":"sh/2dsn2xwn","kind":"textbox","text":"80"},{"id":"sh/3e1ob2d8","kind":"shape"},{"id":"sh/oza547ed","kind":"textbox","text":"2027-Q1"},{"id":"sh/p0j6dcvy","kind":"shape"},{"id":"sh/e98nydwb","kind":"textbox","text":"上线确认单、合同付款条款"},{"id":"sh/fah47idw","kind":"shape"},{"id":"sh/gbq50neh","kind":"textbox","text":"客户验收负责人待确认"},{"id":"sh/1cj69sv2","kind":"shape"},{"id":"sh/658nudwf","kind":"textbox","text":"示例客户B"},{"id":"sh/r6h43id0","kind":"shape"},{"id":"sh/jy1kfehg","kind":"textbox","text":"二组 / 李四"},{"id":"sh/ixsj690v","kind":"shape"},{"id":"sh/50j2hozm","kind":"textbox","text":"验收款"},{"id":"sh/kza18ji1","kind":"shape"},{"id":"sh/vuhkbehk","kind":"textbox","text":"待核"},{"id":"sh/at8j290z","kind":"shape"},{"id":"sh/xwz2dozq","kind":"textbox","text":"120"},{"id":"sh/wvq14ji5","kind":"shape"},{"id":"sh/n6h07uh8","kind":"textbox","text":"2027-Q2"},{"id":"sh/m5ojyp03","kind":"shape"},{"id":"sh/cbmh8vyl","kind":"textbox","text":"验收报告、发票要求"},{"id":"sh/dcvyh0f6","kind":"shape"},{"id":"sh/q94z6lgv","kind":"textbox","text":"待客户确定验收日期"},{"id":"sh/radgfqx0","kind":"shape"},{"id":"sh/0z6hcfyx","kind":"textbox","text":"示例客户C"},{"id":"sh/l0fylkfi","kind":"shape"},{"id":"sh/ex4za5gr","kind":"textbox","text":"AI组 / 王五"},{"id":"sh/zyxgjaxc","kind":"shape"},{"id":"sh/g32x0byd","kind":"textbox","text":"合同首款"},{"id":"sh/h4by9gfy","kind":"shape"},{"id":"sh/xoj6h83q","kind":"textbox","text":"待签"},{"id":"sh/wna5o3m5","kind":"shape"},{"id":"sh/vm1ofilk","kind":"textbox","text":"50"},{"id":"sh/alsnmd4z","kind":"shape"},{"id":"sh/5s36ls3m","kind":"textbox","text":"2027-Q2"},{"id":"sh/kru5snm1","kind":"shape"},{"id":"sh/jqlojilw","kind":"textbox","text":"生效合同、首付款条款"},{"id":"sh/ipcnqd4b","kind":"shape"},{"id":"sh/tg36ps3y","kind":"textbox","text":"未签约前不计确定预测"},{"id":"sh/sfu5wnmd","kind":"shape"},{"id":"sh/q1o3apkv","kind":"textbox","text":"……"},{"id":"sh/r2xkju1g","kind":"shape"},{"id":"sh/c36lcz2l","kind":"textbox","text":"……"},{"id":"sh/d4f2l4j6","kind":"shape"},{"id":"sh/ypo3e9kr","kind":"textbox","text":"……"},{"id":"sh/zqhkne1c","kind":"shape"},{"id":"sh/0rqlgj2x","kind":"textbox","text":"……"},{"id":"sh/lsz2p4ji","kind":"shape"},{"id":"sh/mt83i9k3","kind":"textbox","text":"……"},{"id":"sh/nuhkre1o","kind":"shape"},{"id":"sh/7mxgnq5o","kind":"textbox","text":"……"},{"id":"sh/6lozeloj","kind":"shape"},{"id":"sh/tofypgnu","kind":"textbox","text":"……"},{"id":"sh/8n6hgb69","kind":"shape"},{"id":"sh/vqxgrq50","kind":"textbox","text":"……"},{"id":"sh/upozilof","kind":"shape"},{"id":"sh/hczit0n6","kind":"shape"},{"id":"sh/gr6hkv6l","kind":"textbox","text":"统计规则"},{"id":"sh/3eh0va5w","kind":"textbox","text":"同一合同付款节点不重复；568万元在4250万元内；只统计预计2027年实际到账。"},{"id":"sh/id8zm5ob","kind":"shape"},{"id":"sh/0jaxcf2p","kind":"shape"},{"id":"sh/1kjyl03a","kind":"textbox","text":"责任规则"},{"id":"sh/eh8fa5kj","kind":"textbox","text":"PM填报，组长审核，战区负责人确认重大风险；财务核对合同与应收口径。"},{"id":"sh/fihgjal4","kind":"shape"}]}
+slide0 layout {
+  "schema": "openai.presentation.layout/v5",
+  "unit": "px",
+  "slide": {
+    "id": "sl/y90nupkv",
+    "index": 0,
+    "layout": {
+      "id": "ly/ux4ruhcv",
+      "name": "DEFAULT"
+    },
+    "masterLayoutId": "ly/atofqts7",
+    "backgroundColor": "rgba(11,63,43,1)",
+    "position": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ly/ux4ruhcv",
+      "name": "DEFAULT",
+      "parentLayoutId": "ly/atofqts7",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "ly/atofqts7",
+      "type": "master",
+      "elements": [
+        {
+          "order": 1,
+          "kind": "shape",
+          "scope": "master",
+          "id": "sh/behwzyhg",
+          "editable": false,
+          "name": "Slide Number Placeholder 0",
+          "position": {
+            "left": 1231.68,
+            "top": 682.56,
+            "width": 83.99,
+            "height": 31.5
+          },
+          "geometry": "rect"
+        }
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/547294r6",
+      "editable": true,
+      "name": "Shape 0",
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 1279.97,
+        "height": 720
+      },
+      "geometry": "rect",
+      "fillColor": "#0B3F2B",
+      "lineColor": "rgba(11,63,43,0)",
+      "lineWidth": 1.33
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/k3yl0zql",
+      "editable": true,
+      "name": "Shape 1",
+      "position": {
+        "left": 892.8,
+        "top": 0,
+        "width": 220.8,
+        "height": 720
+      },
+      "geometry": "chevron",
+      "fillColor": "rgba(15,101,66,0.85)",
+      "lineColor": "rgba(15,101,66,0)",
+      "lineWidth": 1.33
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/7qp4be9c",
+      "editable": true,
+      "name": "Shape 2",
+      "position": {
+        "left": 1036.8,
+        "top": 0,
+        "width": 220.8,
+        "height": 720
+      },
+      "geometry": "chevron",
+      "fillColor": "rgba(22,139,86,0.7)",
+      "lineColor": "rgba(22,139,86,0)",
+      "lineWidth": 1.33
+    },
+    {
+      "order": 4,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/65g3298r",
+      "editable": true,
+      "name": "Text 3",
+      "position": {
+        "left": 74.88,
+        "top": 67.2,
+        "width": 576,
+        "height": 26.88
+      },
+      "geometry": "rect",
+      "text": "THE SECOND WAR ZONE  /  2027",
+      "style": {
+        "anchor": 2,
+        "fontSize": 13.33,
+        "typeface": "微软雅黑",
+        "color": "#9AD8B5",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "THE SECOND WAR ZONE  /  2027",
+          "runs": [
+            {
+              "index": 1,
+              "text": "THE SECOND WAR ZONE  /  2027",
+              "anchor": 2,
+              "fontSize": 13.33,
+              "typeface": "微软雅黑",
+              "color": "#9AD8B5",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 5,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/ts7md4r2",
+      "editable": true,
+      "name": "Text 4",
+      "position": {
+        "left": 74.88,
+        "top": 148.8,
+        "width": 528,
+        "height": 52.8
+      },
+      "geometry": "rect",
+      "text": "第二战区",
+      "style": {
+        "anchor": 2,
+        "fontSize": 40,
+        "typeface": "微软雅黑",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "第二战区",
+          "runs": [
+            {
+              "index": 1,
+              "text": "第二战区",
+              "anchor": 2,
+              "fontSize": 40,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 6,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/sryl4zqx",
+      "editable": true,
+      "name": "Text 5",
+      "position": {
+        "left": 74.88,
+        "top": 211.2,
+        "width": 729.6,
+        "height": 144
+      },
+      "geometry": "rect",
+      "text": "2027年度经营目标\n达成行动方案",
+      "style": {
+        "anchor": 2,
+        "fontSize": 40,
+        "typeface": "微软雅黑",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2027年度经营目标",
+          "runs": [
+            {
+              "index": 1,
+              "text": "2027年度经营目标",
+              "anchor": 2,
+              "fontSize": 40,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "达成行动方案",
+          "runs": [
+            {
+              "index": 1,
+              "text": "达成行动方案",
+              "anchor": 2,
+              "fontSize": 40,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 7,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/fu94fe98",
+      "editable": true,
+      "name": "Text 6",
+      "position": {
+        "left": 78.72,
+        "top": 386.88,
+        "width": 796.8,
+        "height": 40.32
+      },
+      "geometry": "rect",
+      "text": "4,250万元回款挑战目标  ·  季度作战计划  ·  责任到组到人",
+      "style": {
+        "anchor": 2,
+        "fontSize": 20,
+        "typeface": "微软雅黑",
+        "color": "#D4E8DC",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "4,250万元回款挑战目标  ·  季度作战计划  ·  责任到组到人",
+          "runs": [
+            {
+              "index": 1,
+              "text": "4,250万元回款挑战目标  ·  季度作战计划  ·  责任到组到人",
+              "anchor": 2,
+              "fontSize": 20,
+              "typeface": "微软雅黑",
+              "color": "#D4E8DC",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/utg3698n",
+      "editable": true,
+      "name": "Shape 7",
+      "position": {
+        "left": 78.72,
+        "top": 492.48,
+        "width": 744,
+        "height": 78.72
+      },
+      "geometry": "roundRect",
+      "fillColor": "#124C35",
+      "lineColor": "#2E7E59",
+      "lineWidth": 1.07
+    },
+    {
+      "order": 9,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/wn6dc7eh",
+      "editable": true,
+      "name": "Text 8",
+      "position": {
+        "left": 100.8,
+        "top": 509.76,
+        "width": 211.2,
+        "height": 32.64
+      },
+      "geometry": "rect",
+      "text": "2026预计回款 1,100万",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17.33,
+        "typeface": "微软雅黑",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2026预计回款 1,100万",
+          "runs": [
+            {
+              "index": 1,
+              "text": "2026预计回款 1,100万",
+              "anchor": 2,
+              "fontSize": 17.33,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 10,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/hofulsf2",
+      "editable": true,
+      "name": "Text 9",
+      "position": {
+        "left": 340.8,
+        "top": 509.76,
+        "width": 216,
+        "height": 32.64
+      },
+      "geometry": "rect",
+      "text": "36人 → 54人完整配置",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17.33,
+        "typeface": "微软雅黑",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "36人 → 54人完整配置",
+          "runs": [
+            {
+              "index": 1,
+              "text": "36人 → 54人完整配置",
+              "anchor": 2,
+              "fontSize": 17.33,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 11,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/ul4vaxgb",
+      "editable": true,
+      "name": "Text 10",
+      "position": {
+        "left": 577.92,
+        "top": 509.76,
+        "width": 225.6,
+        "height": 32.64
+      },
+      "geometry": "rect",
+      "text": "2027交付产值 4,000万",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17.33,
+        "typeface": "微软雅黑",
+        "color": "#FFFFFF",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2027交付产值 4,000万",
+          "runs": [
+            {
+              "index": 1,
+              "text": "2027交付产值 4,000万",
+              "anchor": 2,
+              "fontSize": 17.33,
+              "typeface": "微软雅黑",
+              "color": "#FFFFFF",
+              "bold": true,
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 12,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/vmdcj2xw",
+      "editable": true,
+      "name": "Text 11",
+      "position": {
+        "left": 78.72,
+        "top": 645.12,
+        "width": 604.8,
+        "height": 24
+      },
+      "geometry": "rect",
+      "text": "周六经营规划讨论会  |  2026年11月14日",
+      "style": {
+        "anchor": 2,
+        "fontSize": 13.33,
+        "typeface": "微软雅黑",
+        "color": "#AFCBBB",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "insets": {
+          "top": 0.05,
+          "right": 0.05,
+          "bottom": 0.05,
+          "left": 0.05
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "周六经营规划讨论会  |  2026年11月14日",
+          "runs": [
+            {
+              "index": 1,
+              "text": "周六经营规划讨论会  |  2026年11月14日",
+              "anchor": 2,
+              "fontSize": 13.33,
+              "typeface": "微软雅黑",
+              "color": "#AFCBBB",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "insets": {
+                "top": 0.05,
+                "right": 0.05,
+                "bottom": 0.05,
+                "left": 0.05
+              }
+            }
+          ],
+          "marginLeft": 0
+        }
+      ]
+    }
+  ]
+}

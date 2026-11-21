@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>精工 Agent 0.9.0 操作手册</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #14282d;
+      --muted: #536b70;
+      --line: #d8e2df;
+      --paper: #f5f7f3;
+      --surface: #ffffff;
+      --deep: #102b31;
+      --teal: #087f78;
+      --teal-soft: #e2f3ef;
+      --amber: #9a5a0b;
+      --amber-soft: #fff3dc;
+      --red: #973e36;
+      --red-soft: #fff0ed;
+      --mono: "Cascadia Code", Consolas, monospace;
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; line-height: 1.72; background: var(--paper); }
+    a { color: var(--teal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    .cover {
+      position: relative;
+      overflow: hidden;
+      padding: 58px max(7vw, 28px) 54px;
+      color: #f3fbf7;
+      background: linear-gradient(118deg, #102b31 0%, #174b4b 68%, #087f78 100%);
+    }
+    .cover::after {
+      content: "";
+      position: absolute;
+      width: 390px;
+      height: 390px;
+      right: -92px;
+      top: -172px;
+      border: 1px solid rgb(255 255 255 / 18%);
+      border-radius: 50%;
+      box-shadow: 0 0 0 36px rgb(255 255 255 / 4%), 0 0 0 78px rgb(255 255 255 / 4%);
+      pointer-events: none;
+    }
+    .cover-inner { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; }
+    .brandline { display: flex; align-items: center; gap: 11px; color: #b8d9d2; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
+    .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid #83b9ac; border-radius: 9px; color: #d8f0e8; font-size: 13px; font-weight: 800; letter-spacing: 0; }
+    h1 { margin: 42px 0 8px; max-width: 760px; font-size: clamp(34px, 5.2vw, 58px); line-height: 1.16; letter-spacing: -.045em; }
+    .subtitle { margin: 0; color: #c4dfd8; font-size: clamp(16px, 2vw, 20px); }
+    .cover-meta { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 34px; color: #d8eae5; font-size: 13px; }
+    .cover-meta span { display: inline-flex; align-items: center; gap: 8px; }
+    .cover-meta b { color: #fff; font-weight: 650; }
+    .layout { display: grid; grid-template-columns: 244px minmax(0, 840px); gap: 34px; max-width: 1180px; margin: 30px auto 80px; padding: 0 24px; align-items: start; }
+    .toc { position: sticky; top: 22px; padding: 20px 17px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfa; }
+    .toc-title { margin: 0 0 12px; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    .toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+    .toc li { counter-increment: toc; }
+    .toc a { display: flex; gap: 10px; padding: 6px 0; color: #385258; font-size: 13px; text-decoration: none; }
+    .toc a::before { content: counter(toc, decimal-leading-zero); color: #8da39e; font-family: var(--mono); font-size: 10px; padding-top: 3px; }
+    .toc a:hover { color: var(--teal); }
+    main { min-width: 0; }
+    .notice { margin: 0 0 22px; padding: 17px 19px; border: 1px solid #ecd7ad; border-left: 4px solid #c88626; border-radius: 11px; background: var(--amber-soft); color: #553c1a; }
+    .notice strong { display: block; margin-bottom: 4px; color: #70430b; }
+    .notice p { margin: 0; font-size: 14px; }
+    section { margin: 0 0 22px; padding: 28px 30px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 5px 18px rgb(21 49 48 / 3%); scroll-margin-top: 20px; }
+    section h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font-size: 22px; line-height: 1.35; letter-spacing: -.025em; }
+    section h2 span { color: #94aaa4; font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    section h3 { margin: 23px 0 8px; font-size: 16px; }
+    section h3:first-child { margin-top: 0; }
+    p { margin: 8px 0 12px; }
+    ul, ol { margin: 8px 0 14px; padding-left: 22px; }
+    li { margin: 5px 0; padding-left: 2px; }
+    .lead { color: #37545a; font-size: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 15px; }
+    .card { padding: 15px 16px; border: 1px solid #e2e9e6; border-radius: 11px; background: #fbfcfa; }
+    .card b { display: block; margin-bottom: 4px; color: #1a4948; font-size: 14px; }
+    .card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .steps { counter-reset: steps; list-style: none; padding: 0; }
+    .steps li { position: relative; min-height: 44px; margin: 0; padding: 2px 0 15px 48px; counter-increment: steps; }
+    .steps li::before { content: counter(steps, decimal-leading-zero); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--teal); background: var(--teal-soft); font-family: var(--mono); font-size: 11px; font-weight: 750; }
+    .steps li b { display: block; }
+    .steps li span { color: var(--muted); font-size: 14px; }
+    .callout { margin: 14px 0; padding: 13px 15px; border-radius: 9px; background: #eff5f3; color: #315157; font-size: 14px; }
+    .callout.warn { background: var(--amber-soft); color: #70430b; }
+    .callout.red { background: var(--red-soft); color: #7b3029; }
+    .pill { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 9px; border: 1px solid #d8e6e0; border-radius: 999px; color: #315c57; background: #f6fbf8; font-size: 12px; }
+    .key { display: inline-block; padding: 1px 6px; border: 1px solid #cfdad7; border-bottom-width: 2px; border-radius: 5px; color: #30494c; background: #f5f7f6; font: 12px var(--mono); white-space: nowrap; }
+    code { padding: 1px 5px; border-radius: 4px; background: #eef3f1; color: #28514f; font: .9em var(--mono); overflow-wrap: anywhere; }
+    .setting-list { display: grid; grid-template-columns: 172px minmax(0, 1fr); margin: 12px 0 0; border-top: 1px solid var(--line); }
+    .setting-list dt, .setting-list dd { margin: 0; padding: 10px 8px; border-bottom: 1px solid #e8eeeb; }
+    .setting-list dt { color: #264f4e; font-weight: 700; }
+    .setting-list dd { color: var(--muted); font-size: 14px; }
+    .table-wrap { overflow-x: auto; margin: 12px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 11px; border-bottom: 1px solid #e4ebe8; text-align: left; vertical-align: top; }
+    th { color: #315451; background: #f2f7f4; font-size: 12px; font-weight: 750; }
+    td { color: #405b60; }
+    .state { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #874b0d; background: #fff0d2; font-size: 12px; font-weight: 700; }
+    .checklist { padding: 16px 18px; border-radius: 11px; background: #f3f8f5; }
+    .checklist li::marker { color: var(--teal); }
+    footer { max-width: 1180px; margin: -46px auto 30px; padding: 0 24px; color: #6d8582; font-size: 12px; }
+    @media (max-width: 860px) {
+      .layout { display: block; margin-top: 16px; }
+      .toc { position: static; margin-bottom: 16px; }
+      .toc ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+      section { padding: 23px 20px; }
+    }
+    @media (max-width: 540px) {
+      .cover { padding: 38px 22px; }
+      .cover-meta { gap: 8px 14px; }
+      .layout { padding: 0 12px; }
+      .toc ol, .grid { grid-template-columns: 1fr; }
+      .setting-list { grid-template-columns: 1fr; }
+      .setting-list dt { padding-bottom: 2px; border: 0; }
+      .setting-list dd { padding-top: 0; }
+      section h2 { font-size: 19px; }
+      footer { padding: 0 14px; }
+    }
+    @media print {
+      :root { --paper: #fff; }
+      body { background: #fff; font-size: 10.5pt; }
+      .cover { padding: 30px 36px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .cover::after, .toc { display: none; }
+      .layout { display: block; max-width: none; margin: 18px 0; padding: 0; }
+      main { max-width: none; }
+      section { margin-bottom: 12px; padding: 20px 22px; box-shadow: none; break-inside: avoid; }
+      section h2, section h3 { break-after: avoid; }
+      a { color: inherit; text-decoration: none; }
+      footer { margin: 0; padding: 0; }
+      .notice, .callout, .card, th, .steps li::before { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <header class="cover">
+    <div class="cover-inner">
+      <div class="brandline"><span class="brand-mark">JG</span><span>精工研发 · Windows 桌面端</span></div>
+      <h1>精工 Agent<br>0.9.0 操作手册</h1>
+      <p class="subtitle">从项目会话到代码核验的日常使用指南</p>
+      <div class="cover-meta">
+        <span>适用版本 <b>0.9.0 源码构建</b></span>
+        <span>整理日期 <b>2026 年 11 月 20 日</b></span>
+        <span>目标用户 <b>MES / WMS / 前端研发与交付人员</b></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="目录">
+      <p class="toc-title">操作目录</p>
+      <ol>
+        <li><a href="#start">快速开始</a></li>
+        <li><a href="#setup">首次配置</a></li>
+        <li><a href="#projects">项目与会话</a></li>
+        <li><a href="#runtime">模型与 Runtime</a></li>
+        <li><a href="#workspace">工作区界面</a></li>
+        <li><a href="#jira">Jira 任务</a></li>
+        <li><a href="#agents">子 Agent 与 0.9</a></li>
+        <li><a href="#verify">代码检查与验证</a></li>
+        <li><a href="#settings">其他设置</a></li>
+        <li><a href="#trouble">常见问题</a></li>
+        <li><a href="#handoff">交付检查</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <aside class="notice">
+        <strong>版本与项目目录说明</strong>
+        <p>本手册依据当前工作区中标记为 0.9.0 的源码和界面整理。安装包是否为 0.9.0，请在应用的【设置 → 更新】查看当前版本。项目会话直接使用所选 Git 项目目录和当前分支，Agent 的文件与命令操作按所选 Runtime 和当前 Windows 用户权限执行。开始任务前请检查已有修改，并确认本次允许变更的范围。</p>
+      </aside>
+
+      <section id="start">
+        <h2><span>01</span>快速开始</h2>
+        <p class="lead">首次使用时，先准备一个本地 Git 项目和可用的模型中转站，然后新建项目会话。</p>
+        <ol class="steps">
+          <li><b>添加项目</b><span>在左侧【本地项目】旁点击加号，选择 Git 仓库根目录。先确认仓库当前分支和未提交修改。</span></li>
+          <li><b>配置模型连接</b><span>打开左下角【全局设置 → 模型中转站】，填写 HTTPS 地址、模型列表和 API Key 并保存。</span></li>
+          <li><b>检查运行时</b><span>在【全局设置 → 运行时】检查需要使用的 Runtime 状态。未就绪时按界面提示处理后再创建会话。</span></li>
+          <li><b>创建项目会话</b><span>在项目下新建会话，或从 Jira 任务创建会话。会话设置中选择中转站、模型、系统类型、推理强度和 Runtime。</span></li>
+          <li><b>描述目标并发送</b><span>写明要解决的问题、涉及范围、不可修改项、验收标准和希望执行的验证命令，按 Enter 发送。</span></li>
+          <li><b>检查结果</b><span>查看运行输出、工具活动和右侧代码变更，运行适用的真实验证，再决定是否提交。</span></li>
+        </ol>
+        <div class="callout">输入框快捷键为 <span class="key">Enter</span> 发送、<span class="key">Shift</span> + <span class="key">Enter</span> 换行，<span class="key">Ctrl</span> + <span class="key">V</span> 粘贴文件。</div>
+      </section>
+
+      <section id="setup">
+        <h2><span>02</span>首次配置</h2>
+        <dl class="setting-list">
+          <dt>模型中转站</dt><dd>新增中转站，填写 HTTPS 地址和独立 API Key，获取或录入该服务支持的模型。API Key 由本机保护存储。</dd>
+          <dt>运行时</dt><dd>查看 Jinggong Runtime、Codex Runtime 和 Claude Agent SDK Runtime 状态。Runtime 按会话选择，未就绪时不会静默切换到其他运行时。</dd>
+          <dt>Jira 连接</dt><dd>填写 Jira 地址、账号、密码、默认项目和日报日期字段。保存后可测试连接，并在 Jira 面板读取任务。</dd>
+          <dt>数据字典</dt><dd>按 MES5、MES6、WMS、前端或通用维护字典。可导入 TXT、MD、JSON、CSV、SQL、XLSX、DOCX 等资料。</dd>
+          <dt>开发要求与规范</dt><dd>按系统导入或录入团队规范并启用。规范作为当前项目任务上下文供 Agent 参考。</dd>
+          <dt>会话与数据</dt><dd>查看会话、项目和本机数据目录，可导出或导入会话数据。</dd>
+          <dt>企业微信通知</dt><dd>配置群机器人目标、适用 Runtime 和通知事件，可发送测试消息并查看通知记录。</dd>
+          <dt>更新</dt><dd>查看已安装版本、设置更新来源，并选择自动或手动更新。</dd>
+        </dl>
+        <div class="callout warn">不要把密码、API Key、Webhook 或业务 Token 写入任务描述、项目开发规范、普通记忆或提交说明。</div>
+      </section>
+
+      <section id="projects">
+        <h2><span>03</span>项目与会话</h2>
+        <h3>项目会话</h3>
+        <p>添加已有 Git 仓库后，在项目下创建会话。项目会话直接在该项目目录和当前分支上工作，代码变更会出现在仓库的真实 Git 差异中。开始前检查已有修改，避免把历史修改误认为本次 Agent 产生的内容。</p>
+        <h3>独立会话</h3>
+        <p>从欢迎页或左上角【新建会话】创建不关联项目的会话，适合一般问答和不需要修改项目代码的分析任务。</p>
+        <h3>系统类型</h3>
+        <p>新建项目会话时，应用根据仓库根目录指纹识别 MES5、MES6、WMS 或前端。可在会话设置中手动调整系统类型。已启用的通用资料和当前系统资料会用于上下文。</p>
+        <h3>任务描述建议</h3>
+        <div class="grid">
+          <div class="card"><b>说清目标和范围</b><p>说明预期行为、业务场景、涉及模块和明确不应修改的内容。</p></div>
+          <div class="card"><b>给出验收条件</b><p>列出可观察结果、兼容要求、异常场景，以及要运行的构建或测试命令。</p></div>
+        </div>
+        <p>会话运行期间可以补充指令。需要终止当前任务时使用【停止】，并在完成后重新查看变更和运行状态。</p>
+      </section>
+
+      <section id="runtime">
+        <h2><span>04</span>模型与 Runtime</h2>
+        <p>输入框下方的【会话设置】控制当前会话配置，切换 Runtime、模型或系统前先停止运行中的任务。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>设置项</th><th>使用说明</th></tr></thead>
+            <tbody>
+              <tr><td>中转站与模型</td><td>选择已启用且凭据可用的中转站和模型。更换服务地址时按界面提示更新 API Key。</td></tr>
+              <tr><td>系统</td><td>选择通用、MES5、MES6、WMS 或前端，用于匹配项目说明、规范和字典。</td></tr>
+              <tr><td>推理强度</td><td>选择模型默认、无、最低、低、中、高或超高。具体效果仍由服务端模型支持情况决定。</td></tr>
+              <tr><td>Runtime</td><td>选择 Jinggong、Codex 或 Claude Runtime。设置页展示组件可用性和版本信息。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout red">普通 Runtime 会按任务访问项目文件并执行本机命令。执行能力遵循当前 Windows 用户权限，发送前请确认项目路径、任务范围和外部系统操作要求。</div>
+      </section>
+
+      <section id="workspace">
+        <h2><span>05</span>工作区界面</h2>
+        <div class="grid">
+          <div class="card"><b>左侧项目与会话</b><p>添加项目、创建会话、切换当前会话。项目和会话的管理菜单提供重命名或删除等操作。</p></div>
+          <div class="card"><b>会话输入区</b><p>提交任务、补充说明和附件。应用显示当前会话的中转站、模型、Runtime 和推理强度。</p></div>
+          <div class="card"><b>右侧任务面板</b><p>查看 Jira、子 Agent、Git 差异、项目文件、执行监控和上下文。部分面板需要先选择项目或会话。</p></div>
+          <div class="card"><b>底部运行活动</b><p>在【运行输出】和【工具活动】之间切换，查看状态、错误、模型输出和工具事件。</p></div>
+        </div>
+        <p>拖动侧栏分隔线可调整面板宽度，拖动底部分隔线可调整运行活动区域高度。右侧【上下文】可核对项目目录、系统类型、Runtime、中转站和已启用资料。</p>
+      </section>
+
+      <section id="jira">
+        <h2><span>06</span>Jira 任务</h2>
+        <ol>
+          <li>在【全局设置 → Jira 连接】填写地址、账号和密码，保存后测试连接。</li>
+          <li>打开右侧【Jira】，选择项目范围和查询范围。可按日报日期抓取，也可选择最近任务或点击【抓取所有任务】。</li>
+          <li>选择负责人范围并抓取任务。查询条件有变更时重新抓取后再打开详情或创建会话。</li>
+          <li>打开任务查看详情，选择关联的本地 Git 项目，然后点击【从此任务创建会话】。</li>
+          <li>应用会重新读取 Jira 任务并保存任务快照。检查会话内容后，由用户发送任务。</li>
+        </ol>
+        <p>Jira 面板可恢复本地抓取记录、刷新查询和查看任务工作流。日报日期使用 Jira 账户时区解释。任务是否可见取决于当前 Jira 账号权限。</p>
+      </section>
+
+      <section id="agents">
+        <h2><span>07</span>子 Agent 与 0.9 协作能力</h2>
+        <p>0.9.0 在现有子任务面板和 AgentTaskRunner 上加入了主 Agent 动态委派接口。面板可按编排轮次显示任务、状态、结果、证据、日志，并提供停止单个任务或取消本轮的操作。</p>
+        <div class="callout warn"><b>使用状态取决于认证门禁。</b> 只有当前 Runtime、Provider、Model 和受控分析测试套件匹配且通过实测认证时，动态委派才会启用。项目关联会话可使用 Codex 或 Jinggong Runtime。Claude Agent SDK 与 Grok Build ACP 当前不支持该受控子 Agent 流程。</div>
+        <p>若面板显示【受控子 Agent 未认证】，平台不会创建或启动受控子 Agent，主会话仍可继续处理任务。当前代码默认将缺少认证的能力保持关闭。面板中已有历史任务时，仍可查看其状态和结果。</p>
+        <p>已认证时，子 Agent 由主 Agent 根据任务需要决定是否委派。用户可在右侧【子 Agent】查看运行情况、展开任务目标与工程契约、核对结构化结果和证据，再按需要停止任务。本轮等待超时只返回状态，不会自动取消任务。</p>
+        <div class="callout">子 Agent 当前只做受控只读分析。代码实现、真实构建与测试由主会话完成。Agent 的文字结论不等于验证通过或人工验收。</div>
+      </section>
+
+      <section id="verify">
+        <h2><span>08</span>代码检查与真实验证</h2>
+        <h3>查看本次代码变更</h3>
+        <p>打开右侧【Git】查看文件差异和逐文件 Diff。必要时使用文件右键菜单打开系统编辑器或资源管理器。选择【撤销此文件更改】会丢弃该文件的修改，操作前先核对文件内容。</p>
+        <h3>运行构建和测试</h3>
+        <ol>
+          <li>打开右侧【执行监控】，展开【分级测试建议与真实证据】。</li>
+          <li>选择【按变更推荐测试】或【要求全量测试计划】，查看命令和适用范围。</li>
+          <li>建议状态为【未执行】。核对命令后点击对应的【确认并运行】。</li>
+          <li>查看真实运行结果和 Run ID。需要关联子任务工程契约时，在子 Agent 任务详情中填写 Run ID 并复核证据。</li>
+        </ol>
+        <p>执行监控还会显示本轮耗时、Runtime、Provider、模型、工具事件和阶段时间线。不可采集的数据会标明状态。单次耗时不能代表稳定性能提升。</p>
+        <h3>提交与同步 Git</h3>
+        <ol>
+          <li>确认当前项目、当前分支和 Diff 文件范围，完成必要构建、测试和业务核对。</li>
+          <li>在右侧【Git】填写中文提交说明。可点击【根据 Diff 生成提交说明】后自行检查。</li>
+          <li>点击【提交代码】或【提交并推送】。也可先提交，再使用【推送当前分支】。</li>
+          <li>需要拉取时使用【拉取当前分支】。仅接受远程同名分支的快进更新，分支分歧需人工处理。</li>
+        </ol>
+        <div class="callout warn">项目会话使用当前项目分支。提交、推送和拉取均作用于所选项目仓库，请在操作前检查 Git 状态、远程地址和分支名称。</div>
+      </section>
+
+      <section id="settings">
+        <h2><span>09</span>记忆、插件与本地数据</h2>
+        <ul>
+          <li><b>记忆</b>在【全局设置 → 记忆】搜索、筛选、查看、新增、编辑、停用或删除本地记忆。长期记忆适合保存稳定偏好、工作方式和可复用经验。不要保存密钥或一次性任务全文。</li>
+          <li><b>数据字典与开发要求</b>按产品系统维护和启停资料。请确认资料适用系统和有效版本，避免把过期业务规则提供给会话。</li>
+          <li><b>插件管理</b>可查看和管理已接入的插件及 Skill。具体信任状态、授权和可用功能以插件管理界面为准。</li>
+          <li><b>会话与数据</b>可查看本地会话和项目数据并执行会话备份。重要代码请使用 Git 或组织认可的文件备份方式。</li>
+          <li><b>外观与个人资料</b>可调整风格、主题、完成提示音、显示名称、职业偏向和头像。</li>
+        </ul>
+        <p>普通会话、项目代码和验证记录保存在本机应用数据范围内。执行监控中可复制脱敏诊断，排查问题时优先提供 Runtime、模型、错误信息和 Run ID。</p>
+      </section>
+
+      <section id="trouble">
+        <h2><span>10</span>常见问题</h2>
+        <dl class="setting-list">
+          <dt>无法发送任务</dt><dd>检查当前会话是否已选择中转站、模型和可用 Runtime，并确认中转站凭据有效。</dd>
+          <dt>Runtime 显示不可用</dt><dd>打开【全局设置 → 运行时】，检查该组件并查看具体错误信息。应用不会静默回退到其他 Runtime。</dd>
+          <dt>Jira 没有返回任务</dt><dd>核对账号权限、项目范围、日报日期和负责人过滤。切换查询条件后重新抓取。</dd>
+          <dt>子 Agent 面板显示未认证</dt><dd>当前 Runtime、Provider、Model 组合缺少对应的受控分析认证。主会话仍可正常处理任务。</dd>
+          <dt>Git 提交按钮不可用</dt><dd>确认当前会话关联了项目、有未提交变更、提交说明不为空，且当前没有运行中的任务。</dd>
+          <dt>验证结果仍为未执行</dt><dd>在执行监控的真实证据区域查看验证计划，并对适用命令点击【确认并运行】。Agent 回复中的“已通过”文字不产生平台验证记录。</dd>
+          <dt>项目已有修改</dt><dd>项目会话直接使用所选目录。先通过 Diff 和 Git 状态区分已有工作与本次改动，再决定是否暂存或提交。</dd>
+        </dl>
+      </section>
+
+      <section id="handoff">
+        <h2><span>11</span>交付前检查</h2>
+        <ul class="checklist">
+          <li>项目、分支、系统类型和 Runtime 与任务相符。</li>
+          <li>任务目标、改动边界和验收标准已核对。</li>
+          <li>逐文件检查 Diff，确认没有超出任务范围的变更。</li>
+          <li>必要的构建、类型检查和测试已实际运行，并查看真实结果。</li>
+          <li>人工核对业务行为、接口影响、数据库变化和回归风险。</li>
+          <li>提交说明、远程仓库、分支和待推送内容已确认。</li>
+        </ul>
+        <p>平台运行记录、Agent 总结、真实验证结果和业务验收分别核对。未执行的检查保持未执行状态。</p>
+      </section>
+    </main>
+  </div>
+  <footer>精工 Agent 0.9.0 操作手册 · 按当前工作区源码整理 · 可在浏览器中阅读或打印为 PDF</footer>
+</body>
+</html>

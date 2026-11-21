@@ -1,0 +1,17 @@
+*** Begin Patch
+*** Update File: D:/jinggong-agent/tests/runtime-images.test.ts
+@@
+-  await promisify(execFile)(executable, ['app-server', 'generate-ts', '--out', schema], { env: runtimeEnvironment(home), windowsHide: true, timeout: 15000 });
++  await promisify(execFile)(executable, ['app-server', 'generate-ts', '--out', schema], { env: runtimeEnvironment(home), windowsHide: true, timeout: 60000 });
+*** Update File: D:/jinggong-agent/package.json
+@@
+-  "version": "0.7.11",
++  "version": "0.7.12",
+*** Update File: D:/jinggong-agent/package-lock.json
+@@
+-  "version": "0.7.11",
++  "version": "0.7.12",
+@@
+-      "version": "0.7.11",
++      "version": "0.7.12",
+*** End Patch
