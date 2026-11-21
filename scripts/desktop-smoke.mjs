@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import initSqlJs from 'sql.js';
+import { DatabaseSync } from 'node:sqlite';
 import { tsImport } from 'tsx/esm/api';
 
 const { GitConnector } = await tsImport('../packages/git-connector/src/index.ts', import.meta.url);
@@ -585,7 +585,11 @@ try {
   await assert.rejects(page.evaluate(profile => window.jinggong.saveModelProvider({ ...profile, hasKey: undefined, baseUrl: 'https://another.example.invalid/v1' }), profile));
   await assert.rejects(page.evaluate(profile => window.jinggong.saveModelProvider({ id: profile.id, name: profile.name, models: profile.models, baseUrl: 'https://another.example.invalid/v1' }), profile), /重新输入/);
   assert.equal((await page.evaluate(() => window.jinggong.bootstrap())).provider.baseUrl, current.provider.baseUrl);
-  assert.ok(!(await readFile(path.join(data, 'database/jinggong-agent.db'))).includes(Buffer.from(sentinel)));
+  const dbPath = path.join(data, 'database/jinggong-agent.db');
+  for (const file of [dbPath, dbPath + '-wal']) {
+    const bytes = await readFile(file).catch(error => { if (error.code === 'ENOENT' && file !== dbPath) return Buffer.alloc(0); throw error; });
+    assert.ok(!bytes.includes(Buffer.from(sentinel)));
+  }
   checks.push('真实 Windows safeStorage/DPAPI 加密解密；SQLite/Renderer 不含返回密钥');
   await assert.rejects(page.evaluate(key => window.jinggong.saveMemory({ title: key, content: '不能把凭据当作记忆标题保存' }), sentinel), /凭据/);
   await assert.rejects(page.evaluate(input => window.jinggong.sendTurn(input.id, `检查任务 ${input.key}`), { id: session.id, key: sentinel }), /凭据/);
@@ -735,19 +739,17 @@ try {
   await writeFile(preservedFile, '未提交代码应保留\n');
   const sourceReadme = await readFile(path.join(repo, 'README.md'), 'utf8');
   await app.close(); app = undefined;
-  const SQL = await initSqlJs();
-  const dbPath = path.join(data, 'database/jinggong-agent.db');
-  const db = new SQL.Database(await readFile(dbPath));
+  const db = new DatabaseSync(dbPath);
   const legacyDeleteSessions = [
     { ...session, id: randomUUID(), title: '旧路径会话删除验收', workspacePath: repo, status: 'idle', createdAt: new Date().toISOString() },
     { ...session, id: randomUUID(), title: '工作区丢失会话删除验收', workspacePath: path.join(data, 'workspaces', randomUUID()), status: 'idle', createdAt: new Date().toISOString() }
   ];
   for (const item of legacyDeleteSessions) {
-    db.run('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?)', [item.id, item.projectId, item.createdAt, JSON.stringify(item)]);
+    db.prepare('INSERT INTO sessions(id, project_id, created_at, value) VALUES (?, ?, ?, ?)').run(item.id, item.projectId, item.createdAt, JSON.stringify(item));
     const event = { id: randomUUID(), sessionId: item.id, type: 'status', text: 'idle', createdAt: new Date().toISOString() };
-    db.run('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)', [event.id, item.id, JSON.stringify(event)]);
+    db.prepare('INSERT INTO events(id, session_id, value) VALUES (?, ?, ?)').run(event.id, item.id, JSON.stringify(event));
   }
-  await writeFile(dbPath, db.export()); db.close();
+  db.close();
   page = await launch();
   let deletionDialogs = 0, confirmDeletion = false;
   const handleDeletionDialog = async dialog => {
@@ -781,10 +783,10 @@ try {
   assert.equal(await readFile(path.join(repo, 'README.md'), 'utf8'), sourceReadme);
   assert.ok((await page.evaluate(() => window.jinggong.bootstrap())).sessions.some(item => item.id === session.id));
   await app.close(); app = undefined;
-  const deletedDb = new SQL.Database(await readFile(dbPath));
+  const deletedDb = new DatabaseSync(dbPath, { readOnly: true });
   for (const item of [...legacyDeleteSessions, dirtyDeleteSession]) {
-    assert.equal(deletedDb.exec('SELECT COUNT(*) FROM sessions WHERE id = ?', [item.id])[0].values[0][0], 0);
-    assert.equal(deletedDb.exec('SELECT COUNT(*) FROM events WHERE session_id = ?', [item.id])[0].values[0][0], 0);
+    assert.equal(deletedDb.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(item.id).n, 0);
+    assert.equal(deletedDb.prepare('SELECT COUNT(*) AS n FROM events WHERE session_id = ?').get(item.id).n, 0);
   }
   deletedDb.close();
   page = await launch();

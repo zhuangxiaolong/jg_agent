@@ -1,8 +1,8 @@
-import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from 'sql.js';
+import { DatabaseSync, type SQLInputValue as SqlValue } from 'node:sqlite';
 import { applyTaskLifecycleTransition, assertTaskGraph, assertTaskSafeMetadata, executionStatusOf, legacyTaskStatus, reconcileTaskStates, taskContentHash, taskDependenciesSatisfied, validateTaskContract, validateTaskEvidence, verifyTaskLifecycleEventChain } from '../../agent-orchestrator/src';
 import type { TaskAuditAppend, TaskAuditSnapshot, TaskContract, TaskContractRecord, TaskEvidenceRecord, TaskLifecycleEvent, TaskLifecycleTransition, VerificationExecutionRecord } from '../../domain/src/engineering';
 import type { LearningCandidate, LearningFeedback } from '../../domain/src/learning';
-import { existsSync, mkdirSync, readFileSync, openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
@@ -16,7 +16,7 @@ import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, Expe
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -411,47 +411,45 @@ export function jiraSnapshot(issue: JiraIssue): JiraIssue {
   return value;
 }
 
-function atomicWrite(path: string, bytes: Uint8Array): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  let handle: number | undefined;
-  try {
-    handle = openSync(temporary, 'wx', 0o600);
-    let offset = 0;
-    while (offset < bytes.length) offset += writeSync(handle, bytes, offset, bytes.length - offset);
-    fsyncSync(handle);
-    closeSync(handle);
-    handle = undefined;
-    renameSync(temporary, path);
-  } finally {
-    if (handle !== undefined) closeSync(handle);
-    if (existsSync(temporary)) unlinkSync(temporary);
+class Database extends DatabaseSync {
+  run(query: string, params?: SqlValue[]): void {
+    if (params) this.prepare(query).run(...params);
+    else this.exec(query);
   }
+
+  getRowsModified(): number { return Number(this.prepare('SELECT changes() AS n').get()!.n); }
 }
 
-/** 主进程单实例持有；每次事务成功后将真实 SQLite 快照原子落盘。 */
+/** SQLite 直接管理文件事务，仅写入有变更的数据页。 */
 export class LocalStore {
   private closed = false;
 
-  private constructor(private db: Database, private readonly sql: SqlJsStatic, private readonly path: string) {}
+  private constructor(private readonly db: Database, private readonly path: string) {}
 
-  static async open(path: string, wasmPath?: string, options: { recoverUnfinished?: boolean } = {}): Promise<LocalStore> {
+  static async open(path: string, _wasmPath?: string, options: { recoverUnfinished?: boolean; wal?: boolean } = {}): Promise<LocalStore> {
     const absolute = resolve(path);
-    const sql = await initSqlJs(wasmPath ? { locateFile: () => wasmPath } : undefined);
-    const bytes = existsSync(absolute) ? readFileSync(absolute) : undefined;
-    if (bytes && (bytes.length < 16 || bytes.subarray(0, 16).toString('ascii') !== 'SQLite format 3\0')) {
-      throw new Error('本地数据库文件损坏或格式不受支持；已保留原文件，请先备份后修复。');
+    mkdirSync(dirname(absolute), { recursive: true });
+    const existing = existsSync(absolute);
+    if (existing) {
+      const header = Buffer.alloc(16);
+      const fd = openSync(absolute, 'r');
+      try { readSync(fd, header, 0, header.length, 0); } finally { closeSync(fd); }
+      if (header.toString('ascii') !== 'SQLite format 3\0') throw new Error('本地数据库文件损坏或格式不受支持；已保留原文件，请先备份后修复。');
     }
     let db: Database | undefined;
     try {
-      db = bytes ? new sql.Database(bytes) : new sql.Database();
-      const integrity = db.exec('PRAGMA quick_check');
-      if (integrity[0]?.values[0]?.[0] !== 'ok') throw new Error('本地数据库完整性检查失败；已保留原文件。');
-      const version = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0]);
+      db = new Database(absolute);
+      if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok') throw new Error('本地数据库完整性检查失败；已保留原文件。');
+      const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
       if (version > SCHEMA_VERSION) throw new Error('数据库版本较新，请使用较新版本的精工 Agent；原文件未修改。');
-      if (version === 0 && bytes) throw new Error('数据库缺少受支持的版本信息；原文件未修改。');
-      if (bytes && version < SCHEMA_VERSION) atomicWrite(`${absolute}.pre-v${SCHEMA_VERSION}-from-v${version}-${Date.now()}-${randomUUID().slice(0, 8)}.bak`, bytes);
-      const store = new LocalStore(db, sql, absolute);
+      if (version === 0 && existing) throw new Error('数据库缺少受支持的版本信息；原文件未修改。');
+      const store = new LocalStore(db, absolute);
+      if (existing && version < SCHEMA_VERSION) {
+        // 迁移前保存逐字节副本，包括先前 WAL 中已提交的数据页。
+        db.exec('PRAGMA journal_mode = DELETE');
+        store.transaction(() => copyFileSync(absolute, `${absolute}.pre-v${SCHEMA_VERSION}-from-v${version}-${Date.now()}-${randomUUID().slice(0, 8)}.bak`, constants.COPYFILE_EXCL));
+      }
+      if (options.wal) db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL');
       db.run('PRAGMA foreign_keys = ON');
       if (version === 0) {
         store.transaction(() => {
@@ -662,8 +660,8 @@ export class LocalStore {
       }
       if (version <= 14) {
         store.transaction(() => {
-          const taskColumns = store.db.exec('PRAGMA table_info(agent_tasks)')[0]?.values ?? [];
-          if (!taskColumns.some(column => column[1] === 'orchestration_id')) store.db.run('ALTER TABLE agent_tasks ADD COLUMN orchestration_id TEXT');
+          const taskColumns = store.db.prepare('PRAGMA table_info(agent_tasks)').all();
+          if (!taskColumns.some(column => column.name === 'orchestration_id')) store.db.run('ALTER TABLE agent_tasks ADD COLUMN orchestration_id TEXT');
           store.db.run(`
             CREATE INDEX IF NOT EXISTS agent_tasks_orchestration ON agent_tasks(session_id, orchestration_id, created_at, id);
             CREATE TABLE IF NOT EXISTS runtime_capability_certifications (id TEXT PRIMARY KEY, runtime_kind TEXT NOT NULL, provider_id TEXT NOT NULL, model_id TEXT NOT NULL, wire_api TEXT NOT NULL, capability TEXT NOT NULL, tested_at TEXT NOT NULL, value TEXT NOT NULL);
@@ -707,6 +705,12 @@ export class LocalStore {
         `);
         for (const item of builtinProfiles) store.db.run('INSERT OR IGNORE INTO expert_profiles VALUES (?,?)', [item.id,JSON.stringify(item)]);
         for (const item of benchmarkCases) store.db.run('INSERT OR IGNORE INTO expert_eval_cases VALUES (?,?)', [item.id,JSON.stringify(item)]);
+      });
+      if (version < 19) store.transaction(() => {
+        if (!store.db.prepare('PRAGMA table_info(operation_manuals)').all().some(column => column.name === 'active_generation')) {
+          store.db.exec("ALTER TABLE operation_manuals ADD COLUMN active_generation TEXT NOT NULL DEFAULT ''; ALTER TABLE operation_manual_chunks ADD COLUMN generation TEXT NOT NULL DEFAULT ''");
+        }
+        store.db.exec('DROP INDEX IF EXISTS operation_manual_chunks_hash; CREATE UNIQUE INDEX operation_manual_chunks_hash ON operation_manual_chunks(manual_id, generation, content_hash); PRAGMA user_version = 19');
       });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
@@ -778,38 +782,22 @@ export class LocalStore {
 
   private rows<T>(query: string, params: SqlValue[] = []): T[] {
     this.assertOpen();
-    const statement = this.db.prepare(query);
-    try {
-      statement.bind(params);
-      const result: T[] = [];
-      while (statement.step()) result.push(JSON.parse(String(statement.getAsObject().value)) as T);
-      return result;
-    } finally { statement.free(); }
+    return this.db.prepare(query).all(...params).map(row => JSON.parse(String(row.value)) as T);
   }
 
   private records<T extends Record<string, unknown>>(query: string, params: SqlValue[] = []): T[] {
     this.assertOpen();
-    const statement = this.db.prepare(query);
-    try {
-      statement.bind(params);
-      const result: T[] = [];
-      while (statement.step()) result.push(statement.getAsObject() as T);
-      return result;
-    } finally { statement.free(); }
+    return this.db.prepare(query).all(...params) as T[];
   }
 
   private transaction(action: () => void): void {
     this.assertOpen();
-    const previous = this.db.export();
+    this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.run('BEGIN IMMEDIATE');
       action();
-      this.db.run('COMMIT');
-      atomicWrite(this.path, this.db.export());
+      this.db.exec('COMMIT');
     } catch (error) {
-      this.db.close();
-      this.db = new this.sql.Database(previous);
-      this.db.run('PRAGMA foreign_keys = ON');
+      if (this.db.isTransaction) this.db.exec('ROLLBACK');
       throw error;
     }
   }
@@ -1883,7 +1871,7 @@ export class LocalStore {
   private pruneJiraCache(scope: string): void {
     const queries = this.listJiraQueries(scope);
     for (const record of queries.slice(50)) this.db.run('DELETE FROM settings WHERE key = ?', [`jira-query:${scope}:${record.id}`]);
-    const records = this.db.exec("SELECT key, value FROM settings WHERE key LIKE 'jira-query:%' OR key LIKE 'jira-detail:%'")[0]?.values.map(([key, value]) => ({ key: String(key), value: String(value) })) ?? [];
+    const records = this.records<{ key: string; value: string }>("SELECT key, value FROM settings WHERE key LIKE 'jira-query:%' OR key LIKE 'jira-detail:%'");
     records.sort((a, b) => String(JSON.parse(a.value).savedAt).localeCompare(String(JSON.parse(b.value).savedAt)));
     let bytes = records.reduce((sum, row) => sum + Buffer.byteLength(row.value), 0);
     let details = records.filter(item => item.key.startsWith('jira-detail:')).length;
@@ -1955,7 +1943,52 @@ export class LocalStore {
   }
 
   saveOperationManual(manual: OperationManual): void {
-    this.transaction(() => this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]));
+    this.transaction(() => this.writeOperationManual(manual));
+  }
+
+  private writeOperationManual(manual: OperationManual): void {
+    this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]);
+  }
+
+  private manualChunkMetadata(manual: OperationManual): string {
+    return JSON.stringify({ productType: manual.productType, manualVersion: manual.manualVersion ?? null, productVersion: manual.productVersion ?? null, effectiveDate: manual.effectiveDate ?? null });
+  }
+
+  async copyManualIndex(manual: OperationManual, stagePath: string, generation: string, keepGoing: () => boolean): Promise<boolean> {
+    this.db.run('ATTACH DATABASE ? AS staged_manual', [stagePath]);
+    try {
+      const chunks = this.db.prepare('INSERT INTO operation_manual_chunks(id, manual_id, product_type, content_hash, ordinal, value, generation) SELECT id, ?, ?, hash, ordinal, value, ? FROM staged_manual.chunks WHERE rowid BETWEEN ? AND ?');
+      const terms = this.db.prepare('INSERT INTO operation_manual_chunk_terms(chunk_id, manual_id, term) SELECT chunk_id, ?, term FROM staged_manual.terms WHERE rowid BETWEEN ? AND ?');
+      const copy = async (count: number, batch: number, insert: (first: number, last: number) => void) => {
+        for (let first = 1; first <= count; first += batch) {
+          if (!keepGoing()) return false;
+          insert(first, first + batch - 1);
+          await new Promise<void>(resolve => setImmediate(resolve));
+        }
+        return keepGoing();
+      };
+      const size = this.db.prepare('SELECT (SELECT max(rowid) FROM staged_manual.chunks) AS chunks, (SELECT max(rowid) FROM staged_manual.terms) AS terms').get()!;
+      return await copy(Number(size.chunks), 64, (first, last) => chunks.run(manual.id, manual.productType, generation, first, last))
+        && await copy(Number(size.terms), 512, (first, last) => terms.run(manual.id, first, last));
+    } finally { this.db.exec('DETACH DATABASE staged_manual'); }
+  }
+
+  publishOperationManualIndex(manual: OperationManual, job: ManualImportJob): void {
+    this.transaction(() => {
+      this.writeOperationManual(manual);
+      this.db.run('UPDATE operation_manuals SET active_generation = ? WHERE id = ?', [job.id, manual.id]);
+      this.db.run('UPDATE operation_manual_jobs SET status = ?, updated_at = ?, value = ? WHERE id = ?', [job.status, job.updatedAt, JSON.stringify(job), job.id]);
+    });
+  }
+
+  async cleanInactiveManualIndexes(stopped: () => boolean): Promise<void> {
+    const stale = this.db.prepare('SELECT DISTINCT c.manual_id, c.generation FROM operation_manual_chunks c JOIN operation_manuals m ON m.id = c.manual_id WHERE c.generation <> m.active_generation AND NOT EXISTS (SELECT 1 FROM operation_manual_jobs j WHERE j.id = c.generation AND j.status = \'running\')').all();
+    const remove = this.db.prepare('DELETE FROM operation_manual_chunks WHERE id IN (SELECT id FROM operation_manual_chunks WHERE manual_id = ? AND generation = ? LIMIT 4)');
+    for (const row of stale) {
+      while (!stopped() && remove.run(row.manual_id, row.generation).changes) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+    }
   }
 
   deleteOperationManual(id: string): OperationManual | undefined {
@@ -1965,10 +1998,15 @@ export class LocalStore {
     return manual;
   }
 
-  listOperationManualChunks(manualId: string): ManualChunk[] { return this.rows<ManualChunk>('SELECT value FROM operation_manual_chunks WHERE manual_id = ? ORDER BY ordinal', [manualId]); }
+  listOperationManualChunks(manualId: string, limit = -1): ManualChunk[] {
+    const manual = this.getOperationManual(manualId);
+    if (!manual) return [];
+    return this.rows<ManualChunk>('SELECT json_patch(c.value, ?) AS value FROM operation_manual_chunks c JOIN operation_manuals m ON m.id = c.manual_id AND m.active_generation = c.generation WHERE m.id = ? ORDER BY c.ordinal LIMIT ?', [this.manualChunkMetadata(manual), manualId, limit]);
+  }
 
   replaceOperationManualChunks(manualId: string, chunks: ManualChunk[]): void {
     this.transaction(() => {
+      this.db.run("UPDATE operation_manuals SET active_generation = '' WHERE id = ?", [manualId]);
       this.db.run('DELETE FROM operation_manual_chunks WHERE manual_id = ?', [manualId]);
       for (const chunk of chunks) {
         this.db.run('INSERT INTO operation_manual_chunks(id, manual_id, product_type, content_hash, ordinal, value) VALUES (?, ?, ?, ?, ?, ?)', [chunk.id, chunk.manualId, chunk.productType, chunk.contentHash, chunk.ordinal, JSON.stringify(chunk)]);
@@ -1980,6 +2018,7 @@ export class LocalStore {
 
   completeOperationManualIndex(manual: OperationManual, chunks: ManualChunk[]): void {
     this.transaction(() => {
+      this.db.run("UPDATE operation_manuals SET active_generation = '' WHERE id = ?", [manual.id]);
       this.db.run('INSERT INTO operation_manuals(id, product_type, status, sha256, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET product_type=excluded.product_type, status=excluded.status, sha256=excluded.sha256, updated_at=excluded.updated_at, value=excluded.value', [manual.id, manual.productType, manual.status, manual.sha256.toLowerCase(), manual.updatedAt, JSON.stringify(manual)]);
       this.db.run('DELETE FROM operation_manual_chunks WHERE manual_id = ?', [manual.id]);
       for (const chunk of chunks) {
@@ -1999,7 +2038,7 @@ export class LocalStore {
       `SELECT m.value AS manual_value, c.value AS chunk_value, COUNT(DISTINCT t.term) AS score
        FROM operation_manual_chunk_terms t
        JOIN operation_manual_chunks c ON c.id = t.chunk_id
-       JOIN operation_manuals m ON m.id = c.manual_id
+       JOIN operation_manuals m ON m.id = c.manual_id AND m.active_generation = c.generation
        WHERE m.product_type IN (${typePlaceholders}) AND m.status IN ('ready', 'partial', 'processing')
          AND t.term IN (${termPlaceholders})
        GROUP BY c.id
@@ -2007,7 +2046,16 @@ export class LocalStore {
        LIMIT ?`,
       [...selectedTypes, ...selectedTerms, Math.max(1, Math.min(100, limit))],
     );
-    return rows.map(row => ({ manual: JSON.parse(String(row.manual_value)) as OperationManual, chunk: JSON.parse(String(row.chunk_value)) as ManualChunk, score: Number(row.score) }));
+    return rows.map(row => {
+      const manual = JSON.parse(row.manual_value) as OperationManual;
+      const chunk = JSON.parse(row.chunk_value) as ManualChunk;
+      chunk.productType = manual.productType;
+      for (const key of ['productVersion', 'manualVersion', 'effectiveDate'] as const) {
+        if (manual[key] === undefined) delete chunk[key];
+        else chunk[key] = manual[key];
+      }
+      return { manual, chunk, score: Number(row.score) };
+    });
   }
 
   listOperationManualJobs(manualId?: string): ManualImportJob[] {
@@ -2059,7 +2107,12 @@ export class LocalStore {
   backup(destination: string): void {
     this.assertOpen();
     if (resolve(destination) === this.path) throw new Error('备份文件不能覆盖正在使用的数据库。');
-    atomicWrite(resolve(destination), this.db.export());
+    mkdirSync(dirname(resolve(destination)), { recursive: true });
+    const temporary = `${resolve(destination)}.${randomUUID()}.tmp`;
+    try {
+      this.db.prepare('VACUUM INTO ?').run(temporary);
+      renameSync(temporary, resolve(destination));
+    } finally { if (existsSync(temporary)) unlinkSync(temporary); }
   }
 
   close(): void {

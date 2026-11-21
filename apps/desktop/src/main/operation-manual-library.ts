@@ -1,10 +1,12 @@
 import { createReadStream } from 'node:fs';
-import { copyFile, lstat, mkdir, realpath, rename, rm, stat } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { stageManualIndex } from './manual-index-stage';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import type { LocalStore } from '../../../../packages/storage/src';
-import { buildManualChunks, formatManualCitation, tokenizeManualQuery, type ManualImportJob, type ManualImportResult, type ManualProductType, type OperationManual, type ParsedManualDocument } from '../../../../packages/operation-manuals/src';
+import { formatManualCitation, tokenizeManualQuery, type ManualImportJob, type ManualImportResult, type ManualProductType, type OperationManual, type ParsedManualDocument } from '../../../../packages/operation-manuals/src';
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_FILES_PER_IMPORT = 20;
@@ -28,13 +30,14 @@ export class OperationManualLibrary {
   private readonly queue: string[] = [];
   private readonly activeWorkers = new Map<string, Worker>();
   private readonly digestLocks = new Map<string, Promise<void>>();
-  private processing = false;
+  private processing?: Promise<void>;
   private closed = false;
   private readonly originalsRoot: string;
 
   constructor(private readonly store: LocalStore, private readonly dataRoot: string, private readonly workerPath: string) {
     this.originalsRoot = path.resolve(dataRoot, 'knowledge', 'manuals', 'originals');
     this.recoverInterruptedJobs();
+    this.startQueue(true);
   }
 
   list(): OperationManual[] { return this.store.listOperationManuals(); }
@@ -56,7 +59,7 @@ export class OperationManualLibrary {
 
   get(id: string): { manual: OperationManual; chunks: ReturnType<LocalStore['listOperationManualChunks']>; jobs: ManualImportJob[] } | undefined {
     const manual = this.store.getOperationManual(id);
-    return manual ? { manual, chunks: this.store.listOperationManualChunks(id).slice(0, 20), jobs: this.store.listOperationManualJobs(id) } : undefined;
+    return manual ? { manual, chunks: this.store.listOperationManualChunks(id, 20), jobs: this.store.listOperationManualJobs(id) } : undefined;
   }
 
   async importFiles(files: string[], metadata: ManualMetadataInput): Promise<ManualImportResult>;
@@ -187,9 +190,7 @@ export class OperationManualLibrary {
     if (!current) throw new Error('手册不存在。');
     const updated: OperationManual = { ...current, ...patch, name: patch.name?.trim() || current.name, updatedAt: new Date().toISOString() };
     if (patch.name !== undefined && (!patch.name.trim() || patch.name.trim().length > 200)) throw new Error('手册名称必须为 1 至 200 个字符。');
-    const chunks = this.store.listOperationManualChunks(id).map(chunk => ({ ...chunk, productType: updated.productType, ...(updated.manualVersion ? { manualVersion: updated.manualVersion } : { manualVersion: undefined }), ...(updated.productVersion ? { productVersion: updated.productVersion } : { productVersion: undefined }), ...(updated.effectiveDate ? { effectiveDate: updated.effectiveDate } : { effectiveDate: undefined }) }));
-    if (chunks.length) this.store.completeOperationManualIndex(updated, chunks);
-    else this.store.saveOperationManual(updated);
+    this.store.saveOperationManual(updated);
     return updated;
   }
 
@@ -330,12 +331,17 @@ export class OperationManualLibrary {
     }
   }
 
-  private startQueue(): void {
+  private startQueue(cleanup = false): void {
     if (this.closed || this.processing) return;
     const jobId = this.queue.shift();
-    if (!jobId) return;
-    this.processing = true;
-    void this.process(jobId).finally(() => { this.processing = false; this.startQueue(); });
+    if (!jobId && !cleanup) return;
+    this.processing = (async () => {
+      if (jobId) await this.process(jobId);
+      await this.store.cleanInactiveManualIndexes(() => this.closed);
+    })().catch(() => console.warn('[operation-manuals] 手册任务或旧索引清理失败')).finally(() => {
+      this.processing = undefined;
+      this.startQueue();
+    });
   }
 
   private async process(jobId: string): Promise<void> {
@@ -347,16 +353,20 @@ export class OperationManualLibrary {
     this.store.saveOperationManualJob(current);
     const wasDisabled = manual.status === 'disabled';
     if (!manual.chunkCount && !wasDisabled) this.store.saveOperationManual({ ...manual, status: 'processing', updatedAt: now });
+    let stageDirectory: string | undefined;
     try {
       const inputPath = this.resolveStoredFile(manual.pendingReplacement?.originalStorageKey ?? manual.originalStorageKey);
-      const document = await this.parseInWorker(inputPath, job.id);
+      stageDirectory = await mkdtemp(path.join(tmpdir(), 'jinggong-manual-index-'));
+      if (this.closed || this.store.getOperationManualJob(job.id)?.status !== 'running') return;
+      const stagePath = path.join(stageDirectory, 'index.db');
+      const { document, chunkCount } = await this.parseInWorker(inputPath, job.id, manual, stagePath);
       const latestJob = this.store.getOperationManualJob(job.id);
       if (!latestJob || latestJob.status === 'cancelled' || this.closed) return;
       const parseComplete = { ...latestJob, stage: 'chunk' as const, progress: 65, updatedAt: new Date().toISOString() };
       this.store.saveOperationManualJob(parseComplete);
-      const latestManual = this.store.getOperationManual(manual.id) ?? manual;
-      const chunks = buildManualChunks({ manual: latestManual, blocks: document.blocks });
-      if (!chunks.length) throw new Error('解析结果未生成有效知识片段。');
+      if (!chunkCount) throw new Error('解析结果未生成有效知识片段。');
+      if (!await this.store.copyManualIndex(manual, stagePath, job.id, () => !this.closed && this.store.getOperationManualJob(job.id)?.status === 'running')) return;
+      const latestManual = this.store.getOperationManual(manual.id)!;
       const finishedAt = new Date().toISOString();
       const isDisabled = wasDisabled || latestManual.status === 'disabled';
       const oldStorageKey = latestManual.originalStorageKey;
@@ -374,14 +384,14 @@ export class OperationManualLibrary {
         } : {}),
         parserVersion: document.parserVersion, ...(document.pageCount ? { pageCount: document.pageCount } : {}),
         ...(document.sheetCount ? { sheetCount: document.sheetCount } : {}), ...(document.slideCount ? { slideCount: document.slideCount } : {}),
-        extractedChars: document.extractedChars, chunkCount: chunks.length, errorSummary: document.warnings.length ? document.warnings.join('；').slice(0, 800) : undefined, updatedAt: finishedAt,
+        extractedChars: document.extractedChars, chunkCount, errorSummary: document.warnings.length ? document.warnings.join('；').slice(0, 800) : undefined, updatedAt: finishedAt,
       };
-      this.store.completeOperationManualIndex(indexedManual, chunks);
-      this.store.saveOperationManualJob({ ...parseComplete, status: 'completed', stage: 'finalize', progress: 100, finishedAt, updatedAt: finishedAt });
+      this.store.publishOperationManualIndex(indexedManual, { ...parseComplete, status: 'completed', stage: 'finalize', progress: 100, finishedAt, updatedAt: finishedAt });
       if (pendingReplacement) await rm(this.resolveStoredFile(oldStorageKey), { force: true }).catch(() => undefined);
     } catch (error) {
+      if (this.closed) return;
       const latestJob = this.store.getOperationManualJob(job.id);
-      if (latestJob?.status === 'cancelled') return;
+      if (!latestJob || latestJob.status !== 'running') return;
       const message = error instanceof Error ? error.message : '手册解析失败。';
       const finishedAt = new Date().toISOString();
       const latestManual = this.store.getOperationManual(manual.id);
@@ -396,21 +406,26 @@ export class OperationManualLibrary {
         errorSummary: message.slice(0, 800), updatedAt: finishedAt,
       });
       this.store.saveOperationManualJob({ ...(latestJob ?? current), status: 'failed', stage: 'finalize', errorMessage: message.slice(0, 1000), finishedAt, updatedAt: finishedAt });
+    } finally {
+      if (stageDirectory) await rm(stageDirectory, { recursive: true, force: true, maxRetries: 4 });
     }
   }
 
-  private parseInWorker(filename: string, jobId: string): Promise<ParsedManualDocument> {
+  private parseInWorker(filename: string, jobId: string, manual: OperationManual, stagePath: string): Promise<{ document: ParsedManualDocument; chunkCount: number }> {
     return new Promise((resolve, reject) => {
-      const worker = new Worker(this.workerPath, { workerData: { filename } });
+      const worker = new Worker(this.workerPath, { workerData: { filename, manual, stagePath } });
       this.activeWorkers.set(jobId, worker);
-      worker.once('message', (message: { ok: boolean; document?: ParsedManualDocument; error?: string }) => {
-        if (message.ok && message.document) resolve(message.document);
+      worker.once('message', (message: { ok: boolean; document?: ParsedManualDocument; chunkCount?: number; error?: string }) => {
+        if (message.ok && message.document) {
+          try { resolve({ document: message.document, chunkCount: message.chunkCount ?? stageManualIndex(stagePath, manual, message.document) }); }
+          catch (error) { reject(error); }
+        }
         else reject(new Error(message.error || '手册解析失败。'));
       });
       worker.once('error', reject);
       worker.once('exit', code => {
         this.activeWorkers.delete(jobId);
-        if (code !== 0) reject(new Error(`手册解析 Worker 已退出（${code}）。`));
+        reject(new Error(`手册解析 Worker 已退出（${code}）。`));
       });
     });
   }
@@ -418,6 +433,7 @@ export class OperationManualLibrary {
   async close(): Promise<void> {
     this.closed = true;
     await Promise.all([...this.activeWorkers.values()].map(worker => worker.terminate().catch(() => 0)));
+    await this.processing;
     this.activeWorkers.clear();
   }
 }

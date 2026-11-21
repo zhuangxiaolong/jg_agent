@@ -43,7 +43,7 @@ test('v17 升级保留会话并备份原始字节，持久化档案、隔离来�
     db.run('DROP TABLE expert_profiles; DROP TABLE expert_runs; DROP TABLE expert_bindings; DROP TABLE expert_eval_runs; DROP TABLE expert_eval_cases; PRAGMA user_version=17');
     const before=Buffer.from(db.export());db.close();await writeFile(filename,before);
     store=await LocalStore.open(filename);
-    const backup=(await readdir(directory)).find(n=>n.includes('pre-v18-from-v17-'));
+    const backup=(await readdir(directory)).find(n=>n.includes('pre-v19-from-v17-'));
     assert.deepEqual(await readFile(path.join(directory,backup!)),before);
     const handlers=new Map<string,(...args:any[])=>any>();
     const call=(name:string,...args:any[])=>handlers.get('experts:'+name)!(...args);

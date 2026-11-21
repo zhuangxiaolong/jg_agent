@@ -1262,14 +1262,15 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   if (migration.source && migration.copied.length) console.info(`已从旧版数据目录迁移 ${migration.copied.length} 项配置：${migration.source}`);
   for (const folder of ['database', 'workspaces', 'sessions', 'config', 'runtime/home', 'exports', 'logs', 'knowledge', 'attachments']) mkdirSync(path.join(dataRoot, folder), { recursive: true });
-  const wasm = app.isPackaged ? path.join(process.resourcesPath, 'sql-wasm.wasm') : path.resolve(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm');
-  store = await LocalStore.open(path.join(dataRoot, 'database/jinggong-agent.db'), wasm, { recoverUnfinished: !cliMode });
-  operationManualLibrary = new OperationManualLibrary(store, dataRoot, path.join(__dirname, 'operation-manual-worker.cjs'));
+  store = await LocalStore.open(path.join(dataRoot, 'database/jinggong-agent.db'), undefined, { recoverUnfinished: !cliMode, wal: true });
+  if (!cliMode) operationManualLibrary = new OperationManualLibrary(store, dataRoot, path.join(__dirname, 'operation-manual-worker.cjs'));
   pluginManager = new PluginManagerService({ store, dataRoot, executable, environment: runtimeEnvironment, credentialVault: new DpapiCredentialVault(path.join(dataRoot, 'config/secrets/mcp')) });
   await pluginManager.importCodexPlugins().catch(error => console.warn('默认导入 Codex 插件失败：', error instanceof Error ? error.message : String(error)));
   await ensureBuiltinDictionaries(store, resourcesRoot);
-  const bundledManuals = await ensureBundledOperationManuals(operationManualLibrary, resourcesRoot);
-  if (bundledManuals.installed) console.info(`已安装 ${bundledManuals.installed} 份内置操作手册（${bundledManuals.version}）`);
+  if (operationManualLibrary) {
+    const bundledManuals = await ensureBundledOperationManuals(operationManualLibrary, resourcesRoot);
+    if (bundledManuals.installed) console.info(`已安装 ${bundledManuals.installed} 份内置操作手册（${bundledManuals.version}）`);
+  }
   git = new GitConnector(path.join(dataRoot, 'workspaces'));
   sessionGit = new SessionGitService(git, path.join(dataRoot, 'session-git'));
   await migrateLegacySessionWorkspaces();
@@ -2728,6 +2729,7 @@ app.on('before-quit', event => {
         await agentTaskRunner?.close(); agentTaskRunner = undefined;
         await runtimes.closeAll();
       } finally {
+        await operationManualLibrary?.close();
         tray?.destroy(); tray = undefined; store?.close();
         autoUpdater.quitAndInstall(true, true);
       }
@@ -2750,6 +2752,6 @@ app.on('before-quit', event => {
       for (const ticket of tickets) { const session = store?.getSession(ticket.sessionId); if (session) store.saveSession({ ...session, status: 'interrupted' }); }
       await agentTaskRunner?.close(); agentTaskRunner = undefined;
       await runtimes.closeAll();
-    } finally { browsers?.close(); tray?.destroy(); tray = undefined; store?.close(); app.exit(0); }
+    } finally { await operationManualLibrary?.close(); browsers?.close(); tray?.destroy(); tray = undefined; store?.close(); app.exit(0); }
   })();
 });

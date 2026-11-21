@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { assertCommitBlocked } from './helpers/sqlite-commit';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import initSqlJs from 'sql.js';
@@ -146,9 +147,7 @@ test('外键失败和磁盘写入失败不会造成内存、磁盘状态分叉',
     assert.equal(store.listSessions().length, 0);
     const project = { id: 'good', path: 'D:\\test', name: '测试', branch: 'main' };
     store.saveProject(project);
-    await rm(path);
-    await mkdir(path);
-    assert.throws(() => store.saveProject({ ...project, name: '不应提交' }));
+    assertCommitBlocked(path, () => store.saveProject({ ...project, name: '不应提交' }));
     assert.equal(store.listProjects()[0].name, '测试');
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });

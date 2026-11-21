@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { assertCommitBlocked } from './helpers/sqlite-commit';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import initSqlJs from 'sql.js';
@@ -92,8 +93,7 @@ test('新的验证结果精确选择活动证据，历史失败和追加证据�
 test('契约及审计事务落盘失败时，任务、版本和审计同步回滚', async () => {
   const f = await fixture();
   try {
-    await rm(f.path); await mkdir(f.path);
-    assert.throws(() => register(f.store, f.task));
+    assertCommitBlocked(f.path, () => register(f.store, f.task));
     assert.deepEqual(f.store.listAgentTasks('session'), []);
     assert.deepEqual(f.store.getAgentTaskContractVersions('session', 'task'), []);
     assert.deepEqual(f.store.listTaskLifecycleEvents('session', 'task'), []);
@@ -160,7 +160,7 @@ test('v8 迁移前备份原始字节，升级保留旧任务且不补造契约�
     db.run('DROP TABLE agent_task_contracts; DROP TABLE agent_task_lifecycle_events; DROP TABLE agent_task_evidence; DROP TABLE verification_executions; DROP TABLE grok_provider_profiles; DROP TABLE grok_model_profiles; PRAGMA user_version = 8');
     const original = Buffer.from(db.export()); db.close(); await writeFile(f.path, original);
     store = await LocalStore.open(f.path);
-    const backups = (await readdir(f.root)).filter(name => name.includes('.pre-v18-from-v8-'));
+    const backups = (await readdir(f.root)).filter(name => name.includes('.pre-v19-from-v8-'));
     assert.equal(backups.length, 1); assert.deepEqual(await readFile(join(f.root, backups[0])), original);
     assert.equal(store.listAgentTasks('session')[0].id, 'task');
     assert.equal(store.listAgentTasks('session')[0].contractVersion, undefined);
@@ -225,8 +225,7 @@ test('缺少契约不能追加审计，审计落盘失败不消耗状态版本�
     assert.throws(() => f.store.appendTaskAuditEvent('session', 'task', event), /已有任务契约/);
     register(f.store, f.task);
     const before = f.store.getTaskAuditSnapshot('session', 'task');
-    await rm(f.path); await mkdir(f.path);
-    assert.throws(() => f.store.appendTaskAuditEvent('session', 'task', event));
+    assertCommitBlocked(f.path, () => f.store.appendTaskAuditEvent('session', 'task', event));
     assert.equal(f.store.getTaskAuditSnapshot('session', 'task').stateVersion, before.stateVersion);
     assert.equal(f.store.getTaskAuditSnapshot('session', 'task').pendingToolCalls.length, 0);
   } finally { f.store.close(); await rm(f.root, { recursive: true, force: true }); }

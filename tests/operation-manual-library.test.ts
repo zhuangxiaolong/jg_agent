@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { OperationManualLibrary } from '../apps/desktop/src/main/operation-manual-library';
+import { stageManualIndex } from '../apps/desktop/src/main/manual-index-stage';
 import { buildManualChunks, type ManualImportJob, type OperationManual } from '../packages/operation-manuals/src';
 import { LocalStore } from '../packages/storage/src';
 
@@ -15,6 +17,44 @@ function createManual(): OperationManual {
     createdAt: '2026-11-21T00:00:00.000Z', updatedAt: '2026-11-21T00:00:00.000Z',
   };
 }
+
+test('新版片段分批写入时查询只读旧版，写入中断并重启后清理未发布索引', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-manual-generations-'));
+  const filename = join(root, 'agent.db');
+  const staged = join(root, 'new.db');
+  let store = await LocalStore.open(filename, undefined, { wal: true });
+  let library: OperationManualLibrary | undefined;
+  try {
+    const manual = createManual();
+    const block = { type: 'paragraph' as const, text: '旧版工单报工', sectionPath: [], locator: { kind: 'text' as const, lineStart: 1, lineEnd: 1 }, order: 0 };
+    const original = buildManualChunks({ manual, blocks: [block] });
+    store.completeOperationManualIndex(manual, original);
+    const job: ManualImportJob = { id: 'new-version', manualId: manual.id, status: 'running', stage: 'chunk', progress: 65, updatedAt: manual.createdAt };
+    store.saveOperationManualJob(job);
+    stageManualIndex(staged, manual, {
+      blocks: Array.from({ length: 130 }, (_, i) => ({ ...block, text: '新版仓储' + i, order: i })),
+      parserVersion: 'test', extractedChars: 1000, warnings: [],
+    });
+    let batches = 0;
+    const copied = await store.copyManualIndex(manual, staged, job.id, () => {
+      assert.deepEqual(store.listOperationManualChunks(manual.id), original);
+      assert.deepEqual(store.searchOperationManualChunks(['MES6'], ['仓储']), []);
+      return ++batches <= 2;
+    });
+    assert.equal(copied, false);
+    assert.equal(batches, 3);
+    store.close();
+    store = await LocalStore.open(filename, undefined, { wal: true });
+    library = new OperationManualLibrary(store, root, join(root, 'unused.cjs'));
+    assert.equal(store.getOperationManualJob(job.id)?.status, 'failed');
+    assert.deepEqual(store.listOperationManualChunks(manual.id), original);
+    await library.close();
+    await store.cleanInactiveManualIndexes(() => false);
+    const reader = new DatabaseSync(filename, { readOnly: true });
+    try { assert.equal(reader.prepare('SELECT COUNT(*) AS n FROM operation_manual_chunks').get()?.n, 1); }
+    finally { reader.close(); }
+  } finally { await library?.close(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('应用重启时中断解析任务标记失败，同时保留上一版可检索手册', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-manual-recovery-'));

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { assertCommitBlocked } from './helpers/sqlite-commit';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LocalStore } from '../packages/storage/src';
@@ -54,8 +55,7 @@ test('工作区绑定磁盘失败不留下路径、映射或消耗状态版本',
   const f = await fixture();
   try {
     const before = f.store.listAgentTasks('session')[0];
-    await rm(f.database); await mkdir(f.database);
-    assert.throws(() => f.store.bindTaskWorkspace('session', 'task', before.stateVersion!, f.path, f.mapping));
+    assertCommitBlocked(f.database, () => f.store.bindTaskWorkspace('session', 'task', before.stateVersion!, f.path, f.mapping));
     assert.deepEqual(f.store.listAgentTasks('session')[0], before);
     assert.equal(f.store.listTaskLifecycleEvents('session', 'task').filter(event => event.eventType === 'workspace.created').length, 0);
   } finally { f.store.close(); await rm(f.root, { recursive: true, force: true }); }
