@@ -36,7 +36,7 @@ export function ExpertSession({ session, running, latestExpert, open }: {session
   else if (latestExpert) summaryMode = `配置 ${configuredName} · ${running ? '本轮' : '最近回复'}`;
   else summaryMode = selection.profileId === 'auto' ? '自动路由 · 按任务分配' : selection.profileId === 'off' ? '专家已关闭' : '会话固定';
   return <details className="expert-session"><summary>{displayedExpert && <ExpertAvatar id={displayedExpert.id} size={20}/>}
-    <span>{summaryName}</span><small className="expert-session-mode">{summaryMode}</small> · 专家设置</summary>
+    <span>{summaryName}</span><small className="expert-session-mode">{summaryMode}</small></summary>
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <label>产品知识范围<select value={selection.scope} disabled={running || busy} onChange={e=>void select({...selection,scope:e.target.value as ExpertSelection['scope']})}>{['auto','off','MES5','MES6','WMS','SRM','JMOM','PDA'].map(s=><option key={s} value={s}>{s === 'auto' ? '自动 · '+(scope ?? '未知') : s === 'off' ? '关闭手册' : s}</option>)}</select></label>
     <button type="button" onClick={open}>专家中心</button>{error && <p role="alert">{error}</p>}

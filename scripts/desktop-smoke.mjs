@@ -332,6 +332,7 @@ try {
     items.forEach((item, index) => contents.send('agent:event', { ...item, sessionId, createdAt: new Date(Date.now() + index).toISOString() }));
   }, { sessionId: session.id, items });
   await sendProgress([{ id: 'smoke-image-user', type: 'user', text: '图片消息预览验收', attachments: [pickedAttachments[0]] }]);
+  await expect(page.locator('.message.user .user-avatar').last()).toHaveCSS('width', '36px');
   const messageImage = page.locator('.message-image-card').last();
   await expect(messageImage.locator('img')).toBeVisible();
   await messageImage.locator('.conversation-image-trigger').click();
@@ -441,6 +442,13 @@ try {
     const copiedMessage = page.locator('article.message').filter({ has: page.getByRole('heading', { name: '代码复制验收', exact: true }) });
     await expect(copiedMessage.locator('.message-meta strong')).toHaveText('后端开发专家');
     await expect(copiedMessage.locator('.message-avatar img')).toHaveAttribute('src','assets/experts/mes-wms-backend.png');
+    await expect(copiedMessage.locator('.expert-avatar')).toHaveCSS('width', '36px');
+    const expertSummary = page.locator('.expert-session > summary');
+    await expect(expertSummary).toContainText('后端开发专家');
+    await expect(expertSummary).not.toContainText('专家设置');
+    await expertSummary.click();
+    await expect(page.getByRole('combobox', { name: '专家角色', exact: true })).toBeVisible();
+    await expertSummary.click();
     const copyButtons = copiedMessage.getByRole('button', { name: '复制代码', exact: true });
     await expect(copyButtons).toHaveCount(2);
     for (let index = 0; index < samples.length; index++) {
