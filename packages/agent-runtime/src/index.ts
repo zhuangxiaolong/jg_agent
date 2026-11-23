@@ -149,7 +149,8 @@ export function explainRuntimeError(text: string): string {
   }
   const upstreamStatus = text.match(/(?:last status:\s*|HTTP\s*)([45]\d{2})(?:\s+([^,\n]+))?/i);
   if (upstreamStatus) return `当前配置的中转站/模型服务返回 HTTP ${upstreamStatus[1]} 错误（上游响应，非精工 Agent 本地错误）：${text}`;
-  if (/stream disconnected before completion:\s*idle timeout waiting for SSE/i.test(text)) return '模型流式连接长时间无数据，已停止会话；请检查模型服务网络后重试。';
+  if (/stream disconnected before completion:.*Transport error: network error: error decoding response body/i.test(text)) return '模型响应流在传输解码阶段提前中断，本轮未收到完成信号。设备网络可用时也可能发生流式连接中断，请核对最后一项工具执行结果后发送“继续”。';
+  if (/stream disconnected before completion:\s*idle timeout waiting for SSE/i.test(text)) return '模型流式连接长时间无数据，本轮未收到完成信号。设备网络可用时也可能是模型流中断，请核对最后一项工具执行结果后发送“继续”。';
   return text;
 }
 
@@ -177,6 +178,7 @@ export class CodexRuntime {
   private readonly emitter = new EventEmitter();
   private readonly pending = new Map<string | number, Pending>();
   private readonly active = new Map<string, string>();
+  private readonly turnErrors = new Map<string, { turnId: string; messages: Set<string> }>();
   private readonly turnAbortControllers = new Map<string, AbortController>();
   private readonly terminalTurns = new Set<string>();
   private readonly sessions = new Set<string>();
@@ -514,6 +516,7 @@ export class CodexRuntime {
     this.readBrokers.clear();
     this.authorizedDirectoryBrokers.clear();
     this.streamedItems.clear();
+    this.turnErrors.clear();
     this.terminalTurns.clear();
     this.handledRuntimeRequests.clear();
     this.initialized = false;
@@ -589,6 +592,7 @@ export class CodexRuntime {
     }
     else if (message.method === 'turn/started' && threadId && params.turn?.id) {
       if (this.terminalTurns.has(params.turn.id)) return;
+      this.turnErrors.set(threadId, { turnId: params.turn.id, messages: new Set() });
       this.setActive(threadId, params.turn.id);
       this.emit({ threadId, type: 'status', text: 'running' });
     } else if (message.method === 'turn/completed' && threadId) {
@@ -596,11 +600,17 @@ export class CodexRuntime {
         this.terminalTurns.add(params.turn.id);
         if (this.terminalTurns.size > 256) this.terminalTurns.delete(this.terminalTurns.values().next().value!);
       }
+      if (params.turn?.status === 'failed') this.reportTurnError(threadId, String(params.turn?.id ?? ''), params.turn.error?.message ?? '模型调用失败');
       this.clearActive(threadId);
-      if (params.turn?.status === 'failed') this.emit({ threadId, type: 'error', text: params.turn.error?.message ?? '模型调用失败' });
       const status = params.turn?.status;
       this.emit({ threadId, type: 'status', text: status === 'completed' ? 'completed' : status === 'interrupted' ? 'interrupted' : 'failed' });
-    } else if (message.method === 'error') this.emit({ threadId, type: 'error', text: params.error?.message ?? 'Runtime 执行异常' });
+    } else if (message.method === 'error') {
+      const text = params.error?.message ?? 'Runtime 执行异常';
+      if (threadId) {
+        const turnId = typeof params.turnId === 'string' ? params.turnId : this.active.get(threadId) ?? this.turnErrors.get(threadId)?.turnId ?? '';
+        this.reportTurnError(threadId, turnId, text);
+      } else this.emit({ type: 'error', text });
+    }
     else if (message.method === 'item/started' || message.method === 'item/completed') {
       const item = params.item;
       if (message.method === 'item/completed' && item?.type === 'agentMessage' && typeof item.text === 'string') {
@@ -758,12 +768,22 @@ export class CodexRuntime {
     }
     this.active.delete(threadId);
   }
+  private reportTurnError(threadId: string, turnId: string, text: string): void {
+    const safeText = this.clean(text);
+    const previous = this.turnErrors.get(threadId);
+    const current = previous?.turnId === turnId ? previous : { turnId, messages: new Set<string>() };
+    if (current.messages.has(safeText)) return;
+    current.messages.add(safeText);
+    if (current.messages.size > 8) current.messages.delete(current.messages.values().next().value!);
+    this.turnErrors.set(threadId, current);
+    this.emit({ threadId, type: 'error', text: safeText });
+  }
   private createBroker(cwd: string): Promise<ProjectReadBroker> { return ProjectReadBroker.create(cwd, { beforeWrite: this.options.beforeWrite }); }
   private fail(error: Error): void {
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(this.clean(error.message))); }
     this.pending.clear();
     for (const threadId of this.active.keys()) {
-      this.emit({ threadId, type: 'error', text: error.message });
+      this.reportTurnError(threadId, this.active.get(threadId) ?? '', error.message);
       this.emit({ threadId, type: 'status', text: 'interrupted' });
       this.clearActive(threadId);
     }

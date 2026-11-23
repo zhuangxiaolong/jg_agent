@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AgentEvent, Session } from '../../../../packages/domain/src';
+import { formatLocalDateTime } from './message-timing';
 import { ExpertAvatar } from './ExpertAvatar';
 import type { ExpertProfile, ExpertRun, ExpertSelection } from '../../../../packages/domain/src/expert';
 
@@ -39,7 +40,7 @@ export function ExpertSession({ session, running, latestExpert, open }: {session
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <label>产品知识范围<select value={selection.scope} disabled={running || busy} onChange={e=>void select({...selection,scope:e.target.value as ExpertSelection['scope']})}>{['auto','off','MES5','MES6','WMS','SRM','JMOM','PDA'].map(s=><option key={s} value={s}>{s === 'auto' ? '自动 · '+(scope ?? '未知') : s === 'off' ? '关闭手册' : s}</option>)}</select></label>
     <button type="button" onClick={open}>专家中心</button>{error && <p role="alert">{error}</p>}
-    {runs.map(run=><details key={run.id}><summary><ExpertAvatar id={run.profileId} size={20}/> {run.createdAt.slice(0,19).replace('T',' ')} UTC · {run.name} · {run.status}</summary>
+    {runs.map(run=><details key={run.id}><summary><ExpertAvatar id={run.profileId} size={20}/> 本地时间 {formatLocalDateTime(run.createdAt)} · {run.name} · {run.status}</summary>
       <p>{run.router} → {run.name} v{run.version} · {run.reason} · {run.workflowId}</p>
       <p>{run.scope.join(' + ')} · {run.runtime} · {run.provider} · {run.model}</p><code>{run.hash}</code>
       {run.error && <p>{run.error}</p>}<p>本轮检索及加载记录</p><ul>{run.sources.map((s,i)=><li key={i}>{s.kind} · {s.label} {s.version} · <code>{s.hash.slice(0,12)}</code></li>)}</ul>

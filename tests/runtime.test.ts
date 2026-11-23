@@ -25,7 +25,27 @@ test('Runtime 保持长 SSE 空闲保护且关闭模型请求自动重试', () =
   assert.equal(CODEX_REQUEST_MAX_RETRIES, 0);
   assert.equal(CODEX_STREAM_MAX_RETRIES, 0);
   assert.ok(CODEX_STREAM_IDLE_TIMEOUT_MS > 30_000);
-  assert.equal(explainRuntimeError('stream disconnected before completion: idle timeout waiting for SSE'), '模型流式连接长时间无数据，已停止会话；请检查模型服务网络后重试。');
+  assert.match(explainRuntimeError('stream disconnected before completion: idle timeout waiting for SSE'), /设备网络可用时也可能是模型流中断/);
+});
+
+test('流响应体解码失败说明模型流中断且设备网络仍可能可用', () => {
+  assert.match(explainRuntimeError('stream disconnected before completion: Transport error: network error: error decoding response body'), /设备网络可用时也可能发生流式连接中断/);
+  assert.match(explainRuntimeError('stream disconnected before completion: Transport error: network error: error decoding response body'), /发送“继续”/);
+});
+
+test('同一轮重复收到 Runtime 错误和失败终态时仅显示一条错误', async () => {
+  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: 'https://model.example.invalid/v1', model: 'fixture-model' });
+  const state = runtime as any;
+  const events: Array<{ type: string; text: string }> = [];
+  const error = 'stream disconnected before completion: Transport error: network error: error decoding response body';
+  runtime.onEvent(event => events.push({ type: event.type, text: event.text }));
+  state.sessions.add('thread');
+  state.setActive('thread', 'turn');
+  state.receive({ method: 'error', params: { threadId: 'thread', error: { message: error } } });
+  state.receive({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn', status: 'failed', error: { message: error } } } });
+  assert.equal(events.filter(event => event.type === 'error').length, 1);
+  assert.deepEqual(events.filter(event => event.type === 'status').map(event => event.text), ['failed']);
+  await runtime.close();
 });
 
 test('Runtime 将 429 限流错误转为可操作提示并保留请求 ID', () => {

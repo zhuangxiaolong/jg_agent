@@ -13,6 +13,15 @@ export function formatClockTime(value: string): string {
   });
 }
 
+export function formatLocalDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+}
+
 export function formatDuration(durationMs: number): string {
   const seconds = Math.max(0, Math.floor(durationMs / 1000));
   const hours = Math.floor(seconds / 3600);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentEvent } from '../packages/domain/src';
-import { assistantMessageDurations, formatClockTime, formatDuration } from '../apps/desktop/src/renderer/message-timing';
+import { assistantMessageDurations, formatClockTime, formatDuration, formatLocalDateTime } from '../apps/desktop/src/renderer/message-timing';
 
 function event(id: string, type: AgentEvent['type'], text: string, createdAt: string, requestId?: string): AgentEvent {
   return { id, sessionId: 'session-1', type, text, createdAt, ...(requestId ? { requestId } : {}) };
@@ -9,6 +9,13 @@ function event(id: string, type: AgentEvent['type'], text: string, createdAt: st
 
 test('会话时钟显示本地时分秒', () => {
   assert.match(formatClockTime('2026-11-17T13:40:05.000+08:00'), /^\d{2}:\d{2}:\d{2}$/);
+});
+
+test('专家运行记录按本地时区格式化 ISO UTC 时间', () => {
+  const value = '2026-11-23T03:29:25.000Z';
+  const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' };
+  assert.equal(formatLocalDateTime(value), new Date(value).toLocaleString('zh-CN', options));
+  assert.equal(formatLocalDateTime('invalid-date'), 'invalid-date');
 });
 
 test('回复用时按小时、分钟和秒显示', () => {

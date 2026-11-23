@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ExpertApi, ExpertCase, ExpertComparison, ExpertGrade, ExpertProfile } from '../../../../packages/domain/src/expert';
 import type { Session } from '../../../../packages/domain/src';
+import { formatLocalDateTime } from './message-timing';
 import './expert-center.css';
 import { ExpertAvatar } from './ExpertAvatar';
 
@@ -82,7 +83,7 @@ export function ExpertCenter({api,sessions}:{api:ExpertApi;sessions:Session[]}) 
       const grades=group.flatMap(r=>r[arm].grade?[r[arm].grade!]:[]),scores=grades.map(g=>average(g.scores));
       return <p key={arm}>{arm==='expert'?'专家':'普通'} · 已评 {grades.length}/{group.length} · 均分 {scores.length?average(scores).toFixed(2):'—'} · 达标 {pct(scores.filter(n=>n>=4).length,scores.length)} · 引用正确 {pct(grades.filter(g=>g.citation==='正确').length,grades.filter(g=>g.citation!=='不适用').length)} · 产品错配 {pct(grades.filter(g=>g.mismatch).length,grades.length)} · 完整 {pct(grades.filter(g=>g.complete).length,grades.length)}</p>;
     })}</div>;})}
-    {visible.map(r=><details key={r.id}><summary>{r.case.product} · {r.case.prompt} · {r.baseline.status}/{r.expert.status}</summary><p>{r.createdAt} · {r.runtime} · {r.provider} · {r.model} · {r.effort} · {r.profileId} v{r.profileVersion}</p><p>预期 · {r.case.expected}</p><p>参考 · {r.case.reference}</p><p>检索来源 · {r.sources.map(s=>s.label).join('、')||'无'}</p>{(['baseline','expert'] as const).map(arm=><Review key={arm} run={r} arm={arm} save={g=>void act(()=>api.grade(r.id,arm,g))}/>)}</details>)}
+    {visible.map(r=><details key={r.id}><summary>{r.case.product} · {r.case.prompt} · {r.baseline.status}/{r.expert.status}</summary><p>本地时间 {formatLocalDateTime(r.createdAt)} · {r.runtime} · {r.provider} · {r.model} · {r.effort} · {r.profileId} v{r.profileVersion}</p><p>预期 · {r.case.expected}</p><p>参考 · {r.case.reference}</p><p>检索来源 · {r.sources.map(s=>s.label).join('、')||'无'}</p>{(['baseline','expert'] as const).map(arm=><Review key={arm} run={r} arm={arm} save={g=>void act(()=>api.grade(r.id,arm,g))}/>)}</details>)}
     {!visible.length && <p>当前筛选范围尚无评测结果。</p>}<div className="expert-actions">{(['json','md'] as const).map(f=><button key={f} onClick={()=>void act(()=>api.export(f))}>导出 {f.toUpperCase()}</button>)}</div></>}
   </section>;
 }
