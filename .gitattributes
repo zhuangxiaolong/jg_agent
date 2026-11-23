@@ -1,1 +1,2 @@
 installer/licenses/* text eol=lf
+apps/desktop/resources/dictionaries/*.md text eol=lf
