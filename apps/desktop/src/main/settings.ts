@@ -125,7 +125,6 @@ export class SettingsService {
     const { url } = updateFeed(value); this.store.saveUpdateUrl(url); return url;
   }
   saveProfile(value: unknown): ProviderProfile {
-    this.assertIdle();
     const input = modelProfileSchema.parse(value);
     const secrets = this.providerMetadataSecrets(input.apiKey);
     const fields: [string, 'text' | 'identifier' | 'url'][] = [[input.name, 'text'], [input.baseUrl, 'url'], ...input.models.map(model => [model, 'identifier'] as [string, 'identifier']), ...(input.modelCatalog?.flatMap(item => [[item.id, 'identifier'], [item.name, 'text']] as [string, 'identifier' | 'text'][]) ?? [])];
@@ -146,7 +145,6 @@ export class SettingsService {
     return profile;
   }
   async fetchProviderModels(value: unknown): Promise<ProviderModel[]> {
-    this.assertIdle();
     const input = providerModelsSchema.parse(value);
     const id = typeof input === 'string' ? input : input.id;
     const profile = id ? this.profiles().find(item => item.id === id) : undefined;
@@ -180,7 +178,7 @@ export class SettingsService {
     }
   }
   deleteProfile(value: unknown): void {
-    this.assertIdle(); const id = profileIdSchema.parse(value);
+    const id = profileIdSchema.parse(value);
     this.store.deleteModelProvider(id); this.credential(id).delete();
   }
   saveJira(value: unknown) {

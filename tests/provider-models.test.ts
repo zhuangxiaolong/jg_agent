@@ -34,6 +34,20 @@ test('模型发现接受未保存的 URL 和 Key，并保持 HTTPS、ID 与凭�
   ]) assert.equal(providerModelsSchema.safeParse(value).success, false);
 });
 
+test('会话运行时仍可新增、获取模型和删除中转站', async t => {
+  const state = await fixture();
+  try {
+    const settings = new SettingsService(state.store, state.root, () => { throw new Error('会话运行状态不应阻止中转站操作'); });
+    const profile = settings.saveProfile({ name: '运行中新增', baseUrl, models: ['model-1'] });
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data: [{ id: 'model-1' }] }));
+
+    assert.deepEqual(await settings.fetchProviderModels({ id: profile.id, baseUrl, apiKey: 'draft-key' }), [{ id: 'model-1', name: 'model-1' }]);
+    settings.deleteProfile(profile.id);
+
+    assert.deepEqual(settings.profiles(), []);
+  } finally { await state.close(); }
+});
+
 test('未保存中转站可直接鉴权获取模型，名称和模型 ID 不是前置条件，配置与密钥均不落盘', async t => {
   const state = await fixture();
   try {

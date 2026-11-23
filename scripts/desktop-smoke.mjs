@@ -551,6 +551,12 @@ try {
   await page.getByRole('button', { name: '模型中转站', exact: true }).click();
   await page.locator('#provider-url').fill('https://gateway.example.invalid/v1');
   await page.locator('#provider-model').fill('test-model');
+  await page.getByLabel('搜索模型').fill('missing-model');
+  await expect(page.getByText('没有匹配的模型', { exact: true })).toBeVisible();
+  await page.getByLabel('搜索模型').fill('test-model');
+  await expect(page.locator('.provider-model-table tbody tr')).toHaveCount(1);
+  await page.getByLabel('搜索模型').fill('');
+  checks.push('模型中转站支持按模型 ID 或名称搜索，并为无匹配结果显示空状态');
   const sentinel = 'jinggong-test-only-sentinel-20261104';
   await page.locator('#provider-key').fill(sentinel);
   await page.getByRole('button', { name: '保存配置', exact: true }).click();

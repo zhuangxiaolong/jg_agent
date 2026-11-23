@@ -263,6 +263,14 @@ export function App() {
   // status 是持久化展示状态，异常退出后可能仍为 running；输入锁定只看当前进程实际活动任务。
   const running = isSessionRunActive(sessionId, runningSessions.current, sendingSessions);
   const sessionEvents = events[sessionId] || [];
+  const latestTurnExpert = useMemo(() => {
+    for (let index = sessionEvents.length - 1; index >= 0; index -= 1) {
+      const event = sessionEvents[index];
+      if (event.type === 'user') break;
+      if ((event.type === 'message' || event.type === 'delta') && event.expert) return event.expert;
+    }
+    return undefined;
+  }, [sessionEvents]);
   const runtimeApprovals = useMemo(() => sessionRuntimeKind === 'grok_build_acp' ? [] : pendingRuntimeApprovals(sessionEvents, sessionId, running), [sessionEvents, sessionId, running, sessionRuntimeKind]);
   const rows = useMemo(() => timeline(sessionEvents, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
   const workingDetails = useMemo(() => runningIndicatorDetails(sessionEvents, 5, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
@@ -1203,7 +1211,7 @@ export function App() {
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
-              <ExpertSession key={session.id} session={session} running={running} open={()=>{setSettingsTab('experts');setShowSettings(true);}} />
+              <ExpertSession key={session.id} session={session} running={running} latestExpert={latestTurnExpert} open={()=>{setSettingsTab('experts');setShowSettings(true);}} />
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send} onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
                 <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
                 {(jiraDraftImageAttachments.length > 0 || conversationAttachments.length > 0) && <div className="composer-attachments" aria-label="待发送附件">

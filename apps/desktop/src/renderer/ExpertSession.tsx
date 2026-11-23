@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { Session } from '../../../../packages/domain/src';
+import type { AgentEvent, Session } from '../../../../packages/domain/src';
 import { ExpertAvatar } from './ExpertAvatar';
 import type { ExpertProfile, ExpertRun, ExpertSelection } from '../../../../packages/domain/src/expert';
 
-export function ExpertSession({ session, running, open }: {session:Session; running:boolean; open:()=>void}) {
+export function ExpertSession({ session, running, latestExpert, open }: {session:Session; running:boolean; latestExpert?:AgentEvent['expert']; open:()=>void}) {
   const api = window.jinggong.experts;
   const [profiles,setProfiles] = useState<ExpertProfile[]>([]);
   const [selection,setSelection] = useState<ExpertSelection>({profileId:'auto',scope:'auto'});
@@ -23,13 +23,19 @@ export function ExpertSession({ session, running, open }: {session:Session; runn
     try {await api.select(session.id,next);setSelection(next);setError('');} catch(e){setError(String(e));} finally {setBusy(false);}
   }
   if (!api) return null;
-  const defaultProfile = profiles.find(p=>p.isDefault);
   const scope = selection.scope === 'auto' ? session.manualKnowledgeScope && session.manualKnowledgeScope !== 'auto' ? session.manualKnowledgeScope : session.system : selection.scope;
-  const selected = selection.profileId === 'auto'
-    ? (['MES5','MES6','WMS'].includes(scope ?? '') ? defaultProfile : undefined)
+  const selected = selection.profileId === 'auto' || selection.profileId === 'off'
+    ? undefined
     : profiles.find(p=>p.id===selection.profileId);
-  return <details className="expert-session"><summary>{selected && <ExpertAvatar id={selected.id} size={20}/>}
-    {selected?.name ?? '普通 Agent'} · 专家设置</summary>
+  const configuredName = selection.profileId === 'auto' ? '自动路由' : selection.profileId === 'off' ? '普通 Agent' : selected?.name ?? '普通 Agent';
+  const displayedExpert = latestExpert ?? selected;
+  const summaryName = latestExpert?.name ?? configuredName;
+  let summaryMode: string;
+  if (latestExpert && selection.profileId === 'auto') summaryMode = running ? '自动路由 · 本轮专家' : '自动路由 · 最近回复';
+  else if (latestExpert) summaryMode = `配置 ${configuredName} · ${running ? '本轮' : '最近回复'}`;
+  else summaryMode = selection.profileId === 'auto' ? '自动路由 · 按任务分配' : selection.profileId === 'off' ? '专家已关闭' : '会话固定';
+  return <details className="expert-session"><summary>{displayedExpert && <ExpertAvatar id={displayedExpert.id} size={20}/>}
+    <span>{summaryName}</span><small className="expert-session-mode">{summaryMode}</small> · 专家设置</summary>
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <label>产品知识范围<select value={selection.scope} disabled={running || busy} onChange={e=>void select({...selection,scope:e.target.value as ExpertSelection['scope']})}>{['auto','off','MES5','MES6','WMS','SRM','JMOM','PDA'].map(s=><option key={s} value={s}>{s === 'auto' ? '自动 · '+(scope ?? '未知') : s === 'off' ? '关闭手册' : s}</option>)}</select></label>
     <button type="button" onClick={open}>专家中心</button>{error && <p role="alert">{error}</p>}
