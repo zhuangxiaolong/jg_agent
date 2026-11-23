@@ -102,6 +102,11 @@ html[data-style="jinggong"][data-theme="dark"] body { background: #0b1220; }
 .dock-layout .message-text .markdown-content code,
 .dock-layout .message-text .markdown-code,
 .dock-layout .message-text .markdown-content table { font-size: inherit; }
+.dock-layout .message.user { flex-direction: row-reverse; }
+.dock-layout .message.user .message-content { display: flex; flex: 0 1 auto; flex-direction: column; align-items: flex-end; max-width: min(82%, 820px); min-width: 0; }
+.dock-layout .message.user .message-meta { width: 100%; justify-content: flex-end; }
+.dock-layout .message.user .message-text { width: fit-content; max-width: 100%; text-align: left; }
+.dock-layout .message.user .message-images { width: 100%; justify-content: flex-end; }
 .dock-layout .tool-event { margin: 10px 0 10px 38px; padding: 10px 12px; border-color: var(--line); border-radius: 8px; background: var(--surface-2); font-size: 13px; }
 .dock-layout .event-status { margin: 10px 0; color: var(--text-secondary); font-size: 13px; }
 .dock-layout .working-indicator { display: block; margin: 2px 0 12px 38px; padding: 0; color: var(--text-secondary); font-size: 13px; }
