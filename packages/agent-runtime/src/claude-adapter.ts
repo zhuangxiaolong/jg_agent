@@ -2,10 +2,11 @@ import { access, lstat, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { RuntimeApprovals } from './runtime-approvals';
 import { EventEmitter } from 'node:events';
 import { z } from 'zod';
 import type { McpSdkServerConfigWithInstance, McpServerConfig, Options, SandboxSettings, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ReasoningEffort, RuntimeHealth, RuntimeKind } from '../../domain/src/index';
+import type { ReasoningEffort, RuntimeAccess, RuntimeHealth, RuntimeKind } from '../../domain/src/index';
 import type { RuntimeAdapter } from './manager';
 import type { RuntimeEvent, RuntimeToolInvocation } from './index';
 import { AuthorizedDirectoryBroker, AUTHORIZED_DIRECTORY_TOOLS, type AuthorizedDirectoryPolicy } from './authorized-directory-broker';
@@ -38,7 +39,7 @@ export interface ClaudeSdkQueryOptions extends Pick<Options, 'effort' | 'thinkin
   abortController: AbortController;
   settingSources: [];
   permissionMode: 'default' | 'bypassPermissions';
-  /** SDK 只有在显式声明时才允许 bypassPermissions，普通开发会话固定开启。 */
+  /** SDK 只有在显式声明时才允许 bypassPermissions，普通开发会话按全局执行权限选择。 */
   allowDangerouslySkipPermissions?: true;
   includePartialMessages: true;
   tools?: string[];
@@ -66,6 +67,7 @@ export interface ClaudeSdkModule {
 export type ClaudeSdkLoader = () => Promise<ClaudeSdkModule>;
 
 export interface ClaudeRuntimeOptions {
+  runtimeAccess?: RuntimeAccess;
   model: string;
   reasoningEffort?: ReasoningEffort;
   apiKey?: string;
@@ -346,6 +348,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
   readonly version = CLAUDE_AGENT_SDK_RUNTIME_VERSION;
   readonly capabilitiesVersion = 1;
   private readonly emitter = new EventEmitter();
+  private readonly approvals = new RuntimeApprovals(event => this.emit(event));
   private readonly sessions = new Map<string, ClaudeSession>();
   private readonly loader: ClaudeSdkLoader;
   private sdk?: Promise<ClaudeSdkModule>;
@@ -512,7 +515,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
           mcpServers: { jinggong_files: controlled.server },
           strictMcpConfig: true,
           systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: controlledInstructions! },
-        } : { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true as const }),
+        } : this.options.runtimeAccess === 'confirm' ? { permissionMode: 'default' as const } : { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true as const }),
         ...(!controlled && documents ? { mcpServers: { jinggong_documents: documents.server }, strictMcpConfig: true } : {}),
         includePartialMessages: true,
         ...(!controlled ? { systemPrompt: {
@@ -525,9 +528,14 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
         pathToClaudeCodeExecutable: this.options.executablePath,
         env: buildClaudeEnvironment(this.options.apiKey, { ...this.options.env, ...(this.options.relayBaseUrl ? { ANTHROPIC_BASE_URL: claudeRelayBaseUrl(this.options.relayBaseUrl) } : {}) }),
         ...(session.nativeSessionId ? { resume: session.nativeSessionId } : {}),
-        canUseTool: async (toolName, input, _request) => {
+        canUseTool: async (toolName, input, request) => {
           if (controlled) return controlled.names.includes(toolName) ? { behavior: 'allow' } : { behavior: 'deny', message: '当前会话只允许平台受控文件工具' };
           if (toolName.startsWith('mcp__')) return documents?.names.includes(toolName) ? { behavior: 'allow' } : { behavior: 'deny', message: '当前会话未授权此 MCP 工具' };
+          if (this.options.runtimeAccess === 'confirm') {
+            const signal = AbortSignal.any([controller.signal, request.signal]);
+            const allowed = await this.approvals.request(threadId, { title: '确认使用工具', toolName, input: redact(JSON.stringify(input, null, 2), this.options.apiKey) }, signal);
+            return allowed && !signal.aborted ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: '本次工具操作未获允许' };
+          }
           return { behavior: 'allow' };
         },
       } });
@@ -579,6 +587,7 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
       }
       this.emit({ threadId, type: 'status', text: 'interrupted' });
     } finally {
+      controller.abort();
       session.acceptingSteers = false;
       inputQueue?.close();
       try { query?.close?.(); } catch { /* 查询已经结束，清理错误不覆盖本轮结果。 */ }
@@ -603,6 +612,10 @@ export class ClaudeAgentSdkRuntimeAdapter implements RuntimeAdapter {
     if (!message.uuid || !queue.push(message)) return false;
     pending.add(message.uuid);
     return true;
+  }
+
+  respondApproval(requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void> {
+    return this.approvals.respond(requestId, decision);
   }
 
   async cancelRun(threadId: string): Promise<void> {

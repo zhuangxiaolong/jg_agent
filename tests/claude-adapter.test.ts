@@ -76,6 +76,31 @@ test('Claude 实际调用与连接测试都使用通用中转站地址和凭据'
   }
 });
 
+test('Claude 按需确认使用 SDK 回调，拒绝操作会返回给发起请求的工具', async () => {
+  const adapter = new ClaudeAgentSdkRuntimeAdapter({
+    model: 'test', apiKey: 'fixture', executablePath: process.execPath, runtimeAccess: 'confirm',
+    sdkLoader: async () => ({ query: ({ options }) => ({ async *[Symbol.asyncIterator]() {
+      assert.equal(options.permissionMode, 'default');
+      assert.equal(options.allowDangerouslySkipPermissions, undefined);
+      const decision = await options.canUseTool!('Bash', { command: 'npm test' }, { toolName: 'Bash', input: {}, signal: options.abortController.signal });
+      assert.equal(decision.behavior, 'deny');
+      yield { type: 'result', subtype: 'success' };
+    } }) }),
+  });
+  let requested = false;
+  adapter.onEvent(event => {
+    if (event.approval?.state === 'pending') {
+      requested = true;
+      void adapter.respondApproval(event.approval.requestId, 'reject_once');
+    }
+  });
+  try {
+    const threadId = await adapter.startSession(process.cwd());
+    await adapter.sendTurn(threadId, '工具审批验证', process.cwd());
+    assert.equal(requested, true);
+  } finally { await adapter.close(); }
+});
+
 test('Claude Adapter 使用 query、固定 settingSources/bypass permission，并支持流式事件和 native session', async () => {
   const cwd = join(tmpdir(), `claude-adapter-${Date.now()}`);
   const extra = join(cwd, 'other-repo');

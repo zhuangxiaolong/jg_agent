@@ -70,7 +70,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
         {tab === 'appearance' && <Appearance preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'profile' && <ProfileSettings preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
-        {tab === 'runtime' && <RuntimeSettings pending={pending} api={api} onRuntimeChecked={onRuntimeChecked} />}
+        {tab === 'runtime' && <RuntimeSettings access={snapshot.runtimeAccess ?? 'full'} pending={pending} api={api} act={act} onRuntimeChecked={onRuntimeChecked} />}
         {tab === 'plugins' && (api.pluginManager ? <PluginManagerPanel api={api.pluginManager} projects={projects} /> : <p className="settings-empty">插件管理能力当前不可用，请重启应用后重试。</p>)}
          {tab === 'sessions' && <SessionDataSettings sessions={sessions} projects={projects} currentProjectId={currentProjectId} onImportCompleted={onImportCompleted} pending={pending} act={act} api={api} />}
         {tab === 'wecom' && <WeComSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
@@ -96,7 +96,7 @@ const runtimeOptions: { kind: RuntimeKind; name: string; description: string; po
   { kind: 'claude_agent_sdk', name: 'Claude Agent SDK Runtime', description: '通过官方 Claude Agent SDK 运行，使用模型中转站中的地址、模型和凭据。', positioning: 'Claude Agent SDK 能力与 Anthropic-compatible 模型服务。' },
 ];
 
-function RuntimeSettings({ api, pending, onRuntimeChecked }: Pick<Operations, 'api' | 'pending'> & { onRuntimeChecked?: (kind: RuntimeKind, health: RuntimeHealth) => void }) {
+function RuntimeSettings({ api, pending, act, access, onRuntimeChecked }: Operations & { access: NonNullable<SettingsSnapshot['runtimeAccess']>; onRuntimeChecked?: (kind: RuntimeKind, health: RuntimeHealth) => void }) {
   const [health, setHealth] = useState<Partial<Record<RuntimeKind, RuntimeHealth>>>({});
   const [checking, setChecking] = useState<RuntimeKind | ''>('');
 
@@ -140,6 +140,13 @@ function RuntimeSettings({ api, pending, onRuntimeChecked }: Pick<Operations, 'a
     return value.detail || '运行时不可用';
   }
   return <section aria-label="Runtime 设置">
+    <h3>会话执行权限</h3>
+    <div className="theme-options" role="group" aria-label="所有会话的执行权限">
+      {([{ mode: 'full', label: '完全访问' }, { mode: 'confirm', label: '按需确认' }] as const).map(({ mode, label }) =>
+        <button key={mode} type="button" className={access === mode ? 'selected' : ''} aria-pressed={access === mode} disabled={pending}
+          onClick={() => act(() => api.setRuntimeAccess(mode), '已保存所有会话的执行权限。')}>{label}{access === mode && <Icon name="check" />}</button>)}
+    </div>
+    <p className="section-description">设置适用于本机所有会话，从下一轮任务起生效。选择完全访问后，运行时按免确认模式执行。若命令需要人工授权，请切换到按需确认后重试。</p>
     <div className="section-heading"><div><h3>Runtime 组件状态</h3><p>Runtime 按会话独立选择。请在输入区模型旁或新建会话窗口选择运行时。</p></div></div>
     <div className="runtime-options">
       {runtimeOptions.map(option => {

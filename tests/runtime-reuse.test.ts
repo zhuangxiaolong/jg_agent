@@ -16,7 +16,7 @@ test('Codex 复用摘要核对所有静态配置和权限，只允许同能力�
     assert.match(key, /^[a-f0-9]{64}$/);
     assert.equal(await codexRuntimeReuseKey({ ...options, beforeWrite: async () => undefined }, cwd, readAccess), key);
     const changes: Partial<RuntimeOptions>[] = [
-      { apiKey: 'new-synthetic-key' }, { model: 'other-model' }, { baseUrl: 'https://other.invalid/v1' },
+      { runtimeAccess: 'confirm' }, { apiKey: 'new-synthetic-key' }, { model: 'other-model' }, { baseUrl: 'https://other.invalid/v1' },
       { reasoningEffort: 'high' }, { developerInstructions: '新的开发要求' }, { shellToolEnabled: false },
       { home: path.join(root, 'other-home') }, { pluginsEnabled: true }, { beforeWrite: undefined },
       { authorizedDirectories: () => ({ mode: 'full', directories: [] }) }, { browser: async () => ({ text: '合成结果' }) },

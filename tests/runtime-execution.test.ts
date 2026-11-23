@@ -45,7 +45,7 @@ test('平台子 Agent 工具随 Runtime start/resume 注册并绑定当前会话
   state.write = (message: unknown) => replies.push(message);
   state.request = async (method: string, params: any) => {
     startCalls.push({ method, params });
-    if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: method === 'thread/start' ? 'platform-thread' : 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+    if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: method === 'thread/start' ? 'platform-thread' : 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
     if (method === 'thread/inject_items') return {};
     throw new Error(`不应调用 ${method}`);
   };
@@ -66,7 +66,7 @@ test('平台子 Agent 工具随 Runtime start/resume 注册并绑定当前会话
     resumedState.createBroker = async () => ({});
     resumedState.request = async (method: string, params: any) => {
       startCalls.push({ method, params });
-      if (method === 'thread/resume') return { thread: { id: 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+      if (method === 'thread/resume') return { thread: { id: 'resumed-platform-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
       if (method === 'thread/inject_items') return {};
       throw new Error(`不应调用 ${method}`);
     };
@@ -87,7 +87,7 @@ test('Codex 与精工旧会话补入一次持久化执行指引，保留线程�
     state.createBroker = async () => ({});
     state.request = async (method: string, params: any) => {
       calls.push({ method, params });
-      if (method === 'thread/resume') return { thread: { id: 'legacy-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+      if (method === 'thread/resume') return { thread: { id: 'legacy-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
       if (method === 'thread/inject_items') return {};
       if (method === 'turn/start') return { turn: { id: 'query-turn', status: 'completed' } };
       throw new Error(`不应调用 ${method}`);
@@ -121,7 +121,7 @@ test('执行指引注入失败不能标记完成，下次恢复重试；新建�
     if (method === 'thread/inject_items') { if (++attempts === 1) throw new Error('合成注入失败'); return {}; }
     assert.ok(method === 'thread/resume' || method === 'thread/start');
     if (method === 'thread/start') assert.match(params.developerInstructions, /【查询执行效率】/);
-    return { thread: { id: method === 'thread/start' ? 'new-thread' : params.threadId, environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+    return { thread: { id: method === 'thread/start' ? 'new-thread' : params.threadId, environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
   };
   try {
     await assert.rejects(runtime.resumeSession('old-thread', cwd), /合成注入失败/);
@@ -168,8 +168,8 @@ test('Runtime 环境只继承系统工具链变量，不把数据库和宿主凭
 test('Runtime 默认完全访问并自动执行工具', () => {
   const config = runtimeConfigOverrides({ shellToolEnabled: false });
   assert.equal(config.sandbox_mode, 'danger-full-access');
-  assert.equal(config.approval_policy, 'never');
-  assert.equal(config.approvals_reviewer, undefined);
+  assert.equal(config.approval_policy, 'on-request');
+  assert.equal(config.approvals_reviewer, 'user');
   assert.equal(config['features.shell_tool'], false);
   assert.equal(config['web_search'], 'live');
   assert.equal(config['sandbox_workspace_write.network_access'], undefined);
@@ -219,6 +219,37 @@ test('Runtime 自动继续当前 thread/turn 的普通命令和文件变更请�
   } finally {
     await runtime.close();
   }
+});
+
+test('按需确认只决定本次原生命令，重复点击和任务取消后的旧审批失效', async () => {
+  const runtime = new CodexRuntime({ executable: '', home: '', baseUrl: '', model: 'fixture', runtimeAccess: 'confirm' });
+  const adapter = new CodexRuntimeAdapter(runtime);
+  const state = runtime as any;
+  const replies: any[] = [];
+  const pending: string[] = [];
+  state.write = (reply: any) => replies.push(reply);
+  state.sessions.add('thread');
+  state.sessionRoots.set('thread', process.cwd());
+  state.setActive('thread', 'turn');
+  adapter.onEvent(event => { if (event.approval?.state === 'pending') pending.push(event.approval.requestId); });
+  const request = (id: number) => state.receive({ id, method: 'item/commandExecution/requestApproval', params: {
+    itemId: 'item', threadId: 'thread', turnId: 'turn', command: 'npm test', cwd: process.cwd(), proposedExecpolicyAmendment: ['npm', 'test'],
+  } });
+  try {
+    for (const [i, decision] of (['allow_once', 'reject_once'] as const).entries()) {
+      request(i);
+      await waitFor(() => pending.length > i);
+      assert.equal(replies.length, i);
+      await adapter.respondApproval(pending[i], decision);
+      await waitFor(() => replies.length > i);
+      assert.deepEqual(replies[i], { id: i, result: { decision: i === 0 ? 'accept' : 'decline' } });
+      await assert.rejects(adapter.respondApproval(pending[i], 'allow_once'), /已处理/);
+    }
+    request(2);
+    await waitFor(() => pending.length === 3);
+    state.clearActive('thread');
+    await assert.rejects(adapter.respondApproval(pending[2], 'allow_once'), /已结束/);
+  } finally { await adapter.close(); }
 });
 
 test('Runtime 自动继续工作区外协议 writeStdin 输入，未知类型和跨会话任务仍拒绝', async () => {
@@ -284,7 +315,7 @@ test('Runtime 会话始终使用完全访问并注册开发工具', async () => 
   const calls: Array<{ method: string; params: any }> = [];
   state.request = async (method: string, params: any) => {
     calls.push({ method, params });
-    if (method === 'thread/start') return { thread: { id: 'runtime-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+    if (method === 'thread/start') return { thread: { id: 'runtime-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
     if (method === 'turn/start') return { turn: { id: 'runtime-turn', status: 'completed' } };
     throw new Error(`unexpected ${method}`);
   };
@@ -319,7 +350,7 @@ test('Skill 动态工具只在显式启用时注册并绑定当前会话 turn', 
   state.createBroker = async () => ({});
   state.write = (message: any) => replies.push(message);
   state.request = async (method: string, params: any) => {
-    if (method === 'thread/start') { startParams = params; return { thread: { id: 'skill-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' }; }
+    if (method === 'thread/start') { startParams = params; return { thread: { id: 'skill-thread', environments: [{ environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] }] }, cwd, sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' }; }
     throw new Error(`unexpected ${method}`);
   };
   try {
@@ -364,7 +395,7 @@ test('computer-use 工具启用固定 Runtime 能力并绑定当前会话与 tur
   const calls: Array<{ method: string; params: any }> = [];
   state.request = async (method: string, params: any) => {
     calls.push({ method, params });
-    if (method === 'thread/start') return { thread: { id: 'computer-thread', environments: [{ environmentId: 'local', cwd: process.cwd(), runtimeWorkspaceRoots: [process.cwd()] }] }, cwd: process.cwd(), sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+    if (method === 'thread/start') return { thread: { id: 'computer-thread', environments: [{ environmentId: 'local', cwd: process.cwd(), runtimeWorkspaceRoots: [process.cwd()] }] }, cwd: process.cwd(), sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
     throw new Error(`unexpected ${method}`);
   };
   const replies: any[] = [];
@@ -407,7 +438,7 @@ test('Runtime 环境回显必须绑定本地会话并启用完全访问，拒绝
   const state = runtime as any;
   const cwd = process.cwd();
   const environment = { environmentId: 'local', cwd, runtimeWorkspaceRoots: [cwd] };
-  const base = { approvalPolicy: 'never', cwd };
+  const base = { approvalPolicy: 'on-request', approvalsReviewer: 'user', cwd };
   const writable = {
     ...base,
     sandbox: { type: 'dangerFullAccess' },
@@ -423,7 +454,8 @@ test('Runtime 环境回显必须绑定本地会话并启用完全访问，拒绝
     { ...writable, thread: { environments: [{ ...environment, environmentId: 'remote' }] } },
     { ...writable, thread: { environments: [{ ...environment, cwd: `${cwd}-outside` }] } },
     { ...writable, thread: { environments: [{ ...environment, runtimeWorkspaceRoots: [`${cwd}-outside`] }] } },
-    { ...writable, approvalPolicy: 'on-request' },
+    { ...writable, approvalPolicy: 'never' },
+    { ...writable, approvalsReviewer: undefined },
   ]) assert.throws(() => writableRuntime.assertExecutionEnvironment(invalid, cwd), /未启用预期/);
 });
 
@@ -447,7 +479,7 @@ test('Codex 连续两轮复用已就绪会话，工具与写入授权使用新�
     calls.push(method);
     if (method === 'thread/start' || method === 'thread/resume') return {
       thread: { id: 'warm-thread', environments: [{ environmentId: 'local', cwd: root, runtimeWorkspaceRoots: [root] }] }, cwd: root,
-      sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never',
+      sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user',
     };
     assert.equal(method, 'turn/start');
     const turnId = `turn-${current}`;
@@ -493,7 +525,7 @@ test('Codex 热恢复拒绝跨工作区并重新检查项目目录，关闭后�
   state.request = async (method: string) => {
     calls.push(method);
     return { thread: { id: 'recover-thread', environments: [{ environmentId: 'local', cwd: workspace, runtimeWorkspaceRoots: [workspace] }] }, cwd: workspace,
-      sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'never' };
+      sandbox: { type: 'dangerFullAccess' }, approvalPolicy: 'on-request', approvalsReviewer: 'user' };
   };
   try {
     const id = await runtime.startSession(workspace);

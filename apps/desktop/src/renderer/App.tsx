@@ -271,7 +271,7 @@ export function App() {
     }
     return undefined;
   }, [sessionEvents]);
-  const runtimeApprovals = useMemo(() => sessionRuntimeKind === 'grok_build_acp' ? [] : pendingRuntimeApprovals(sessionEvents, sessionId, running), [sessionEvents, sessionId, running, sessionRuntimeKind]);
+  const runtimeApprovals = useMemo(() => pendingRuntimeApprovals(sessionEvents, sessionId, running), [sessionEvents, sessionId, running]);
   const rows = useMemo(() => timeline(sessionEvents, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
   const workingDetails = useMemo(() => runningIndicatorDetails(sessionEvents, 5, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
   const latestWorkingInfo = useMemo(() => latestRunningIndicator(sessionEvents, sessionRuntimeKind), [sessionEvents, sessionRuntimeKind]);
@@ -599,7 +599,7 @@ export function App() {
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
-  async function respondApproval(requestId: string, decision: 'allow_once' | 'reject_once') {
+  async function respondApproval(requestId: string, decision: 'allow_once' | 'reject_once' | 'full') {
     const targetSessionId = sessionId;
     const marker = `${targetSessionId}:${requestId}`;
     if (!api.respondRuntimeApproval || approvalBusy.has(marker) || approvalSubmitted.has(marker) || !runtimeApprovals.some(event => event.approval?.requestId === requestId)) return;
@@ -607,6 +607,10 @@ export function App() {
     try {
       await api.respondRuntimeApproval(targetSessionId, requestId, decision);
       setApprovalSubmitted(current => new Set(current).add(marker));
+      if (decision === 'full') {
+        setData(current => current ? { ...current, settings: { ...current.settings, runtimeAccess: 'full' } } : current);
+        setNotice('已允许本次操作，所有会话从下一轮起使用完全访问。');
+      }
       const saved = await api.getEvents(targetSessionId);
       setEvents(current => ({ ...current, [targetSessionId]: mergeRendererEvents(saved, current[targetSessionId] || [], sessionRuntimeKind) }));
     } catch (reason) { setError(message(reason)); }
@@ -1188,10 +1192,15 @@ export function App() {
                 const approval = event.approval!;
                 const marker = `${sessionId}:${approval.requestId}`;
                 const decided = approvalSubmitted.has(marker);
-                return <section className="runtime-approval" aria-label="Grok 工具审批" key={event.id}>
+                return <section className="runtime-approval" aria-label="运行时工具审批" key={event.id}>
                   <strong>{approval.title || '工具执行请求'}</strong><p>{approval.toolName} · {runtimeLabel(sessionRuntimeKind)}</p>
-                  <pre>{approval.input}</pre><p>核对命令、文件路径和变更内容后，仅允许本次操作。可使用“停止”取消整轮任务。</p>
-                  <div className="runtime-approval-actions"><button type="button" className="primary-button" disabled={!api.respondRuntimeApproval || approvalBusy.has(marker) || decided} onClick={() => { void respondApproval(approval.requestId, 'allow_once'); }}>{decided ? '已提交决定' : '允许一次'}</button><button type="button" className="secondary-button" disabled={!api.respondRuntimeApproval || approvalBusy.has(marker) || decided} onClick={() => { void respondApproval(approval.requestId, 'reject_once'); }}>拒绝</button></div>
+                  <pre>{approval.input}</pre><p>选择「完全访问」将允许本次操作，并为本机所有会话保存此设置。</p>
+                  <div className="runtime-approval-actions">
+                    {([{ decision: 'allow_once', label: '允许一次' }, { decision: 'reject_once', label: '拒绝' }, { decision: 'full', label: '完全访问' }] as const).map(({ decision, label }) =>
+                      <button key={decision} type="button" className={decision === 'allow_once' ? 'primary-button' : 'secondary-button'}
+                        disabled={!api.respondRuntimeApproval || approvalBusy.has(marker) || decided}
+                        onClick={() => { void respondApproval(approval.requestId, decision); }}>{label}</button>)}
+                  </div>
                 </section>;
               })}
               {running && <div className={`working-indicator ${workingExpanded ? 'expanded' : ''}`}>

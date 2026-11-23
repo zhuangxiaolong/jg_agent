@@ -22,6 +22,7 @@ export interface DesktopWorkspaceRepository { id: string; alias: string; name: s
 export interface DesktopWorkspace { id: string; name: string; description?: string; system?: string; instructions?: string; primaryRepositoryId?: string; repositories: DesktopWorkspaceRepository[]; createdAt: string; updatedAt: string }
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type RuntimeKind = 'jinggong' | 'codex' | 'claude_agent_sdk' | 'grok_build_acp';
+export type RuntimeAccess = 'full' | 'confirm';
 export interface RuntimeApproval { requestId: string; title: string; toolName: string; input: string; state: 'pending' | 'allowed' | 'rejected' | 'expired' }
 export type PluginSourceType = 'zip' | 'folder' | 'local_marketplace';
 export type PluginManifestFormat = 'portable' | 'codex-compat';
@@ -308,7 +309,7 @@ export interface BrowserAction { action: 'open' | 'snapshot' | 'click' | 'fill' 
 export interface BrowserTabState { id: string; title: string; url: string; active: boolean; canGoBack?: boolean; canGoForward?: boolean; loading?: boolean }
 export interface BrowserPanelState { sessionId: string; visible: boolean; tabs: BrowserTabState[]; downloads: string[] }
 export interface BrowserViewport { sessionId: string; visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }
-export interface SettingsSnapshot { grok?: GrokSettingsSnapshot; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; memorySettings: MemorySettings; memoryDiagnostics?: MemoryDiagnostics; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
+export interface SettingsSnapshot { runtimeAccess?: RuntimeAccess; grok?: GrokSettingsSnapshot; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; memorySettings: MemorySettings; memoryDiagnostics?: MemoryDiagnostics; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
 export interface GitCommit { hash: string; shortHash: string; author: string; date: string; message: string }
 export interface GitState { branch: string; commits: GitCommit[]; remotes: string[]; dirty: boolean; changesBlockedReason?: string }
 export interface GitFileEntry { path: string; status?: string }
@@ -395,7 +396,7 @@ export interface DesktopApi {
   iteration?: IterationApi;
   taskGovernance?: TaskGovernanceApi;
   grok?: GrokManagerApi;
-  respondRuntimeApproval?(sessionId: string, requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void>;
+  respondRuntimeApproval?(sessionId: string, requestId: string, decision: 'allow_once' | 'reject_once' | 'full'): Promise<void>;
   performance?: {
     report(sessionId: string): Promise<import('../../performance/src/types').PerformanceReport>;
     settings(patch: Partial<import('../../performance/src/types').PerformanceSettings>): Promise<import('../../performance/src/types').PerformanceSettings>;
@@ -462,6 +463,7 @@ export interface DesktopApi {
   checkRuntime(kind: RuntimeKind): Promise<RuntimeHealth>;
   onRuntimeHealthChanged?(listener: (health: RuntimeHealth & { kind: RuntimeKind }) => void): () => void;
   saveRuntimeKind(kind: RuntimeKind): Promise<RuntimeKind>;
+  setRuntimeAccess(mode: RuntimeAccess): Promise<void>;
   savePreferences(input: Preferences): Promise<Preferences>;
   saveLayout(input: LayoutPreferences): Promise<LayoutPreferences>;
   notifyCompletion(sessionTitle: string): Promise<void>;

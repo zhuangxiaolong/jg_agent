@@ -198,6 +198,7 @@ const api: DesktopApi = {
   configureSession: (id, input) => invoke('session:configure', id, input),
   bindSessionProject: (id, projectId, baseBranch) => invoke('session:bind-project', id, { projectId, baseBranch }),
   getSettings: () => invoke('settings:get'),
+  setRuntimeAccess: mode => invoke('settings:runtime-access', mode),
   savePreferences: input => invoke('settings:preferences', input),
   checkRuntime: kind => invoke('runtime:check', kind),
   onRuntimeHealthChanged: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('runtime:health-changed', callback); return () => { ipcRenderer.removeListener('runtime:health-changed', callback); }; },

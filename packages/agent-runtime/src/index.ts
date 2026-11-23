@@ -1,8 +1,9 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { RuntimeApprovals } from './runtime-approvals';
 import { EventEmitter } from 'node:events';
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, ReasoningEffort, RuntimeApproval, RuntimeHealth } from '../../domain/src/index';
+import type { AgentEvent, ReasoningEffort, RuntimeAccess, RuntimeApproval, RuntimeHealth } from '../../domain/src/index';
 import type { ManagedDocument } from '../../domain/src/index';
 import { DictionaryBroker, DICTIONARY_TOOLS } from '../../dictionary-context/src';
 import { PROJECT_READ_TOOLS, PROJECT_WRITE_TOOLS, ProjectReadBroker } from './project-read-broker';
@@ -58,6 +59,7 @@ export type { ClaudePermissionRequest, ClaudeRuntimeOptions, ClaudeSdkLoader, Cl
 export { GROK_BUILD_RUNTIME_VERSION, GrokBuildRuntimeAdapter, createGrokBuildRuntimeAdapter, grokRuntimeReuseKey } from './grok-adapter';
 export type { GrokRuntimeOptions } from './grok-adapter';
 export interface RuntimeOptions {
+  runtimeAccess?: RuntimeAccess;
   executable: string;
   home: string;
   baseUrl: string;
@@ -103,11 +105,14 @@ class RuntimeRpcError extends Error {
   constructor(readonly code: number, message: string) { super(message); }
 }
 const EXECUTION_SANDBOX = 'danger-full-access';
-const EXECUTION_APPROVAL_POLICY = 'never';
+function executionApproval() {
+  // on-request 让危险命令进入 app-server 审批回调；由本地持久化权限模式决定自动允许或显示确认。
+  return { approvalPolicy: 'on-request' as const, approvalsReviewer: 'user' as const };
+}
 
-export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolEnabled' | 'pluginsEnabled' | 'computer'>): Record<string, unknown> {
+export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolEnabled' | 'pluginsEnabled' | 'computer' | 'runtimeAccess'>): Record<string, unknown> {
   return {
-    sandbox_mode: EXECUTION_SANDBOX, approval_policy: EXECUTION_APPROVAL_POLICY,
+    sandbox_mode: EXECUTION_SANDBOX, approval_policy: executionApproval().approvalPolicy, approvals_reviewer: 'user',
     'analytics.enabled': false, 'feedback.enabled': false,
     check_for_update_on_startup: false, web_search: 'live',
     'features.shell_tool': options.shellToolEnabled ?? true, 'features.code_mode': true,
@@ -189,6 +194,7 @@ export class CodexRuntime {
   private dictionaryBroker: DictionaryBroker;
   private readonly streamedItems = new Set<string>();
   private readonly handledRuntimeRequests = new Set<string | number>();
+  private readonly approvals = new RuntimeApprovals(event => this.emit(event));
   private readonlyToolConcurrency: ReadonlyToolConcurrency;
   private nextId = 1;
   private initialized = false;
@@ -335,7 +341,7 @@ export class CodexRuntime {
     await this.start();
     const broker = await this.createBroker(cwd);
     const dynamicTools = this.dynamicTools();
-    const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
+    const result = await this.request('thread/start', { cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, ...executionApproval(), developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), ephemeral: false, dynamicTools });
     this.assertExecutionEnvironment(result, cwd);
     const id = result?.thread?.id;
     if (typeof id !== 'string') throw new Error('Runtime 未返回有效会话 ID');
@@ -366,7 +372,7 @@ export class CodexRuntime {
     let result;
     try {
       const dynamicTools = this.dynamicTools();
-      result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, approvalPolicy: EXECUTION_APPROVAL_POLICY, developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), dynamicTools });
+      result = await this.request('thread/resume', { threadId, cwd: path.resolve(cwd), model: this.options.model, modelProvider: 'jinggong', sandbox: EXECUTION_SANDBOX, ...executionApproval(), developerInstructions: this.modelContent(buildDeveloperInstructions(this.options)), dynamicTools });
     } catch (error) {
       // Codex 在首个 turn 前不生成 rollout；SQLite 中的空会话仍然有效。
       if (/no rollout found for thread id/.test((error as Error).message)) return this.startSession(cwd);
@@ -399,7 +405,7 @@ export class CodexRuntime {
         && Array.isArray(environments[0].runtimeWorkspaceRoots) && environments[0].runtimeWorkspaceRoots.length > 0
         && environments[0].runtimeWorkspaceRoots.every(samePath))
     );
-    if (!sandboxValid || result.approvalPolicy !== EXECUTION_APPROVAL_POLICY || !samePath(result.cwd) || !environmentsValid) {
+    if (!sandboxValid || result.approvalPolicy !== executionApproval().approvalPolicy || result.approvalsReviewer !== 'user' || !samePath(result.cwd) || !environmentsValid) {
       void this.close();
       throw new Error('Runtime 未启用预期的 danger-full-access 完全访问权限，请重试');
     }
@@ -421,7 +427,7 @@ export class CodexRuntime {
     // 新轮允许复用上轮已完成的服务端请求 ID；同时有其它活动轮次时保留其去重记录。
     if (!this.active.size) this.handledRuntimeRequests.clear();
     const sandboxPolicy = { type: 'dangerFullAccess' };
-    const result = await this.request('turn/start', { threadId, cwd: path.resolve(cwd), model: this.options.model, ...(effort !== undefined ? { effort } : {}), approvalPolicy: EXECUTION_APPROVAL_POLICY, sandboxPolicy, input: [{ type: 'text', text: this.modelContent(prompt), text_elements: [] }, ...images] });
+    const result = await this.request('turn/start', { threadId, cwd: path.resolve(cwd), model: this.options.model, ...(effort !== undefined ? { effort } : {}), ...executionApproval(), sandboxPolicy, input: [{ type: 'text', text: this.modelContent(prompt), text_elements: [] }, ...images] });
     if (lifecycle !== this.lifecycle) throw new Error('Runtime 任务已取消或关闭');
     // TurnStartResponse 只回传 turn，策略由显式请求与 thread/start、resume 的实际回显共同约束。
     if (typeof result?.turn?.id !== 'string' || !result.turn.id || !['inProgress', 'completed', 'interrupted', 'failed'].includes(result.turn.status) || (this.active.has(threadId) && this.active.get(threadId) !== result.turn.id)) { await this.close(); throw new Error('Runtime 返回的任务状态或 ID 不一致，已停止连接'); }
@@ -565,7 +571,7 @@ export class CodexRuntime {
         return;
       }
       const executionRequest = message.method === 'item/commandExecution/requestApproval' || message.method === 'item/fileChange/requestApproval';
-      if (executionRequest) { void this.handleApprovalRequest(message.id, message.method!, params, threadId); return; }
+      if (executionRequest) { this.runTool(() => this.handleApprovalRequest(message.id!, message.method!, params, threadId)); return; }
       if (message.method === 'item/permissions/requestApproval') {
         if (this.handledRuntimeRequests.has(message.id)) return;
         this.rememberRuntimeRequest(message.id);
@@ -654,11 +660,34 @@ export class CodexRuntime {
     const requestedCwd = params.cwd;
     const cwdValid = requestedCwd == null || (typeof requestedCwd === 'string' && path.isAbsolute(requestedCwd)
       && !/[\x00-\x1f]/.test(requestedCwd));
-    const supported = params.grantRoot == null && params.additionalPermissions == null
-      && params.proposedExecpolicyAmendment == null && params.proposedNetworkPolicyAmendments == null;
-    const decision = currentTurn && !!itemId && !!root && commandValid && environmentValid && availableDecisionsValid && cwdValid && supported ? 'accept' : 'decline';
-    try { this.write({ id, result: { decision } }); } catch { /* 已关闭或失联的 Runtime 不再接受请求。 */ }
+    // 执行提案只允许本次操作，不安装前缀规则或扩展权限。
+    const prefix = params.proposedExecpolicyAmendment;
+    const supported = params.grantRoot == null && params.additionalPermissions == null && params.networkApprovalContext == null
+      && (prefix == null || Array.isArray(prefix) && prefix.every(part => typeof part === 'string')) && params.proposedNetworkPolicyAmendments == null;
+    if (!currentTurn || !itemId || !root || !commandValid || !environmentValid || !availableDecisionsValid || !cwdValid || !supported) {
+      try { this.write({ id, result: { decision: 'decline' } }); } catch { /* 已关闭或失联的 Runtime 不再接受请求。 */ }
+      return;
+    }
+    const signal = this.turnAbortControllers.get(turnId)?.signal;
+    let allowed = !signal?.aborted;
+    if (this.options.runtimeAccess === 'confirm') {
+      if (!signal || signal.aborted) {
+        this.write({ id, result: { decision: 'decline' } });
+        return;
+      }
+      const title = fileChange ? '确认文件变更' : kind === 'writeStdin' ? '确认向终端发送输入' : '确认执行命令';
+      const input = redactRuntimeText(JSON.stringify({ command: params.command, cwd: requestedCwd, reason: params.reason, itemId }, null, 2), this.options.apiKey);
+      allowed = await this.approvals.request(threadId!, { title, toolName: fileChange ? 'fileChange' : kind, input }, signal);
+      if (this.closing || signal.aborted || this.active.get(threadId!) !== turnId) return;
+    }
+    const decline = Array.isArray(params.availableDecisions) && !params.availableDecisions.includes('decline') && params.availableDecisions.includes('cancel') ? 'cancel' : 'decline';
+    this.write({ id, result: { decision: allowed ? 'accept' : decline } });
   }
+
+  respondApproval(requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void> {
+    return this.approvals.respond(requestId, decision);
+  }
+
   private rememberRuntimeRequest(id: string | number): void {
     this.handledRuntimeRequests.add(id);
     if (this.handledRuntimeRequests.size > 4096) this.handledRuntimeRequests.delete(this.handledRuntimeRequests.values().next().value!);

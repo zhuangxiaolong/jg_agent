@@ -172,6 +172,8 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
   const document: ManagedDocument = { id: 'doc-1', kind: 'dictionary', system: 'MES5', name: '字段说明.md', content: '# SFCS\n字段 QTY 表示数量。', digest: 'test-digest', enabled: true, createdAt: '2026-11-04T00:00:00Z' };
   try {
     assert.deepEqual(store.getPreferences(), { theme: 'dark', style: 'jinggong', completionSound: 'chime', updateMode: 'automatic' });
+    assert.equal(store.getRuntimeAccess(), 'full');
+    store.setRuntimeAccess('confirm');
     store.savePreferences({ theme: 'light', style: 'minimal', apiKey: secret } as never);
     store.saveModelProvider({ id: 'provider-1', name: '中转站', baseUrl: 'https://model.example.invalid', models: ['model-a', 'model-b'], modelCatalog: [{ id: 'model-a', name: '模型 A' }, { id: 'model-unused', name: '未启用模型' }], hasKey: true, apiKey: secret } as never);
     store.saveJira({ baseUrl: 'https://jira.example.invalid', account: '研发账号', hasPassword: true, password: secret } as never);
@@ -180,6 +182,7 @@ test('配置、Provider、Jira、文档与记忆真实 CRUD 及重启持久化�
     store.saveMemory({ id: 'memory-1', title: '构建说明', content: '先运行构建，再执行测试。', createdAt: '2026-11-04T00:00:00Z', password: secret } as never);
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getPreferences(), { theme: 'light', style: 'minimal', completionSound: 'chime', updateMode: 'automatic' });
+    assert.equal(store.getRuntimeAccess(), 'confirm');
     assert.deepEqual(store.listProviders()[0].models, ['model-a', 'model-b']);
     assert.deepEqual(store.listProviders()[0].modelCatalog, [{ id: 'model-a', name: '模型 A' }]);
     assert.equal(store.getJira().account, '研发账号');

@@ -1,5 +1,6 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
+import { RuntimeApprovals } from './runtime-approvals';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { lstat, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ type RpcId = string | number;
 type JsonObject = Record<string, any>;
 interface Pending { resolve(value: JsonObject): void; reject(error: Error): void; timer?: ReturnType<typeof setTimeout>; method: string; sessionId?: string; timeoutMs: number }
 interface Binding { sessionId: string; cwd: string; fingerprint: string }
-interface Turn { sessionId: string; cancelled: boolean; tools: Map<string, { name: string; stage: 'tool' | 'read' | 'command'; completed: boolean }>; cancelTimer?: ReturnType<typeof setTimeout> }
+interface Turn { controller: AbortController; sessionId: string; cancelled: boolean; tools: Map<string, { name: string; stage: 'tool' | 'read' | 'command'; completed: boolean }>; cancelTimer?: ReturnType<typeof setTimeout> }
 
 /** 仅供正式协议测试替换进程入口；生产工厂不开放任意环境或命令参数。 */
 export interface GrokProcessFactory {
@@ -54,7 +55,7 @@ export async function grokRuntimeReuseKey(options: GrokRuntimeOptions, cwd: stri
   return createHash('sha256').update(JSON.stringify([
     normalized(options.executable), info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs,
     normalized(options.home), normalized(cwd), grokBaseUrl(options.baseUrl), options.model,
-    options.apiBackend, options.apiKey, options.proxyUrl, options.reasoningEffort, options.developerInstructions,
+    options.apiBackend, options.apiKey, options.proxyUrl, options.reasoningEffort, options.developerInstructions, options.runtimeAccess ?? 'full',
   ])).digest('hex');
 }
 
@@ -65,6 +66,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
   readonly capabilitiesVersion = RUNTIME_CAPABILITIES_VERSION;
   private readonly emitter = new EventEmitter();
   private readonly pending = new Map<RpcId, Pending>();
+  private readonly approvals = new RuntimeApprovals(event => this.emit(event));
   private readonly serverRequests = new Set<string>();
   private child?: ChildProcessWithoutNullStreams;
   private starting?: Promise<void>;
@@ -115,7 +117,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     if (this.closed) throw new Error('Grok Runtime 已关闭');
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = this.processes.launch(this.options.executable, ['agent', '--no-leader', '--always-approve', '--model', GROK_RELAY_MODEL_ALIAS, 'stdio'], { cwd: this.options.home, env: buildGrokEnvironment(this.options), windowsHide: true });
+      child = this.processes.launch(this.options.executable, ['agent', '--no-leader', ...(this.options.runtimeAccess === 'confirm' ? [] : ['--always-approve']), '--model', GROK_RELAY_MODEL_ALIAS, 'stdio'], { cwd: this.options.home, env: buildGrokEnvironment(this.options), windowsHide: true });
     } catch (error) {
       throw new Error(this.clean(launchErrorMessage(error, false, this.options.executable, this.options.home)));
     }
@@ -222,7 +224,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     if (this.turn) throw new Error('当前 Grok 会话已有运行中的任务');
     // 上轮权限请求已结算，原生进程可以在新轮复用请求 ID；仍拒绝本轮重复请求。
     this.serverRequests.clear();
-    const turn: Turn = { sessionId: threadId, cancelled: false, tools: new Map() }; this.turn = turn;
+    const turn: Turn = { controller: new AbortController(), sessionId: threadId, cancelled: false, tools: new Map() }; this.turn = turn;
     this.emit({ threadId, type: 'status', text: 'running' });
     try {
       const result = await this.request('session/prompt', { sessionId: threadId, prompt: [{ type: 'text', text: prompt }] }, this.processes.promptTimeoutMs ?? GROK_STREAM_IDLE_TIMEOUT_MS);
@@ -234,6 +236,7 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
       if (turn.cancelled) this.emit({ threadId, type: 'status', text: 'interrupted' });
       else { const failure = new Error(this.clean((error as Error).message)); this.emit({ threadId, type: 'error', text: failure.message }); throw failure; }
     } finally {
+      turn.controller.abort();
       if (turn.cancelTimer) clearTimeout(turn.cancelTimer);
       if (this.turn === turn) this.turn = undefined;
     }
@@ -241,12 +244,13 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
 
   async cancelRun(threadId: string): Promise<void> {
     const turn = this.turn; if (!turn || turn.sessionId !== threadId) return;
-    if (!turn.cancelled) { turn.cancelled = true; this.notify('session/cancel', { sessionId: threadId }); }
+    if (!turn.cancelled) { turn.cancelled = true; turn.controller.abort(); this.notify('session/cancel', { sessionId: threadId }); }
     turn.cancelTimer ??= setTimeout(() => { if (this.turn === turn) void this.fail(new Error('Grok 取消未返回终态，已回收进程')); }, this.processes.cancelTimeoutMs ?? GROK_CANCEL_TIMEOUT_MS);
   }
 
-  async respondApproval(_requestId: string, _decision: 'allow_once' | 'reject_once'): Promise<void> {
-    throw new Error('Grok 全权限模式无需逐次审批，旧审批请求已失效');
+  async respondApproval(requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void> {
+    if (this.options.runtimeAccess !== 'confirm') throw new Error('Grok 全权限模式无需逐次审批，旧审批请求已失效');
+    return this.approvals.respond(requestId, decision);
   }
 
   private receive(chunk: string): void {
@@ -302,6 +306,15 @@ export class GrokBuildRuntimeAdapter implements RuntimeAdapter {
     const turn = this.turn; const params = message.params;
     const deny = async () => { this.write({ jsonrpc: '2.0', id: rpcId, result: { outcome: { outcome: 'cancelled' } } }, true); if (turn) await this.cancelRun(turn.sessionId); };
     if (!turn || turn.cancelled || !record(params) || params.sessionId !== turn.sessionId || !record(params.toolCall) || !Array.isArray(params.options) || params.options.length > 16) return deny();
+    if (this.options.runtimeAccess === 'confirm') {
+      const once = params.options.find((option: unknown) => record(option) && option.kind === 'allow_once');
+      if (!validSession(once?.optionId)) return deny();
+      const details = { title: this.clean(String(params.toolCall.title ?? '确认使用工具')), toolName: 'grok_tool', input: this.clean(JSON.stringify(params.toolCall.rawInput ?? params.toolCall.title, null, 2) ?? '{}') };
+      const allowed = await this.approvals.request(turn.sessionId, details, turn.controller.signal);
+      if (turn.controller.signal.aborted || this.turn !== turn) return;
+      this.write({ jsonrpc: '2.0', id: rpcId, result: { outcome: allowed ? { outcome: 'selected', optionId: once.optionId } : { outcome: 'cancelled' } } });
+      return;
+    }
     const allow = params.options.find((item: unknown) => record(item) && item.kind === 'allow_always') ?? params.options.find((item: unknown) => record(item) && item.kind === 'allow_once');
     if (!validSession(allow?.optionId)) return deny();
     // 用户已选择全权限，原生工具统一自动授权，不再限制工具名或工作区内外路径。

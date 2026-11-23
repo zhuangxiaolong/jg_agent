@@ -20,7 +20,9 @@ export function pendingRuntimeApprovals(events: AgentEvent[], sessionId: string,
   if (!active || !sessionId) return [];
   const latest = new Map<string, AgentEvent>();
   for (const event of events) {
-    if (event.sessionId !== sessionId || event.type !== 'approval' || !event.approval?.requestId) continue;
+    if (event.sessionId !== sessionId) continue;
+    if (event.type === 'status' && ['completed', 'failed', 'interrupted'].includes(event.text)) latest.clear();
+    if (event.type !== 'approval' || !event.approval?.requestId) continue;
     const previous = latest.get(event.approval.requestId);
     if (previous?.approval?.state !== undefined && previous.approval.state !== 'pending') continue;
     latest.set(event.approval.requestId, event);

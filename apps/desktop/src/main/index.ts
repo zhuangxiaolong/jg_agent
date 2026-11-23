@@ -15,7 +15,7 @@ import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/sr
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
-import type { AgentEvent, AgentOrchestrationAvailability, AgentTaskEvent, ConversationAttachment, JiraIssue, RequirementAdmission, RequirementResolutionAction, RuntimeKind, Session, UpdateMode, UpdateStatus, VerificationRunSummary } from '../../../../packages/domain/src';
+import type { AgentEvent, AgentOrchestrationAvailability, AgentTaskEvent, ConversationAttachment, JiraIssue, RequirementAdmission, RequirementResolutionAction, RuntimeAccess, RuntimeKind, Session, UpdateMode, UpdateStatus, VerificationRunSummary } from '../../../../packages/domain/src';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { JiraConnector } from '../../../../packages/jira-connector/src';
 import { importDocumentFile, readDocumentTextFile, SUPPORTED_DOCUMENT_TEXT_EXTENSIONS } from '../../../../packages/knowledge/src';
@@ -110,6 +110,7 @@ let codexAppServerPrewarm: CodexAppServerPrewarm | undefined;
 let agentTaskRunner: AgentTaskRunner | undefined;
 let performanceService: DesktopPerformanceService | undefined;
 let operationManualLibrary: OperationManualLibrary | undefined;
+const liveApprovals = new Map<string, Map<string, NonNullable<AgentEvent['approval']>>>();
 const runtimeEventBuffers = new Map<string, RuntimeEventBatcher>();
 const SKILL_RUNTIME_TOOL_DEFINITIONS: NonNullable<RuntimeOptions['skillTools']>['definitions'] = [
   { type: 'function', name: 'list_available_skills', description: '按当前用户任务和项目系统，从本会话已授权的 Skill 中返回最多 3 个本地确定性推荐。', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
@@ -192,7 +193,7 @@ async function prewarmCodexSession(sessionId: string): Promise<void> {
   if (!apiKey) return;
   const options: RuntimeOptions = {
     executable, home: path.join(dataRoot, 'runtime', 'homes', 'codex'), baseUrl: provider.baseUrl, model: session.model, apiKey,
-    reasoningEffort: session.reasoningEffort, shellToolEnabled: true,
+    runtimeAccess: store.getRuntimeAccess(), reasoningEffort: session.reasoningEffort, shellToolEnabled: true,
     maxParallelDictionaryReads: performanceSettings?.enabled && performanceSettings.safeParallelEnabled ? performanceSettings.maxParallelReadOperations : 1,
   };
   await codexAppServerPrewarm.warm(options, session.workspacePath, session.id);
@@ -759,7 +760,7 @@ async function checkRuntime(kind: RuntimeKind = store.getRuntimeKind()) {
   return runtimePrewarm.check(kind);
 }
 
-function cliConfigArgs(profile: { baseUrl: string; models: string[] }): string[] {
+function cliConfigArgs(profile: { baseUrl: string; models: string[] }, runtimeAccess: RuntimeAccess): string[] {
   const model = profile.models[0];
   if (!model) throw new Error('模型配置中没有可用模型');
   let url: URL;
@@ -777,7 +778,7 @@ function cliConfigArgs(profile: { baseUrl: string; models: string[] }): string[]
     'model_providers.jinggong.request_max_retries': 0,
     'model_providers.jinggong.stream_max_retries': 0,
     sandbox_mode: 'danger-full-access',
-    approval_policy: 'never',
+    approval_policy: runtimeAccess === 'full' ? 'never' : 'on-request',
     'shell_environment_policy.inherit': 'core',
     'shell_environment_policy.ignore_default_excludes': false,
     'shell_environment_policy.exclude': ['JINGGONG_MODEL_API_KEY', '*TOKEN*', '*PASSWORD*', '*SECRET*', '*CREDENTIAL*', '*API_KEY*'],
@@ -812,7 +813,7 @@ async function runStandaloneCli(): Promise<number> {
     if (!profile) throw new Error('请先在精工Agent设置中配置模型中转站');
     apiKey = settings.credential(profile.id).read(profile.baseUrl);
     if (!apiKey) throw new Error('请先在精工Agent设置中配置模型 API Key');
-    args = [...cliConfigArgs(profile), ...cliArgs];
+    args = [...cliConfigArgs(profile, store.getRuntimeAccess()), ...cliArgs];
   }
   const child = spawn(cliExecutable, args, { cwd: process.cwd(), env: runtimeEnvironment(home, apiKey), windowsHide: false, stdio: 'inherit' });
   return await new Promise<number>((resolve, reject) => {
@@ -999,7 +1000,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     },
     audit: (toolName, requestHash, resultHash, success) => emit(session.id, 'tool', `平台编排工具 ${toolName} 已${success ? '完成' : '拒绝'}（参数摘要 ${requestHash.slice(0, 12)}；结果摘要 ${resultHash.slice(0, 12)}）`),
   }) : undefined;
-  const runtimeOptions: RuntimeOptions = { executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
+  const runtimeOptions: RuntimeOptions = { runtimeAccess: store.getRuntimeAccess(), executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
     ...(orchestrationProvider ? { platformToolProvider: orchestrationProvider, onTurnStarted: (threadId: string, turnId: string) => runs.bindActiveTurn(ticket, threadId, turnId) } : {}),
     ...(kind === 'jinggong' ? { skillTools: { definitions: SKILL_RUNTIME_TOOL_DEFINITIONS, call: async request => {
       runs.assertCurrent(ticket);
@@ -1031,7 +1032,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     onLifecycle,
     requestDirectoryAccess: async () => {
       runs.assertCurrent(ticket);
-      return { granted: true, mode: 'full', message: '当前 Runtime 已启用完整文件读写和命令执行权限，无需额外授权。目录工具可只读解析文档，其他文件操作使用原生工具。' };
+      return { granted: true, mode: 'full', message: '目录工具可读取文档，其他文件操作使用原生工具。命令执行遵循当前会话权限设置。' };
     },
     toolGateway: async (request, execute) => {
       runs.assertCurrent(ticket);
@@ -1065,6 +1066,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     }
   };
   const grokOptions: GrokRuntimeOptions | undefined = kind === 'grok_build_acp' ? {
+    runtimeAccess: runtimeOptions.runtimeAccess,
     executable: grokSettings.runtime().executablePath,
     home: runtimeHome,
     baseUrl: grokProvider!.baseUrl,
@@ -1114,6 +1116,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
         apiKey,
         relayBaseUrl: provider?.baseUrl,
         executablePath: claudeExecutable,
+        runtimeAccess: runtimeOptions.runtimeAccess,
         controlledMode: false,
         additionalSystemPrompt: developerInstructions,
         authorizedDirectories: runtimeOptions.authorizedDirectories,
@@ -1132,13 +1135,17 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
   } });
   const candidateAdapter = reusableAdapter ?? manager.get(kind);
   runtimes.bind(ticket, candidateAdapter, reuseKey);
+  const pendingApprovals = new Map<string, NonNullable<AgentEvent['approval']>>();
+  liveApprovals.set(session.id, pendingApprovals);
   const publishRuntimeEvent = async (event: import('../../../../packages/agent-runtime/src').RuntimeEvent) => {
     if (!runtimes.owns(ticket, candidateAdapter) || !runs.isCurrent(ticket) || ticket.cancelled) return;
     const current = store.getSession(ticket.sessionId);
     if (!current || (event.threadId && current.runtimeThreadId !== event.threadId)) return;
     performanceService?.record(current.id, event);
     if (event.type === 'approval' && event.approval) {
-      const nextStatus = event.approval.state === 'pending' ? 'waiting-approval' : 'running';
+      if (event.approval.state === 'pending') pendingApprovals.set(event.approval.requestId, event.approval);
+      else pendingApprovals.delete(event.approval.requestId);
+      const nextStatus = pendingApprovals.size ? 'waiting-approval' : 'running';
       if (current.status !== nextStatus) store.saveSession({ ...current, status: nextStatus });
     }
     const terminal = event.type === 'status' && ['completed', 'failed', 'interrupted'].includes(event.text);
@@ -1197,6 +1204,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
   runtimes.setEventSubscription(ticket, candidateAdapter, () => {
     unsubscribe();
     batcher.flush();
+    if (liveApprovals.get(session.id) === pendingApprovals) liveApprovals.delete(session.id);
     if (runtimeEventBuffers.get(session.id) === batcher) runtimeEventBuffers.delete(session.id);
   });
   const initSpan = performanceService?.telemetry.startSpan(performanceService.traceId(session.id), { stage: 'runtime.initialize', operation: `${kind}.start_handshake` });
@@ -1708,7 +1716,15 @@ if (primaryInstance) app.whenReady().then(async () => {
     store.saveSession(updated);
     return updated;
   });
-  handle('session:events', (value: unknown) => store.events(sessionById(value).id));
+  handle('session:events', (value: unknown) => {
+    const id = sessionById(value).id;
+    const pending = liveApprovals.get(id);
+    return store.events(id).flatMap(event => {
+      if (event.approval?.state !== 'pending') return [event];
+      const approval = pending?.get(event.approval.requestId);
+      return approval ? [{ ...event, approval }] : [];
+    });
+  });
   handle('session:prewarm', (value: unknown) => { void prewarmCodexSession(sessionById(value).id).catch(() => undefined); });
   handle('session:conversation-image', async (value: unknown) => {
     const input = sessionConversationImageSchema.parse(value);
@@ -2163,12 +2179,18 @@ if (primaryInstance) app.whenReady().then(async () => {
     return grokSettings.saveModels(input.providerId, input.models);
   });
   handle('runtime:approval', async (value: unknown) => {
-    const input = z.object({ sessionId: idSchema, requestId: z.string().uuid(), decision: z.enum(['allow_once', 'reject_once']) }).strict().parse(value);
-    const session = sessionById(input.sessionId);
-    if (session.runtimeKind !== 'grok_build_acp') throw new Error('当前会话不是 Grok Runtime');
-    const candidate = runtimes.get(input.sessionId);
-    if (!candidate?.respondApproval) throw new Error('当前会话没有可用的 Grok 审批请求');
-    await candidate.respondApproval(input.requestId, input.decision);
+    const input = z.object({ sessionId: idSchema, requestId: z.string().uuid(), decision: z.enum(['allow_once', 'reject_once', 'full']) }).strict().parse(value);
+    const ticket = runs.get(input.sessionId);
+    const candidate = ticket && !ticket.cancelled ? runtimes.getForTicket(ticket) : undefined;
+    if (!candidate?.respondApproval) throw new Error('该会话的审批已失效');
+    if (input.decision !== 'full') return candidate.respondApproval(input.requestId, input.decision);
+    const previousAccess = store.getRuntimeAccess();
+    store.setRuntimeAccess('full');
+    try { await candidate.respondApproval(input.requestId, 'allow_once'); }
+    catch (error) {
+      store.setRuntimeAccess(previousAccess);
+      throw error;
+    }
   });
   handle('grok:test', async (value: unknown) => {
     assertIdle();
@@ -2201,6 +2223,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       await rm(path.join(dataRoot, 'runtime', 'grok-tests', testId), { recursive: true, force: true }).catch(() => undefined);
     }
   });
+  handle('settings:runtime-access', (value: unknown) => store.setRuntimeAccess(z.enum(['full', 'confirm']).parse(value)));
   handle('settings:preferences', (value: unknown) => {
     const next = settings.savePreferences(value);
     configureUpdaterMode(next.updateMode);

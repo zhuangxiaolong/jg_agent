@@ -43,6 +43,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
   steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
+  respondApproval(requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void> { return this.runtime.respondApproval(requestId, decision); }
   close(): Promise<void> { return this.runtime.close(); }
 }
 
@@ -66,6 +67,7 @@ export class JinggongRuntimeAdapter implements RuntimeAdapter {
   sendTurn(threadId: string, prompt: string, cwd: string, imagePaths: string[] = []): Promise<void> { return this.runtime.sendTurn(threadId, prompt, cwd, imagePaths); }
   steerTurn(threadId: string, prompt: string, cwd: string): Promise<boolean> { return this.runtime.steerTurn(threadId, prompt, cwd); }
   cancelRun(threadId: string): Promise<void> { return this.runtime.cancelRun(threadId); }
+  respondApproval(requestId: string, decision: 'allow_once' | 'reject_once'): Promise<void> { return this.runtime.respondApproval(requestId, decision); }
   close(): Promise<void> { return this.runtime.close(); }
 }
 

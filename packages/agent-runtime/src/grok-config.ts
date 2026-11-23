@@ -1,6 +1,6 @@
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { ReasoningEffort } from '../../domain/src/index';
+import type { ReasoningEffort, RuntimeAccess } from '../../domain/src/index';
 import { buildRuntimeExecutionInstructions } from './execution-instructions';
 
 export const GROK_BUILD_RUNTIME_VERSION = '1.0.67';
@@ -20,6 +20,7 @@ export function grokExecutionInstructions(instructions?: string, platform = proc
 }
 
 export interface GrokRuntimeOptions {
+  runtimeAccess?: RuntimeAccess;
   executable: string;
   home: string;
   baseUrl: string;
@@ -100,7 +101,7 @@ export function grokConfigToml(options: GrokRuntimeOptions): string {
   validateGrokOptions(options);
   // 未声明菜单时原生请求不带 effort，冷恢复也不会沿用旧会话的显式档位。
   const reasoningMenu = options.reasoningEffort === undefined ? '' : `reasoning_efforts = [${reasoningEfforts.map(value => `{ value = ${JSON.stringify(value)}, label = ${JSON.stringify(value)} }`).join(', ')}]\n`;
-  return `[cli]\nauto_update = false\n[models]\ndefault = ${JSON.stringify(GROK_RELAY_MODEL_ALIAS)}\n[model.${GROK_RELAY_MODEL_ALIAS}]\nmodel = ${JSON.stringify(options.model)}\nbase_url = ${JSON.stringify(grokBaseUrl(options.baseUrl))}\napi_backend = ${JSON.stringify(options.apiBackend)}\nenv_key = ${JSON.stringify(GROK_CREDENTIAL_ENV)}\n${reasoningMenu}[features]\nremote_fetch = false\ntelemetry = false\n[diagnostics]\nerror_reporting = false\n[ui]\npermission_mode = "always-approve"\n[sandbox]\nprofile = "off"\n[shell_environment_policy]\ninherit = "core"\nignore_default_excludes = false\nexclude = ["${GROK_CREDENTIAL_ENV}", "XAI_API_KEY", "GROK_CODE_XAI_API_KEY", "GROK_AUTH", "HTTP_PROXY", "HTTPS_PROXY"]\n[toolset.bash]\nlogin_shell_capture = false\n[compat.claude]\nagents = false\nrules = false\nhooks = false\nskills = false\nmcps = false\n[compat.cursor]\nagents = false\nrules = false\nhooks = false\nskills = false\nmcps = false\n[compat.codex]\nhooks = false\nskills = false\n[telemetry]\notel_enabled = false\ntrace_upload = false\n`;
+  return `[cli]\nauto_update = false\n[models]\ndefault = ${JSON.stringify(GROK_RELAY_MODEL_ALIAS)}\n[model.${GROK_RELAY_MODEL_ALIAS}]\nmodel = ${JSON.stringify(options.model)}\nbase_url = ${JSON.stringify(grokBaseUrl(options.baseUrl))}\napi_backend = ${JSON.stringify(options.apiBackend)}\nenv_key = ${JSON.stringify(GROK_CREDENTIAL_ENV)}\n${reasoningMenu}[features]\nremote_fetch = false\ntelemetry = false\n[diagnostics]\nerror_reporting = false\n${options.runtimeAccess === 'confirm' ? '' : '[ui]\npermission_mode = "always-approve"\n'}[sandbox]\nprofile = "off"\n[shell_environment_policy]\ninherit = "core"\nignore_default_excludes = false\nexclude = ["${GROK_CREDENTIAL_ENV}", "XAI_API_KEY", "GROK_CODE_XAI_API_KEY", "GROK_AUTH", "HTTP_PROXY", "HTTPS_PROXY"]\n[toolset.bash]\nlogin_shell_capture = false\n[compat.claude]\nagents = false\nrules = false\nhooks = false\nskills = false\nmcps = false\n[compat.cursor]\nagents = false\nrules = false\nhooks = false\nskills = false\nmcps = false\n[compat.codex]\nhooks = false\nskills = false\n[telemetry]\notel_enabled = false\ntrace_upload = false\n`;
 }
 
 export const GROK_MANAGED_POLICY = 'allow_managed_hooks_only = true\nallow_managed_mcp_servers_only = true\nenable_all_project_mcp_servers = false\nstrict_known_marketplaces = []\n';

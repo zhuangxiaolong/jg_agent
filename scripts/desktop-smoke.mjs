@@ -545,6 +545,13 @@ try {
   await page.getByRole('button', { name: '运行时', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Runtime 组件状态', exact: true })).toBeVisible();
   await expect(page.locator('input[name="runtime-kind"]')).toHaveCount(0);
+  const access = page.getByRole('group', { name: '所有会话的执行权限' });
+  for (const [name, mode] of [['按需确认', 'confirm'], ['完全访问', 'full']]) {
+    const choice = access.getByRole('button', { name, exact: true });
+    await choice.click();
+    await expect(choice).toHaveAttribute('aria-pressed', 'true');
+    assert.equal((await page.evaluate(() => window.jinggong.getSettings())).runtimeAccess, mode);
+  }
   const runtimeBootstrap = await page.evaluate(() => window.jinggong.bootstrap());
   assert.equal(runtimeBootstrap.runtimes?.jinggong?.kind, 'jinggong');
   assert.equal(runtimeBootstrap.runtimes?.codex?.kind, 'codex');
@@ -555,7 +562,7 @@ try {
   await expect(page.locator('.runtime-health.ready')).toHaveCount(3);
   await page.screenshot({ path: 'test-results/desktop-runtime-settings.png' });
   assert.equal(runtimeBootstrap.sessions.find(item => item.id === session.id)?.runtimeKind, 'codex');
-  checks.push('Runtime 设置仅保留组件检查，没有全局选择；三种随包引擎均通过清单校验，当前会话使用显式选择的 Runtime');
+  checks.push('已切换并读回两种全局执行权限；三种随包引擎均通过清单校验，当前会话使用显式选择的 Runtime');
   await page.getByRole('button', { name: '模型中转站', exact: true }).click();
   await page.locator('#provider-url').fill('https://gateway.example.invalid/v1');
   await page.locator('#provider-model').fill('test-model');

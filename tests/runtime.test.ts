@@ -165,7 +165,8 @@ for (const kind of ['codex', 'jinggong'] as const) {
       assert.deepEqual(responses.map(response => response.method), ['thread/start', 'thread/resume']);
       for (const { result } of responses) {
         assert.deepEqual(result.sandbox, { type: 'dangerFullAccess' });
-        assert.equal(result.approvalPolicy, 'never');
+        assert.equal(result.approvalPolicy, 'on-request');
+        assert.equal(result.approvalsReviewer, 'user');
         assert.equal(result.cwd, workspace);
         assert.deepEqual(result.thread.environments, [{ environmentId: 'local', cwd: workspace, runtimeWorkspaceRoots: [workspace] }]);
       }
@@ -188,6 +189,15 @@ for (const kind of ['codex', 'jinggong'] as const) {
       await assert.rejects(access(outsideFile), { code: 'ENOENT' });
       await assert.rejects(runtime.sendTurn(threadId, '完全访问协议验证', workspace), /尚未配置模型 API Key/);
       assert.equal(turnRequests, 0);
+      await runtime.close();
+      const confirm = new CodexRuntime({
+        executable, home: path.join(root, 'runtime-home'), baseUrl: 'https://model.example.invalid/v1', model: 'protocol-test', runtimeAccess: 'confirm',
+        ...(kind === 'jinggong' ? { runtimeVersion: '0.1.0', expectedUserAgentPrefix: 'jinggong_runtime/' } : {}),
+      });
+      try {
+        assert.ok(await confirm.startSession(workspace));
+        assert.equal(await confirm.resumeSession(threadId, workspace), threadId);
+      } finally { await confirm.close(); }
     } finally { await runtime.close(); await rm(root, { recursive: true, force: true }); }
   });
 }
@@ -253,8 +263,8 @@ test('真实 Windows Runtime 接受开发工具 Schema 与完整规范并恢复�
     assert.deepEqual(startParams!.dynamicTools.map((tool: { name: string }) => tool.name), ['list_project_files', 'read_project_file', 'write_project_file', 'delete_project_file', 'publish_change_plan', 'search_dictionary', 'read_dictionary', 'browser_action', 'computer_action']);
     assert.equal(startParams!.environments, undefined);
     assert.equal(startParams!.sandbox, 'danger-full-access');
-    assert.equal(startParams!.approvalPolicy, 'never');
-    assert.equal(startParams!.approvalsReviewer, undefined);
+    assert.equal(startParams!.approvalPolicy, 'on-request');
+    assert.equal(startParams!.approvalsReviewer, 'user');
     assert.ok(startParams!.developerInstructions.endsWith(developerInstructions));
     // 仅追加真实探针用户输入以触发持久化；不注入模型输出、不请求外部模型。
     await actualRequest('thread/inject_items', { threadId, items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: '开发模式协议持久化验证，不请求模型。' }] }] });
@@ -278,7 +288,8 @@ test('turn 终态先于 RPC 微任务时不能重建幽灵活动任务（无模�
   state.request = async (method, params) => {
     assert.equal(method, 'turn/start');
     assert.equal(params?.environments, undefined);
-    assert.equal(params?.approvalPolicy, 'never');
+    assert.equal(params?.approvalPolicy, 'on-request');
+    assert.equal(params?.approvalsReviewer, 'user');
     assert.deepEqual(params?.sandboxPolicy, { type: 'dangerFullAccess' });
     state.receive({ method: 'turn/started', params: { threadId: 'thread-race', turn: { id: 'turn-race', status: 'inProgress' } } });
     state.receive({ method: 'turn/completed', params: { threadId: 'thread-race', turn: { id: 'turn-race', status: 'completed' } } });

@@ -293,6 +293,20 @@ for (const prompt of ['approve', 'outside', 'secret', 'context', 'new-tool', 'al
   } finally { await f.close(); }
 });
 
+test('Grok 按需确认只使用 ACP 本次授权选项', async () => {
+  const f = await fixture({ runtimeAccess: 'confirm' });
+  try {
+    const id = await f.runtime.startSession(f.workspace);
+    assert.ok(!f.launches[0].includes('--always-approve'));
+    assert.doesNotMatch(await readFile(path.join(f.options.home, 'config.toml'), 'utf8'), /always-approve/);
+    const turn = f.runtime.sendTurn(id, 'approve', f.workspace);
+    await waitFor(() => f.events.some(event => event.approval?.state === 'pending'));
+    await f.runtime.respondApproval(f.events.find(event => event.approval?.state === 'pending')!.approval!.requestId, 'allow_once');
+    await turn;
+    assert.equal(f.events.at(-1)?.text, 'completed');
+  } finally { await f.close(); }
+});
+
 for (const prompt of ['unknown', 'wrong-session']) test(`Grok 全权限仍拒绝 ${prompt} 无效协议或跨会话请求`, async () => {
   const f = await fixture();
   try { const id = await f.runtime.startSession(f.workspace); await f.runtime.sendTurn(id, prompt, f.workspace); assert.equal(f.events.at(-1)?.text, 'interrupted'); assert.ok(!f.events.some(e => e.type === 'approval')); } finally { await f.close(); }
