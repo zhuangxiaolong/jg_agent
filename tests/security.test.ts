@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, operationManualIdSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema, sessionConversationAttachmentSchema, sessionConversationImageSchema } from '../apps/desktop/src/main/security';
+import { clipboardTextSchema, commitSchema, providerSchema, promptSchema, idSchema, operationManualIdSchema, jiraSchema, jiraProjectScopeSchema, jiraSearchSchema, requirementInputSchema, redact, claudeCredentialSchema, wecomTargetSchema, sessionCreateSchema, sessionOptionsSchema, modelRoutingSchema, sessionAttachmentPathsSchema, sessionAttachmentsSchema, sessionConversationAttachmentSchema, sessionConversationImageSchema } from '../apps/desktop/src/main/security';
 
 test('提交不再要求复核资料列表，保留旧请求兼容与提交参数校验', () => {
   assert.deepEqual(commitSchema.parse({ message: '提交本地修改' }), { message: '提交本地修改' });
@@ -137,4 +137,14 @@ test('会话可单独选择 Runtime 和推理强度，模型变更仍要求完�
   assert.equal(sessionOptionsSchema.safeParse({ system: 'MES5' }).success, true);
   assert.equal(sessionOptionsSchema.safeParse({ providerId: 'legacy-default', model: 'fixture-model' }).success, true);
   assert.deepEqual(sessionOptionsSchema.parse({ runtimeKind: 'codex', reasoningEffort: undefined }), { runtimeKind: 'codex', reasoningEffort: undefined });
+  assert.equal(sessionOptionsSchema.safeParse({ modelRouteTaskType: 'code_review' }).success, false);
+  assert.equal(sessionOptionsSchema.safeParse({ providerId: 'legacy-default', model: 'fixture-model', runtimeKind: 'codex', modelRouteTaskType: 'code_review' }).success, true);
+});
+
+test('模型路由配置拒绝重复任务类型与额外字段', () => {
+  const rule = { taskType: 'code_change', providerId: 'legacy-default', modelId: 'fixture-model', runtimeKind: 'codex' } as const;
+  assert.deepEqual(modelRoutingSchema.parse({ rules: [rule] }), { rules: [rule] });
+  assert.equal(modelRoutingSchema.safeParse({ rules: [rule, rule] }).success, false);
+  assert.equal(modelRoutingSchema.safeParse({ rules: [{ ...rule, modelId: ' ' }] }).success, false);
+  assert.equal(modelRoutingSchema.safeParse({ rules: [{ ...rule, extra: true }] }).success, false);
 });

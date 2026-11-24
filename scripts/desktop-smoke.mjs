@@ -49,7 +49,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.evaluate(() => typeof window.process), 'undefined');
-  await expect(page.getByRole('heading', { name: '从后往前看，挑战一切不可能', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '研发任务工作台', exact: true })).toBeVisible();
   const prefs = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences());
   assert.equal(prefs.contextIsolation, true); assert.equal(prefs.nodeIntegration, false); assert.equal(prefs.sandbox, true);
   checks.push('实际 Electron 本地窗口、安全渲染配置与 preload 桥接');
@@ -107,7 +107,7 @@ try {
   await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, standaloneShare);
   await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('navigation', { name:'设置分类' }).getByRole('button',{name:'专家中心'}).click();
-  const directory = page.getByRole('group',{name:'专家档案'});
+  const directory = page.locator('.expert-matrix-shell');
   const selectedExpert = page.locator('button.matrix-profile[aria-pressed="true"]');
   await expect(selectedExpert).toHaveAccessibleName(/MES\/WMS 需求与研发总专家/);
   await expect.poll(()=>directory.locator('img').evaluateAll(images => new Set(images.filter(image=>image.naturalWidth>0).map(image=>image.src)).size)).toBe(10);
@@ -116,7 +116,7 @@ try {
   await page.getByRole('button',{name:'复制档案',exact:true}).click();
   await expect(page.getByRole('button',{name:'删除档案'})).toBeEnabled();
   await page.getByRole('button',{name:'删除档案'}).click();
-  await page.getByRole('button',{name:'评测工作台'}).click();
+  await page.getByRole('tab',{name:'评测工作台'}).click();
   const expertCases = page.getByRole('combobox',{name:'评测案例',exact:true});
   await expect(expertCases.locator('option')).toHaveCount(41);
   await expertCases.selectOption('mes-wms-backend-1');
@@ -176,6 +176,14 @@ try {
   assert.equal(Object.hasOwn(session, 'mode'), false);
   const sessionDisplay = '新会话';
   assert.equal(session.system, 'MES5');
+  await page.getByRole('button', { name: '项目工作台', exact: true }).click();
+  await expect(page.locator('#iteration-panel')).toBeVisible();
+  await expect(page.locator('.iteration-heading')).toContainText('样本项目 空格');
+  const iterationTabs = page.getByRole('group', { name: '0.7工作台功能', exact: true });
+  await iterationTabs.getByRole('button', { name: '交付包', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '任务交付档案', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  checks.push('首页可进入项目工作台并打开交付包；右侧面板可返回 Git');
   const uploadImage = path.join(root, '会话图片.png');
   const uploadFile = path.join(root, '会话资料.md');
   await writeFile(uploadImage, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));

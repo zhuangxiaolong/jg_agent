@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { VerificationRunService, currentWorkspaceFingerprint, isVerificationRecordStale } from '../apps/desktop/src/main/verification-service';
@@ -20,6 +20,37 @@ async function createWorkspace(): Promise<{ root: string; cleanup: () => Promise
 
 const projectId = 'a'.repeat(24);
 const sessionId = '123e4567-e89b-42d3-a456-426614174000';
+
+test('未跟踪文件超出指纹限额时报告文件名、大小与限额', async () => {
+  const workspace = await createWorkspace();
+  const data = await mkdtemp(path.join(os.tmpdir(), 'jinggong-evidence-capacity-'));
+  const fileName = 'oversized-output.bin';
+  try {
+    const oversizedFile = path.join(workspace.root, fileName);
+    await writeFile(oversizedFile, '');
+    await truncate(oversizedFile, 129 * 1024 * 1024);
+    await assert.rejects(new VerificationRunService().execute({
+      projectId,
+      projectName: 'verification-fixture',
+      sessionId,
+      workspacePath: workspace.root,
+      evidenceRoot: path.join(data, 'evidence'),
+      runType: 'build',
+      executable: process.execPath,
+      args: ['-e', ''],
+      timeoutMs: 10_000,
+    }), error => {
+      assert.match(String(error), /oversized-output\.bin/);
+      assert.match(String(error), /129\.0 MiB/);
+      assert.match(String(error), /128\.0 MiB/);
+      assert.match(String(error), /不能判定验证状态/);
+      return true;
+    });
+  } finally {
+    await workspace.cleanup();
+    await rm(data, { recursive: true, force: true });
+  }
+});
 
 test('主进程验证服务从真实子进程采集 JUnit、Exit Code、日志与 manifest', async () => {
   const workspace = await createWorkspace();

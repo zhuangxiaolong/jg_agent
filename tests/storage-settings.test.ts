@@ -5,8 +5,24 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import initSqlJs from 'sql.js';
 import { LocalStore, LEGACY_PROVIDER_ID } from '../packages/storage/src/index';
-import type { JiraIssue, ManagedDocument, Session } from '../packages/domain/src/index';
+import type { JiraIssue, ManagedDocument, ModelRoutingPolicy, Session } from '../packages/domain/src/index';
 import type { WeComDeliveryRecord } from '../packages/wecom-notification/src/desktop-service';
+
+test('模型路由策略通过现有设置表持久化，无需数据库迁移', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-model-routing-'));
+  const filename = join(root, 'agent.db');
+  let store = await LocalStore.open(filename);
+  const policy: ModelRoutingPolicy = { rules: [
+    { taskType: 'code_change', providerId: 'provider-main', modelId: 'model-code', runtimeKind: 'codex' },
+    { taskType: 'code_review', providerId: 'provider-review', modelId: 'model-review', runtimeKind: 'claude_agent_sdk' },
+  ] };
+  try {
+    assert.deepEqual(store.getModelRouting(), { rules: [] });
+    assert.deepEqual(store.saveModelRouting(policy), policy);
+    store.close(); store = await LocalStore.open(filename);
+    assert.deepEqual(store.getModelRouting(), policy);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('v1 数据库真实升级到当前 schema，保留项目/会话/事件，迁移旧 Provider 且不重复', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-migration-'));

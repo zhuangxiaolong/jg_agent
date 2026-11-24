@@ -1,6 +1,8 @@
 import './jira-password.css';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
-import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Memory, MemoryCategory, MemoryStatus, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus, UserProfile } from '../../../../packages/domain/src';
+import type { CompletionSound, DesktopApi, JiraConnectionResult, ManagedDocument, Memory, MemoryCategory, MemoryStatus, ModelRouteTaskType, ModelRoutingPolicy, Preferences, ProductSystem, Project, ProviderModel, ProviderProfile, RuntimeHealth, RuntimeKind, Session, SettingsSnapshot, UpdateStatus, UserProfile } from '../../../../packages/domain/src';
+import { MODEL_ROUTE_TASKS } from '../../../../packages/domain/src/model-routing';
+import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon } from './ui';
 import { DictionaryPreview } from './DictionaryPreview';
 import { readableError } from './dictionary-index';
@@ -14,10 +16,10 @@ import { KnowledgeCenter } from './KnowledgeCenter';
 import './provider-models.css';
 import './settings-feedback.css';
 
-export type SettingsTab = 'providers' | 'appearance' | 'profile' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions' | 'manuals' | 'experts' | 'knowledge';
+export type SettingsTab = 'providers' | 'routing' | 'appearance' | 'profile' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions' | 'manuals' | 'experts' | 'knowledge';
 type Tab = SettingsTab;
 const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' | 'chat' | 'shield' | 'refresh' | 'terminal' | 'edit' }[] = [
-  { id: 'providers', name: '模型中转站', icon: 'box' }, { id:'experts',name:'专家中心',icon:'layers' }, { id:'knowledge',name:'知识中心',icon:'layers' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
+  { id: 'providers', name: '模型中转站', icon: 'box' }, { id: 'routing', name: '模型路由', icon: 'branch' }, { id:'experts',name:'专家中心',icon:'layers' }, { id:'knowledge',name:'知识中心',icon:'layers' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
   { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'manuals', name: '产品手册', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
 ];
 const failure = readableError;
@@ -68,6 +70,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
       <div className="settings-content">
         {feedback && <div className={`settings-feedback ${feedback.kind === 'error' ? 'form-error' : 'settings-notice'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}><Icon name={feedback.kind === 'error' ? 'alert' : 'check'} /><span>{feedback.text}</span><button type="button" className="icon-button" aria-label="关闭设置提示" title="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" /></button></div>}
         {tab === 'providers' && <Providers profiles={snapshot.providers} pending={pending} act={act} api={api} onSaved={onClose} />}
+        {tab === 'routing' && <ModelRoutingSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'appearance' && <Appearance preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'profile' && <ProfileSettings preferences={snapshot.preferences} pending={pending} act={act} api={api} />}
         {tab === 'jira' && <Jira snapshot={snapshot} pending={pending} act={act} api={api} />}
@@ -90,6 +93,65 @@ interface Operations { api: DesktopApi; pending: boolean; act: (work: () => Prom
 
 function updateText(status: UpdateStatus): string {
   return status.message || ({ disabled: '在线更新不可用', idle: '等待检查', checking: '正在检查更新…', available: '发现新版本', downloading: '正在下载更新…', downloaded: '更新已下载', 'not-available': '当前已是最新版本', error: '更新检查失败' } as Record<string, string>)[status.state];
+}
+
+type ModelRoutingDraft = Record<ModelRouteTaskType, { providerId: string; modelId: string; runtimeKind: RuntimeKind | '' }>;
+const modelRouteRuntimes: { kind: RuntimeKind; name: string }[] = [
+  { kind: 'jinggong', name: 'Jinggong Runtime' }, { kind: 'codex', name: 'Codex Runtime' },
+  { kind: 'claude_agent_sdk', name: 'Claude Runtime' }, { kind: 'grok_build_acp', name: 'Grok Runtime' }
+];
+
+function routingDraft(policy?: ModelRoutingPolicy): ModelRoutingDraft {
+  const rules = new Map((policy?.rules ?? []).map(rule => [rule.taskType, rule]));
+  return Object.fromEntries(MODEL_ROUTE_TASKS.map(task => {
+    const rule = rules.get(task.id);
+    return [task.id, { providerId: rule?.providerId ?? '', modelId: rule?.modelId ?? '', runtimeKind: rule?.runtimeKind ?? '' }];
+  })) as ModelRoutingDraft;
+}
+
+function ModelRoutingSettings({ snapshot, pending, act, api }: Operations & { snapshot: SettingsSnapshot }) {
+  const [draft, setDraft] = useState(() => routingDraft(snapshot.modelRouting));
+  useEffect(() => setDraft(routingDraft(snapshot.modelRouting)), [snapshot.modelRouting]);
+  const policy: ModelRoutingPolicy = { rules: MODEL_ROUTE_TASKS.flatMap(task => {
+    const rule = draft[task.id];
+    return rule.providerId && rule.modelId && rule.runtimeKind ? [{ taskType: task.id, ...rule, runtimeKind: rule.runtimeKind }] : [];
+  }) };
+  const changed = JSON.stringify(policy) !== JSON.stringify(snapshot.modelRouting ?? { rules: [] });
+  function modelsFor(providerId: string, runtimeKind: RuntimeKind | ''): string[] {
+    const provider = snapshot.providers.find(item => item.id === providerId);
+    if (!provider) return [];
+    return provider.models.filter(modelId => {
+      if (runtimeKind === 'claude_agent_sdk' && isGrokModel(provider, modelId)) return false;
+      if (runtimeKind === 'grok_build_acp' && !snapshot.grok?.providers.find(item => item.id === providerId)?.models.some(model => model.id === modelId)) return false;
+      return true;
+    });
+  }
+  function update(taskType: ModelRouteTaskType, patch: Partial<ModelRoutingDraft[ModelRouteTaskType]>) {
+    setDraft(current => ({ ...current, [taskType]: { ...current[taskType], ...patch } }));
+  }
+  return <section className="model-routing-settings">
+    <div className="section-heading"><div><h3>任务模型路由</h3><p>为任务类型配置 Runtime、中转站和模型。选择任务类型及应用操作仍由会话发起者明确完成。</p></div></div>
+    <div className="model-routing-list">{MODEL_ROUTE_TASKS.map(task => {
+      const rule = draft[task.id];
+      const provider = snapshot.providers.find(item => item.id === rule.providerId);
+      const availableModels = modelsFor(rule.providerId, rule.runtimeKind);
+      return <div className="model-routing-row" key={task.id}>
+        <strong>{task.name}</strong>
+        <label><span>Runtime</span><select aria-label={`${task.name} Runtime`} value={rule.runtimeKind} disabled={pending} onChange={event => {
+          const runtimeKind = event.target.value as RuntimeKind | '';
+          const models = modelsFor(rule.providerId, runtimeKind);
+          update(task.id, { runtimeKind, modelId: models.includes(rule.modelId) ? rule.modelId : '' });
+        }}><option value="">不配置</option>{modelRouteRuntimes.map(item => <option value={item.kind} key={item.kind}>{item.name}</option>)}</select></label>
+        <label><span>中转站</span><select aria-label={`${task.name} 中转站`} value={rule.providerId} disabled={pending} onChange={event => {
+          const providerId = event.target.value;
+          update(task.id, { providerId, modelId: modelsFor(providerId, rule.runtimeKind)[0] ?? '' });
+        }}><option value="">不配置</option>{snapshot.providers.map(item => <option value={item.id} key={item.id}>{item.name}{item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
+        <label><span>模型</span><select aria-label={`${task.name} 模型`} value={rule.modelId} disabled={pending || !provider || !rule.runtimeKind} onChange={event => update(task.id, { modelId: event.target.value })}><option value="">不配置</option>{provider?.models.map(modelId => <option value={modelId} key={modelId} disabled={!availableModels.includes(modelId)}>{provider.modelCatalog?.find(item => item.id === modelId)?.name || modelId}{!availableModels.includes(modelId) ? '（与 Runtime 不兼容）' : ''}</option>)}</select></label>
+      </div>;
+    })}</div>
+    <p className="field-hint">未配置的任务类型保持当前会话模型。路由置信度较低，因为当前版本没有按任务类型统计的历史基准数据。</p>
+    <div className="settings-actions"><button className="primary-button" type="button" disabled={pending || !changed} onClick={() => { void act(() => api.saveModelRouting(policy), '模型路由已保存。'); }}>保存路由</button></div>
+  </section>;
 }
 
 const runtimeOptions: { kind: RuntimeKind; name: string; description: string; positioning: string }[] = [

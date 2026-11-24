@@ -6,6 +6,7 @@
 @import url('./ui-redesign.css');
 @import url('./tech-design.css');
 @import url('./agent-tasks.css');
+@import url('./task-workbench.css');
 @import url('./diff-preview.css');
 
 .startup-splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: #111318; color: #a6afbd; font-size: 13px; }

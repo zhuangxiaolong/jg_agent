@@ -16,7 +16,7 @@ const api: DesktopApi = {
     saveProjectKnowledge: item => invoke('knowledge:project-save', item),
   },
   experts: {
-    profiles:()=>invoke('experts:profiles'), session:id=>invoke('experts:session',id),
+    profiles:()=>invoke('experts:profiles'), usage:()=>invoke('experts:usage'), session:id=>invoke('experts:session',id),
     select:(id,selection)=>invoke('experts:select',id,selection), profile:(action,id,patch)=>invoke('experts:profile',action,id,patch),
     feedback:(id,run,feedback)=>invoke('experts:feedback',id,run,feedback), cases:()=>invoke('experts:cases'),
     saveCase:value=>invoke('experts:save-case',value), deleteCase:id=>invoke('experts:delete-case',id),
@@ -245,6 +245,7 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('app:update-status', wrapped);
   },
   saveModelProvider: input => invoke('settings:provider-save', input),
+  saveModelRouting: input => invoke('settings:model-routing-save', input),
   fetchProviderModels: input => invoke('settings:provider-models', input),
   revealModelProviderApiKey: input => invoke('settings:provider-key', input),
   deleteModelProvider: id => invoke('settings:provider-delete', id),
@@ -314,6 +315,7 @@ const api: DesktopApi = {
   startVerification: (sessionId, profileId) => invoke('verification:start', sessionId, profileId),
   cancelVerification: (sessionId, runId) => invoke('verification:cancel', sessionId, runId),
   listVerificationRuns: sessionId => invoke('verification:list', sessionId),
+  listProjectVerificationRuns: projectId => invoke('verification:list-project', projectId),
   getVerificationRun: (sessionId, runId) => invoke('verification:detail', sessionId, runId),
   readVerificationArtifact: (sessionId, runId, artifact) => invoke('verification:artifact', sessionId, runId, artifact),
   onVerification: listener => { const callback = (_event: unknown, value: Parameters<typeof listener>[0]) => listener(value); ipcRenderer.on('verification:event', callback); return () => { ipcRenderer.removeListener('verification:event', callback); }; },

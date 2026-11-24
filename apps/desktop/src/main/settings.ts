@@ -2,7 +2,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { CredentialStore } from './credentials';
 import type { GrokSettingsService } from './grok-settings';
-import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, memorySettingsSchema, memoryStatusSchema, modelApiKeySchema, modelProfileSchema, preferencesSchema, profileIdSchema, providerCredentialRevealSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
+import { claudeCredentialSchema, claudeRuntimeSchema, idSchema, jiraSchema, layoutSchema, memorySchema, memorySettingsSchema, memoryStatusSchema, modelApiKeySchema, modelProfileSchema, modelRoutingSchema, preferencesSchema, profileIdSchema, providerCredentialRevealSchema, providerModelsSchema, redact, requirementInputSchema, wecomTargetSchema } from './security';
 import { parseJiraLocation } from '../../../../packages/jira-connector/src';
 import { parsePolicy } from '../../../../packages/policy/src';
 import { DEFAULT_UPDATE_URL, updateFeed } from '../../../../packages/domain/src/updates';
@@ -64,7 +64,12 @@ export class SettingsService {
   }
   snapshot(update: UpdateStatus = { state: 'disabled', message: '更新检查尚未启动' }): SettingsSnapshot {
     const memories = this.store.listMemories().map(memory => normalizeMemory(memory));
-    return { ...(this.grok ? { grok: this.grok.snapshot() } : {}), runtimeAccess: this.store.getRuntimeAccess(), preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories, memorySettings: normalizeMemorySettings(this.store.getMemorySettings()), ...(getLatestMemoryDiagnostics() ? { memoryDiagnostics: getLatestMemoryDiagnostics() } : {}), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
+    return { ...(this.grok ? { grok: this.grok.snapshot() } : {}), modelRouting: this.store.getModelRouting(), runtimeAccess: this.store.getRuntimeAccess(), preferences: this.store.getPreferences(), providers: this.profiles(), jira: { ...this.store.getJira(), hasPassword: this.jiraCredential().hasKey }, documents: this.store.listDocuments(), memories, memorySettings: normalizeMemorySettings(this.store.getMemorySettings()), ...(getLatestMemoryDiagnostics() ? { memoryDiagnostics: getLatestMemoryDiagnostics() } : {}), update, appVersion: this.appVersion, updateUrl: this.store.getUpdateUrl() ?? DEFAULT_UPDATE_URL, runtimeKind: this.store.getRuntimeKind(), requirementsSync: this.store.getRequirementsSync(), claude: this.claudeRuntime(), notificationWorkspaces: this.store.listProjects().map(({ id, name }) => ({ id, name })), wecom: { targets: this.wecomTargets(), deliveries: this.store.listWeComDeliveries().map((record: WeComDeliveryRecord) => ({ id: record.id, kind: record.kind, status: record.status, targetId: record.targetId, targetName: record.targetName, eventType: record.eventType, content: record.content, attempts: record.attempts, createdAt: record.createdAt, updatedAt: record.updatedAt, errorCode: record.errorCode, errorSummary: record.errorSummary, retryOfId: record.retryOfId })) } };
+  }
+  saveModelRouting(value: unknown) {
+    const policy = modelRoutingSchema.parse(value);
+    this.store.saveModelRouting(policy);
+    return policy;
   }
   saveRuntimeKind(value: unknown): RuntimeKind {
     if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk' && value !== 'grok_build_acp') throw new Error('Runtime 类型无效');

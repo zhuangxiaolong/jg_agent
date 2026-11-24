@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import initSqlJs from 'sql.js';
 import type { Session } from '../packages/domain/src';
+import type { ExpertRun } from '../packages/domain/src/expert';
 import { LocalStore } from '../packages/storage/src';
 import { benchmarkCases } from '../packages/expert-engine/src/cases';
 import { builtinProfiles, resolveExpert, expertInstructions } from '../packages/expert-engine/src';
@@ -70,6 +71,14 @@ test('v17 升级保留会话并备份原始字节，持久化档案、隔离来�
     assert.deepEqual(payloads[0].tools,payloads[1].tools);assert.ok(payloads[0].tools.every(t=>!/(shell|write|agent_task)/.test(t.name)));
     assert.ok(!payloads[0].instructions.includes('【本轮专业工作流】'));assert.ok(payloads[1].instructions.includes('【本轮专业工作流】'));
     const record=store.expertComparisons()[0];assert.equal(record.expert.status,'completed');assert.equal(record.baseline.answer,'测试替身结果');
+    const run=(id:string,profileId:string,createdAt:string):ExpertRun=>({id,sessionId:session.id,createdAt,router:'router',routerHash:'router-hash',profileId,name:profileId,version:1,hash:'profile-hash',workflowId:'workflow',reason:'测试',scope:['MES6'],runtime:'codex',model:'demo',sources:[],status:'completed'});
+    store.saveExpertRun(run('usage-a',copy.id,'2026-11-20T00:00:00.000Z'));
+    store.saveExpertRun(run('usage-b',copy.id,'2026-11-22T00:00:00.000Z'));
+    store.saveExpertRun(run('usage-c','mes-wms-backend','2026-11-21T00:00:00.000Z'));
+    assert.deepEqual(store.expertUsage().map(item=>({...item})),[
+      {profileId:copy.id,usageCount:2,lastUsedAt:'2026-11-22T00:00:00.000Z'},
+      {profileId:'mes-wms-backend',usageCount:1,lastUsedAt:'2026-11-21T00:00:00.000Z'},
+    ]);
     call('grade',record.id,'expert',{scores:[3,4,5,2,3,4,5],citation:'不适用',mismatch:false,complete:true,notes:'人工样例'});
     const speakers = [undefined, {id:copy.id,name:'后端评审'}, {id:'project-manager',name:'项目经理专家'}];
     speakers.forEach((expert,index)=>store.appendEvent({

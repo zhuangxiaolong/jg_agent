@@ -42,6 +42,7 @@ export function registerExpertCenter(o: CenterOptions) {
     return p;
   };
   handle('experts:profiles', profiles);
+  handle('experts:usage', () => store.expertUsage());
   handle('experts:session', value => {
     const session = o.session(value);
     return { selection:store.expertSelection(session.id), runs:store.expertRuns(session.id) };

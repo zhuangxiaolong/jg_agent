@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MODEL_ROUTE_TASKS } from '../../../../packages/domain/src/model-routing';
 import { normalizeJiraUrl } from '../../../../packages/jira-connector/src';
 export const idSchema = z.string().uuid();
 export const operationManualIdSchema = z.union([idSchema, z.string().regex(/^builtin-operation-manual-[a-z0-9-]+$/)]);
@@ -53,7 +54,15 @@ export const layoutSchema = z.object({
 export const projectNameSchema = z.string().trim().min(1, '请输入项目显示名称').max(100, '项目显示名称最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '项目显示名称不能包含换行或控制字符');
 export const sessionAliasSchema = z.string().trim().max(100, '会话别名最多100字').refine(value => !/[\x00-\x1f\x7f]/.test(value), '会话别名不能包含换行或控制字符');
 export const systemSchema = z.enum(['MES5', 'MES6', 'WMS', '前端', '通用']);
-export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && Object.keys(value).length > 0, '会话配置无效');
+export const modelRoutingSchema = z.object({
+  rules: z.array(z.object({
+    taskType: z.enum(['simple_question', 'code_change', 'architecture', 'long_context', 'code_review', 'document']),
+    providerId: profileIdSchema,
+    modelId: modelSchema,
+    runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp'])
+  }).strict()).max(MODEL_ROUTE_TASKS.length)
+}).strict().refine(value => new Set(value.rules.map(rule => rule.taskType)).size === value.rules.length, '同一任务类型只能配置一条模型路由');
+export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional(), modelRouteTaskType: z.enum(['simple_question', 'code_change', 'architecture', 'long_context', 'code_review', 'document']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && Object.keys(value).length > 0 && (value.modelRouteTaskType === undefined || (value.providerId !== undefined && value.model !== undefined && value.runtimeKind !== undefined)), '会话配置无效');
 const jiraUrlSchema = z.string().trim().min(1).max(2000).transform((value, context) => {
   try { return normalizeJiraUrl(value); }
   catch { context.addIssue({ code: 'custom', message: '请输入有效的 HTTP 或 HTTPS Jira 地址，不能包含账号或密码。' }); return z.NEVER; }

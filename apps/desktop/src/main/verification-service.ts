@@ -282,7 +282,12 @@ async function workspaceSnapshot(workspacePath: string): Promise<WorkspaceSnapsh
     const info = await lstat(absolute);
     if (info.isSymbolicLink() || !info.isFile()) throw new Error(`工作区包含不支持的未跟踪文件：${relative}`);
     totalBytes += info.size;
-    if (info.size > MAX_UNTRACKED_FILE_BYTES || totalBytes > MAX_UNTRACKED_TOTAL_BYTES) throw new Error('未跟踪文件超出指纹采集容量，不能判定验证状态');
+    if (info.size > MAX_UNTRACKED_FILE_BYTES) {
+      throw new Error(`未跟踪文件 ${JSON.stringify(relative)} 大小为 ${formatCapacity(info.size)}，超过单文件指纹限额 ${formatCapacity(MAX_UNTRACKED_FILE_BYTES)}，不能判定验证状态`);
+    }
+    if (totalBytes > MAX_UNTRACKED_TOTAL_BYTES) {
+      throw new Error(`未跟踪文件累计大小达到 ${formatCapacity(totalBytes)}，超过总指纹限额 ${formatCapacity(MAX_UNTRACKED_TOTAL_BYTES)}；当前文件为 ${JSON.stringify(relative)}（${formatCapacity(info.size)}），不能判定验证状态`);
+    }
     files.push({ path: relative.replaceAll('\\', '/'), sha256: await hashFile(absolute) });
   }
   return {
@@ -290,6 +295,10 @@ async function workspaceSnapshot(workspacePath: string): Promise<WorkspaceSnapsh
     branch,
     fingerprint: fingerprintWorkspace({ headSha, workingTreeDiffSha256: hashBytes(diff), submodules: (await spawnCapture('git', ['submodule', 'status', '--recursive'], root, 4 * 1024 * 1024)).output.toString('utf8'), files }),
   };
+}
+
+function formatCapacity(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 async function realpathDirectory(value: string): Promise<string> {

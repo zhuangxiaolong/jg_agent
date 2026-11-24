@@ -9,6 +9,8 @@ export * from './learning';
 export * from './run-lifecycle';
 export * from './expert-collaboration';
 export * from './knowledge';
+export * from './model-routing';
+import type { ModelRouteTaskType, ModelRoutingPolicy } from './model-routing';
 import type { KnowledgeApi } from './knowledge';
 import type { DeliveryApi } from './delivery';
 import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
@@ -148,7 +150,7 @@ export interface RequirementAcceptanceCriterion { id: string; criterionKey: stri
 export interface RequirementSnapshot { id: string; issueKey: string; jiraUpdated?: string; contentHash: string; fetchedAt: string; issue: JiraIssue }
 export interface RequirementAnalysis { taskType: RequirementTaskType; projectGeneration: ProductSystem | 'unknown'; summary: string; items: RequirementCheckItem[]; acceptanceCriteria: RequirementAcceptanceCriterion[] }
 export interface RequirementAdmission { id: string; status: RequirementAdmissionStatus; implementationAllowed: boolean; projectGeneration: ProductSystem | 'unknown'; taskType: RequirementTaskType; snapshotHash: string; templateVersion: string; ruleVersion: string; checkedAt: string; items: RequirementCheckItem[]; resolutions: RequirementResolution[]; acceptanceCriteria: RequirementAcceptanceCriterion[]; stageBlockers: RequirementBlockingStage[] }
-export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; manualKnowledgeScope?: 'auto' | 'MES5' | 'MES6' | 'WMS' | 'SRM' | 'JMOM' | 'PDA' | 'off'; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
+export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; modelRouteTaskType?: ModelRouteTaskType; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; manualKnowledgeScope?: 'auto' | 'MES5' | 'MES6' | 'WMS' | 'SRM' | 'JMOM' | 'PDA' | 'off'; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
 export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval; activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string }; expert?: { id: string; name: string }; attachments?: ConversationAttachment[] }
@@ -315,7 +317,7 @@ export interface BrowserAction { action: 'open' | 'snapshot' | 'click' | 'fill' 
 export interface BrowserTabState { id: string; title: string; url: string; active: boolean; canGoBack?: boolean; canGoForward?: boolean; loading?: boolean }
 export interface BrowserPanelState { sessionId: string; visible: boolean; tabs: BrowserTabState[]; downloads: string[] }
 export interface BrowserViewport { sessionId: string; visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }
-export interface SettingsSnapshot { runtimeAccess?: RuntimeAccess; grok?: GrokSettingsSnapshot; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; memorySettings: MemorySettings; memoryDiagnostics?: MemoryDiagnostics; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
+export interface SettingsSnapshot { runtimeAccess?: RuntimeAccess; grok?: GrokSettingsSnapshot; modelRouting?: ModelRoutingPolicy; preferences: Preferences; providers: ProviderProfile[]; jira: JiraSettings; documents: ManagedDocument[]; memories: Memory[]; memorySettings: MemorySettings; memoryDiagnostics?: MemoryDiagnostics; update: UpdateStatus; appVersion: string; updateUrl: string; runtimeKind?: RuntimeKind; requirementsSync?: RequirementsSync; wecom?: WeComNotificationSettings; claude?: ClaudeRuntimeSettings; notificationWorkspaces?: Array<{ id: string; name: string }> }
 export interface GitCommit { hash: string; shortHash: string; author: string; date: string; message: string }
 export interface GitState { branch: string; commits: GitCommit[]; remotes: string[]; dirty: boolean; changesBlockedReason?: string }
 export interface GitFileEntry { path: string; status?: string }
@@ -472,7 +474,7 @@ export interface DesktopApi {
   getFileDiff(sessionId: string, file: string): Promise<FileDiff>;
   getProjectFiles(target: string | { projectId: string }): Promise<GitFileEntry[]>;
   readProjectFile(target: string | { projectId: string }, file: string): Promise<ProjectFilePreview>;
-  configureSession(sessionId: string, input: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }): Promise<Session>;
+  configureSession(sessionId: string, input: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind; modelRouteTaskType?: ModelRouteTaskType }): Promise<Session>;
   bindSessionProject(sessionId: string, projectId: string, baseBranch?: string): Promise<Session>;
   getSettings(): Promise<SettingsSnapshot>;
   checkRuntime(kind: RuntimeKind): Promise<RuntimeHealth>;
@@ -499,6 +501,7 @@ export interface DesktopApi {
   saveUpdateUrl(url: string): Promise<string>;
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
   saveModelProvider(input: { id?: string; name: string; baseUrl: string; models: string[]; modelCatalog?: ProviderModel[]; apiKey?: string }): Promise<ProviderProfile>;
+  saveModelRouting(input: ModelRoutingPolicy): Promise<ModelRoutingPolicy>;
   fetchProviderModels(input: ProviderModelsInput): Promise<ProviderModel[]>;
   revealModelProviderApiKey(input: { id: string; baseUrl: string }): Promise<string>;
   deleteModelProvider(id: string): Promise<void>;
@@ -553,6 +556,7 @@ export interface DesktopApi {
   startVerification(sessionId: string, profileId: VerificationProfileId): Promise<{ runId: string }>;
   cancelVerification(sessionId: string, runId: string): Promise<void>;
   listVerificationRuns(sessionId: string): Promise<VerificationRunSummary[]>;
+  listProjectVerificationRuns(projectId: string): Promise<VerificationRunSummary[]>;
   getVerificationRun(sessionId: string, runId: string): Promise<VerificationRunDetail>;
   readVerificationArtifact(sessionId: string, runId: string, artifact: 'stdout.log' | 'stderr.log' | 'report.md' | 'manifest.json' | 'test-results/junit.xml' | 'test-results/test.trx'): Promise<string>;
   onVerification(listener: (event: VerificationRunEvent) => void): () => void;

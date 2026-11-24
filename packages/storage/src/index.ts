@@ -5,14 +5,14 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, ModelRoutingPolicy, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
 import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile, type GrokProviderProfile, type GrokRuntimeSettings } from '../../domain/src/grok';
 import { tokenizeManualContent, type ManualChunk, type ManualImportJob, type ManualProductType, type OperationManual } from '../../operation-manuals/src';
 
-import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, ExpertRun } from '../../domain/src/expert';
+import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, ExpertRun, ExpertUsage } from '../../domain/src/expert';
 import type { ExpertCollaborationPlan } from '../../domain/src/expert-collaboration';
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
@@ -859,6 +859,11 @@ export class LocalStore {
   expertSelection(id: string): ExpertSelection {
     return this.rows<ExpertSelection>('SELECT value FROM expert_bindings WHERE id=?',[id])[0] ?? {profileId:'auto',scope:'auto'};
   }
+  expertUsage(): ExpertUsage[] {
+    return this.records<{ profileId: string; usageCount: number; lastUsedAt: string }>(
+      "SELECT json_extract(value, '$.profileId') AS profileId, COUNT(*) AS usageCount, MAX(json_extract(value, '$.createdAt')) AS lastUsedAt FROM expert_runs WHERE json_extract(value, '$.profileId') IS NOT NULL GROUP BY json_extract(value, '$.profileId') ORDER BY usageCount DESC, lastUsedAt DESC",
+    );
+  }
   selectExpert(id: string, selection: ExpertSelection): void {
     this.transaction(() => this.db.run('INSERT OR REPLACE INTO expert_bindings VALUES (?,?)',[id,JSON.stringify(selection)]));
   }
@@ -1627,6 +1632,15 @@ export class LocalStore {
     if (kind !== 'jinggong' && kind !== 'codex' && kind !== 'claude_agent_sdk' && kind !== 'grok_build_acp') throw new Error('Runtime 类型无效');
     this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['runtime-kind', JSON.stringify({ kind })]));
     return kind;
+  }
+
+  getModelRouting(): ModelRoutingPolicy {
+    return this.rows<ModelRoutingPolicy>('SELECT value FROM settings WHERE key = ?', ['model-routing'])[0] ?? { rules: [] };
+  }
+
+  saveModelRouting(policy: ModelRoutingPolicy): ModelRoutingPolicy {
+    this.transaction(() => this.db.run('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['model-routing', JSON.stringify(policy)]));
+    return policy;
   }
 
   getGrokRuntime(): GrokRuntimeSettings {

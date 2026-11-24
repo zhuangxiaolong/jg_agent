@@ -15,7 +15,7 @@ import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/sr
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
-import { assertAgentRunTransition, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
+import { assertAgentRunTransition, MODEL_ROUTE_TASKS, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { JiraConnector } from '../../../../packages/jira-connector/src';
 import { importDocumentFile, readDocumentTextFile, SUPPORTED_DOCUMENT_TEXT_EXTENSIONS } from '../../../../packages/knowledge/src';
@@ -52,7 +52,7 @@ import { JiraTestImages, jiraAttachmentSourcesSchema, jiraFlowSchema, sessionTes
 import { ensureBuiltinDictionaries } from './bundled-dictionaries';
 import { ensureBundledOperationManuals } from './bundled-operation-manuals';
 import { evaluateBuildRun, evaluateTestRun } from '../../../../packages/verification/src';
-import { VerificationRunService, listVerificationHistory, readVerificationArtifact, verificationProfile, type VerificationProfileId, type VerificationRunResult } from './verification-service';
+import { VerificationRunService, listVerificationHistory, readVerificationArtifact, verificationProfile, type VerificationProfileId, type VerificationRunRecord, type VerificationRunResult } from './verification-service';
 import { WeComDesktopNotificationService, type WeComDeliveryRepository } from '../../../../packages/wecom-notification/src/desktop-service';
 import { WorkspaceService, type WorkspaceAccess, type WorkspaceRepositoryRole } from '../../../../packages/workspace/src';
 import { calculateRequirementAdmission, createDefaultRequirementAdmission, hashRequirementSnapshot, validateRequirementResolution } from '../../../../packages/requirements/src';
@@ -829,6 +829,13 @@ function createAutomaticAgentTasks(session: Session, prompt: string): string[] {
 async function checkRuntime(kind: RuntimeKind = store.getRuntimeKind()) {
   if (!runtimePrewarm) throw new Error('Runtime 后台服务尚未就绪');
   return runtimePrewarm.check(kind);
+}
+
+function modelRouteAuditText(session: Session): string | undefined {
+  if (!session.modelRouteTaskType) return undefined;
+  const taskName = MODEL_ROUTE_TASKS.find(item => item.id === session.modelRouteTaskType)?.name ?? session.modelRouteTaskType;
+  const runtimeName: Record<RuntimeKind, string> = { jinggong: 'Jinggong Runtime', codex: 'Codex Runtime', claude_agent_sdk: 'Claude Runtime', grok_build_acp: 'Grok Runtime' };
+  return `模型路由记录：${taskName} 使用 ${runtimeName[session.runtimeKind ?? 'codex']}，中转站 ${session.providerId ?? '未知'}，模型 ${session.model}。置信度较低，缺少任务类型细分的历史基准。`;
 }
 
 function cliConfigArgs(profile: { baseUrl: string; models: string[] }, runtimeAccess: RuntimeAccess): string[] {
@@ -1989,18 +1996,32 @@ if (primaryInstance) app.whenReady().then(async () => {
     try {
       if (Object.keys(options).length === 1 && options.runtimeKind !== undefined) {
         if (runtimeKind === 'claude_agent_sdk') assertClaudeModelCompatible({ ...session, runtimeKind });
-        if (runtimeKind === (session.runtimeKind ?? 'codex')) return session;
+        if (runtimeKind === (session.runtimeKind ?? 'codex')) {
+          if (session.modelRouteTaskType) {
+            const updated = { ...session, modelRouteTaskType: undefined };
+            store.saveSession(updated);
+            return updated;
+          }
+          return session;
+        }
         if (runtimeKind === 'grok_build_acp') {
           const provider = grokSettings.profiles().find(item => item.id === session.providerId);
           const model = provider?.models.find(item => item.id === session.model);
           if (!provider?.hasKey || !model) throw new Error('请在【模型中转站】配置模型和凭据，再在会话中选择');
         }
         await runtimes.closeSession(session.id);
-        const updated: Session = { ...session, runtimeKind, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
+        const updated: Session = { ...session, runtimeKind, modelRouteTaskType: undefined, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
         store.saveSession(updated); return updated;
       }
       const providerId = options.providerId ?? session.providerId;
       const model = options.model ?? session.model;
+      const routeTaskType = options.modelRouteTaskType;
+      if (routeTaskType) {
+        const route = store.getModelRouting().rules.find(item => item.taskType === routeTaskType);
+        if (!route || route.providerId !== providerId || route.modelId !== model || route.runtimeKind !== runtimeKind) throw new Error('所选路由与当前保存的任务路由不一致，请刷新设置后重试');
+        const health = await checkRuntime(runtimeKind);
+        if (!health.compatible && !health.warmingUp) throw new Error(`目标 Runtime 当前不可用，已取消路由应用：${health.detail || runtimeKind}`);
+      }
       if (runtimeKind === 'grok_build_acp') {
         const provider = grokSettings.profiles().find(item => item.id === providerId);
         const grokModel = provider?.models.find(item => item.id === model);
@@ -2008,14 +2029,21 @@ if (primaryInstance) app.whenReady().then(async () => {
       } else {
         const provider = settings.profiles().find(item => item.id === providerId);
         if (!provider || !provider.models.includes(model)) throw new Error(options.providerId !== undefined || options.model !== undefined ? '所选中转站或模型无效' : '请先选择有效的中转站和模型');
+        if (routeTaskType && !provider.hasKey) throw new Error('任务路由目标中转站尚未配置 API Key');
         if (runtimeKind === 'claude_agent_sdk') assertClaudeModelCompatible({ ...session, runtimeKind, providerId, model });
+      }
+      if (routeTaskType && runtimeKind === 'grok_build_acp') {
+        const provider = grokSettings.profiles().find(item => item.id === providerId);
+        if (!provider?.hasKey) throw new Error('任务路由目标中转站尚未配置 API Key');
       }
       const configurationChanged = runtimeKind !== (session.runtimeKind ?? 'codex') || providerId !== session.providerId || model !== session.model || (options.system !== undefined && options.system !== session.system);
       if (configurationChanged) await runtimes.closeSession(session.id);
       // 仅改推理强度或重复应用同一配置时保留原生会话；系统实际变化须重建以加载新的业务上下文。
+      const explicitModelChoice = options.providerId !== undefined || options.model !== undefined || options.runtimeKind !== undefined;
+      const modelRouteTaskType = routeTaskType ?? (explicitModelChoice ? undefined : session.modelRouteTaskType);
       const updated: Session = !configurationChanged
-        ? { ...session, ...options, runtimeKind }
-        : { ...session, ...options, runtimeKind, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
+        ? { ...session, ...options, modelRouteTaskType, runtimeKind }
+        : { ...session, ...options, modelRouteTaskType, runtimeKind, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
       store.saveSession(updated, { rememberModelDefaults: true }); return updated;
     } finally { creating.delete(session.id); agentTaskRunner?.refreshSchedule(); }
   });
@@ -2114,6 +2142,8 @@ if (primaryInstance) app.whenReady().then(async () => {
         const submission = trackSessionSteer(session.id, (async () => {
           if (await adapter.steerTurn!(session.runtimeThreadId!, parsed.prompt, session.workspacePath)) {
             emit(session.id, 'user', parsed.prompt, `steered-turn:${session.id}:${active.startedAt}`);
+            const routeAudit = modelRouteAuditText(session);
+            if (routeAudit) emit(session.id, 'message', routeAudit);
             if (!runs.isCurrent(active) || active.cancelled || terminalOutcomes.has(session.id)) {
               emit(session.id, 'status', '补充任务已发送，但当前任务已停止，执行情况未确认。');
               throw new Error('Runtime 已接收补充，但当前任务已停止；执行情况未确认，原文已保留，请核对后再决定是否重发');
@@ -2224,6 +2254,8 @@ if (primaryInstance) app.whenReady().then(async () => {
       runs.assertCurrent(ticket);
       recordAgentRun(ticket, 'turn_started', '已提交当前用户任务到 Runtime', 'running');
       await agent.sendTurn(session.runtimeThreadId, runtimePrompt, session.workspacePath, imagePaths);
+      const routeAudit = modelRouteAuditText(session);
+      if (routeAudit) emit(session.id, 'message', routeAudit);
       if (queuedTurnId) followups.markDispatched(session.id, queuedTurnId);
       if (attachments.length) for (const attachment of attachments) pendingConversationAttachments.get(session.id)?.delete(attachment.id);
       return { queued: false };
@@ -2395,6 +2427,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     for (const session of store.listSessions().filter(item => !item.providerId && !item.model)) store.saveSession({ ...session, providerId: profile.id, model: profile.models[0] });
     return profile;
   });
+  handle('settings:model-routing-save', (value: unknown) => settings.saveModelRouting(value));
   handle('settings:provider-models', (value: unknown) => settings.fetchProviderModels(value));
   handle('settings:provider-key', (value: unknown) => settings.revealModelProviderApiKey(value));
   handle('settings:provider-delete', (value: unknown) => settings.deleteProfile(value));
@@ -2692,6 +2725,30 @@ if (primaryInstance) app.whenReady().then(async () => {
     const records = await listVerificationHistory(root, session.projectId, session.id);
     const reviews = await inspectVerificationHistory(root, session, records.map(item => item.record), store);
     return reviews.map(verificationSummary);
+  });
+  handle('verification:list-project', async (value: unknown) => {
+    const projectId = projectIdSchema.parse(value);
+    if (!store.listProjects().some(item => item.id === projectId)) throw new Error('项目未授权，请重新选择');
+    const sessions = store.listSessions().filter(item => item.projectId === projectId);
+    const root = path.join(dataRoot, 'verification');
+    const candidates: Array<{ session: Session; record: VerificationRunRecord }> = [];
+    for (const session of sessions) {
+      const records = await listVerificationHistory(root, projectId, session.id, 6);
+      candidates.push(...records.map(item => ({ session, record: item.record })));
+    }
+    const latest = candidates.sort((left, right) => right.record.startedAt.localeCompare(left.record.startedAt)).slice(0, 6);
+    const grouped = new Map<string, { session: Session; records: VerificationRunRecord[] }>();
+    for (const item of latest) {
+      const group = grouped.get(item.session.id) ?? { session: item.session, records: [] };
+      group.records.push(item.record);
+      grouped.set(item.session.id, group);
+    }
+    const summaries: VerificationRunSummary[] = [];
+    for (const group of grouped.values()) {
+      const reviews = await inspectVerificationHistory(root, group.session, group.records, store, { full: true });
+      summaries.push(...reviews.map(verificationSummary));
+    }
+    return summaries.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
   });
   handle('verification:detail', async (value: unknown, runValue: unknown) => {
     const session = sessionById(value);

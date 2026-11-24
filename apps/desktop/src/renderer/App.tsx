@@ -1,6 +1,7 @@
 import { useTransientError } from './use-transient-error';
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
+import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ModelRouteTaskType, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
+import { MODEL_ROUTE_TASKS } from '../../../../packages/domain/src/model-routing';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { Icon, Mark } from './ui';
@@ -24,6 +25,8 @@ import { ProjectRow } from './ProjectRow';
 import { GitChangesResizeHandle } from './GitChangesResizeHandle';
 import { SessionRow } from './SessionRow';
 import { AgentTasksPanel } from './AgentTasksPanel';
+import { TaskWorkbench } from './TaskWorkbench';
+import { IterationWorkbench } from './IterationWorkbench';
 import { agentTasksToReveal } from './agent-task-state';
 import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
@@ -49,7 +52,7 @@ interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
 function time(value: string) { return formatClockTime(value); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
-function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? '当前引擎' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
+function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? 'Grok Runtime' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
 function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
 function displayUserMessageText(text: string): string {
   return text.replace(/\r?\n\r?\n【本轮上传附件(?:；[^】]*)?】[\s\S]*$/, '').trim();
@@ -190,7 +193,7 @@ export function App() {
   const [updateDownloadedVersion, setUpdateDownloadedVersion] = useState('');
   const [updateAvailableVersion, setUpdateAvailableVersion] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('providers');
-  const [inspector, setInspector] = useState<'jira' | 'context' | 'git' | 'files' | 'agents' | 'performance'>('jira');
+  const [inspector, setInspector] = useState<'jira' | 'context' | 'git' | 'files' | 'agents' | 'performance' | 'iteration'>('jira');
   const [expandedProjectSessions, setExpandedProjectSessions] = useState<Record<string, boolean>>({});
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout);
   const [activityTab, setActivityTab] = useState<'output' | 'tools'>('output');
@@ -213,6 +216,7 @@ export function App() {
   }, [api, events, sessionId]);
   const [draftProvider, setDraftProvider] = useState('');
   const [draftModel, setDraftModel] = useState('');
+  const [routeTaskType, setRouteTaskType] = useState<ModelRouteTaskType>('code_change');
   const [draftSystem, setDraftSystem] = useState<ProductSystem>('通用');
   const [draftReasoning, setDraftReasoning] = useState<ReasoningEffort | ''>('');
   const [bindProjectId, setBindProjectId] = useState('');
@@ -304,6 +308,17 @@ export function App() {
   }, [newSessionMenu]);
   const activeDiff = diffs.find(file => file.path === selectedFile);
   const providerChoices = useMemo(() => sessionProviderChoices(data?.settings, sessionRuntimeKind), [data?.settings, sessionRuntimeKind]);
+  const routeRule = data?.settings.modelRouting?.rules.find(item => item.taskType === routeTaskType);
+  const routeProviderChoices = routeRule ? sessionProviderChoices(data?.settings, routeRule.runtimeKind) : [];
+  const routeProvider = routeProviderChoices.find(item => item.id === routeRule?.providerId);
+  const routeModel = routeProvider?.models.find(item => item.id === routeRule?.modelId);
+  const routeRuntimeHealth = routeRule?.runtimeKind === 'grok_build_acp'
+    ? data?.runtimes?.grok_build_acp
+    : routeRule ? data?.runtimes?.[routeRule.runtimeKind] ?? data?.runtime : undefined;
+  const routeGrokModelAvailable = routeRule?.runtimeKind !== 'grok_build_acp'
+    || !!data?.settings.grok?.providers.find(item => item.id === routeRule.providerId)?.models.some(item => item.id === routeRule.modelId);
+  const routeReady = !!routeRule && !!routeProvider?.hasKey && !!routeModel?.enabled && routeGrokModelAvailable
+    && !!(routeRuntimeHealth?.compatible || routeRuntimeHealth?.warmingUp);
   const defaultProvider = providerChoices.find(item => item.enabled && item.models.some(model => model.enabled));
   const configuredProvider = providerChoices.find(item => item.id === session?.providerId) || (!session?.providerId ? defaultProvider : undefined);
   const configuredModel = configuredProvider?.models.find(item => item.id === session?.model);
@@ -525,8 +540,9 @@ export function App() {
     setDraftModel(session?.model || defaultProvider?.models.find(model => model.enabled)?.id || '');
     setDraftSystem(session?.system || '通用');
     setDraftReasoning(session?.reasoningEffort || '');
+    setRouteTaskType(session?.modelRouteTaskType ?? 'code_change');
     setBindProjectId(session?.projectId || '');
-  }, [session?.id, session?.projectId, session?.providerId, session?.model, session?.system, session?.reasoningEffort, sessionRuntimeKind, defaultProvider?.id, defaultProvider?.models.find(model => model.enabled)?.id]);
+  }, [session?.id, session?.projectId, session?.providerId, session?.model, session?.system, session?.reasoningEffort, session?.modelRouteTaskType, sessionRuntimeKind, defaultProvider?.id, defaultProvider?.models.find(model => model.enabled)?.id]);
   useEffect(() => {
     let alive = true;
     const target = data?.projects.find(item => item.id === (session ? bindProjectId : projectId));
@@ -545,7 +561,7 @@ export function App() {
     }).finally(() => { if (alive) setBranchLoading(false); });
     return () => { alive = false; };
   }, [api, projectId, bindProjectId, session?.id, session?.projectId, session?.baseBranch, data?.projects]);
-  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind }, successNotice?: string) {
+  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind; modelRouteTaskType?: ModelRouteTaskType }, successNotice?: string) {
     if (!session || running || busy) return;
     setBusy('configure'); setError(''); setNotice('');
     let updated: Session;
@@ -1062,6 +1078,70 @@ export function App() {
       }
     }
   }
+  async function sendGovernancePrompt(targetSessionId: string, text: string) {
+    if (isSessionRunActive(targetSessionId, runningSessions.current, sendingSessionIdsRef.current) || pendingSendCounts.current.has(targetSessionId)) {
+      throw new Error('当前会话已有任务运行，请等待结束后再执行计划阶段');
+    }
+    pendingSendCounts.current.set(targetSessionId, 1);
+    runningSessions.current.add(targetSessionId);
+    setSendingSessions(current => new Set(current).add(targetSessionId));
+    setStatuses(current => ({ ...current, [targetSessionId]: 'running' }));
+    let dispatched = false;
+    try {
+      await api.sendTurn(targetSessionId, text);
+      dispatched = true;
+      const next = await refresh();
+      const latest = next.sessions.find(item => item.id === targetSessionId);
+      if (latest) setStatuses(current => ({ ...current, [targetSessionId]: latest.status }));
+      const saved = await api.getEvents(targetSessionId);
+      setEvents(current => ({ ...current, [targetSessionId]: mergeRendererEvents(saved, current[targetSessionId] || [], runtimeKindsRef.current.get(targetSessionId)) }));
+    } catch (reason) {
+      if (!dispatched) {
+        runningSessions.current.delete(targetSessionId);
+        setStatuses(current => ({ ...current, [targetSessionId]: 'failed' }));
+      }
+      if (selectedSessionRef.current === targetSessionId) setError(message(reason));
+      throw reason;
+    } finally {
+      pendingSendCounts.current.delete(targetSessionId);
+      setSendingSessions(current => { const next = new Set(current); next.delete(targetSessionId); return next; });
+    }
+  }
+  async function executeGovernanceStep(input: { taskId: string; prompt: string }) {
+    if (busy || running) throw new Error('当前会话仍在处理其他操作');
+    setBusy('task-plan'); setError(''); setNotice('');
+    try { await sendGovernancePrompt(input.taskId, input.prompt); }
+    finally { setBusy(''); }
+  }
+  async function resumeGovernedTask(input: { projectId?: string; prompt: string }) {
+    if (!input.projectId) throw new Error('检查点未关联项目，无法创建恢复会话');
+    if (busy || running) throw new Error('当前会话仍在处理其他操作');
+    setBusy('task-resume'); setError(''); setNotice('');
+    try {
+      const created = await api.createSession({ projectId: input.projectId, baseBranch: await resolveBaseBranch(input.projectId), runtimeKind: sessionRuntimeKind });
+      let target = created;
+      try {
+        target = await api.configureSession(created.id, {
+          runtimeKind: sessionRuntimeKind,
+          ...(session?.providerId ? { providerId: session.providerId } : {}),
+          ...(session?.model ? { model: session.model } : {}),
+          ...(session?.system ? { system: session.system } : {}),
+          ...(session?.reasoningEffort ? { reasoningEffort: session.reasoningEffort } : {}),
+        });
+      } catch (reason) {
+        await api.deleteSession(created.id).catch(() => undefined);
+        throw reason;
+      }
+      runtimeKindsRef.current.set(target.id, target.runtimeKind ?? 'codex');
+      await refresh();
+      setProjectId(target.projectId ?? '');
+      setSessionId(target.id);
+      setInspector('iteration');
+      if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true });
+      await sendGovernancePrompt(target.id, input.prompt);
+      setNotice('已在新会话启动平台级任务恢复。');
+    } finally { setBusy(''); }
+  }
   async function cancel() {
     if (!sessionId) return;
     try { await api.cancelRun(sessionId); setNotice('取消请求已发送，正在等待精工Agent引擎停止。'); }
@@ -1160,7 +1240,7 @@ export function App() {
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>研发助手</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
-      <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item active" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button></div>
+        <div className="sidebar-section top-nav"><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />研发任务工作台</button><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button></div>
       {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>
@@ -1177,7 +1257,7 @@ export function App() {
 
     <div className="workspace" inert={showSettings} aria-hidden={showSettings || undefined}>
       <header className="workspace-header">
-        <div className="breadcrumbs"><strong>{project?.name || '欢迎使用'}</strong>{session && <><Icon name="chevron" /><span className="breadcrumb-session">{sessionTitle}</span></>}</div>
+        <div className="breadcrumbs"><strong>{session ? project?.name || '独立会话' : '研发任务工作台'}</strong>{session && <><Icon name="chevron" /><span className="breadcrumb-session">{sessionTitle}</span></>}</div>
         <div className="header-actions"><button className={`icon-button ${browserOpen ? 'panel-visible' : ''}`} title="打开会话浏览器" aria-label="打开会话浏览器" aria-controls="browser-panel" aria-expanded={browserOpen} disabled={!session} onClick={() => { if (session) void api.openBrowser(session.id).catch(error => setError(message(error))); }}><Icon name="box" /></button><div className="panel-toggles" role="group" aria-label="面板显示"><button className={`icon-button ${layout.leftVisible ? 'panel-visible' : ''}`} aria-label={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} title={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} aria-controls="project-sidebar" aria-expanded={layout.leftVisible} disabled={!data} onClick={() => changeLayout({ leftVisible: !layoutRef.current.leftVisible })}><Icon name="panel-left" /></button><button className={`icon-button ${layout.rightVisible || browserOpen ? 'panel-visible' : ''}`} aria-label={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} title={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} aria-controls={browserOpen ? 'browser-panel' : 'right-panel'} aria-expanded={layout.rightVisible || browserOpen} disabled={!data} onClick={() => { if (browserOpen) void closeBrowser(); else changeLayout({ rightVisible: !layoutRef.current.rightVisible }); }}><Icon name="panel-right" /></button><button className={`icon-button ${layout.bottomVisible ? 'panel-visible' : ''}`} aria-label={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} title={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} aria-controls="bottom-panel" aria-expanded={layout.bottomVisible} disabled={!data} onClick={() => changeLayout({ bottomVisible: !layoutRef.current.bottomVisible })}><Icon name="panel-bottom" /></button></div></div>
       </header>
       {(error || notice) && <div className={`banner ${error ? 'error' : 'notice'}`} role={error ? 'alert' : 'status'}><Icon name={error ? 'alert' : 'check'} /><span>{error || notice}</span>{updateAvailableVersion && !updateDownloadedVersion && <button className="secondary-button update-restart" onClick={() => { void api.downloadUpdate().then(status => { if (status.state === 'error') setError(status.message ?? '更新下载失败'); }).catch(reason => setError(message(reason))); }}>下载更新</button>}{updateDownloadedVersion && notice.includes('更新已下载') && <button className="secondary-button update-restart" onClick={() => { void restartToUpdate(); }}>重启并更新</button>}<button className="icon-button" aria-label="关闭提示" onClick={() => { setError(''); setNotice(''); setUpdateAvailableVersion(''); }}><Icon name="close" /></button></div>}
@@ -1234,6 +1314,14 @@ export function App() {
               <div className="composer-caption"><div className="composer-caption-controls"><span className="composer-shortcuts">Enter 发送 · Shift + Enter 换行 · Ctrl + V 粘贴文件</span><div className="session-settings-anchor" ref={sessionSettingsRef}><button ref={sessionSettingsTriggerRef} className="session-settings-trigger" type="button" aria-label="打开当前会话设置" title={(configuredProvider?.name || '选择中转站') + ' / ' + (session.model || '选择模型') + ' / ' + configuredBackend} aria-expanded={sessionSettingsOpen} aria-controls="session-configuration" onClick={() => setSessionSettingsOpen(value => !value)}><Icon name="box" /><span>{configuredProvider?.name || '选择中转站'} · {session.model || '选择模型'} · {configuredBackend}</span><Icon name="chevron" /></button>
             {sessionSettingsOpen && <div id="session-configuration" role="region" className="session-configuration" aria-label="会话设置">
               <div className="session-settings-heading"><strong>会话设置</strong><button type="button" className="icon-button" aria-label="关闭会话设置" onClick={() => { setSessionSettingsOpen(false); sessionSettingsTriggerRef.current?.focus(); }}><Icon name="close" /></button></div>
+              <div className="session-model-route">
+                <label>任务类型<select aria-label="任务类型" value={routeTaskType} disabled={running || !!busy} onChange={event => setRouteTaskType(event.target.value as ModelRouteTaskType)}>{MODEL_ROUTE_TASKS.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+                <div className="session-model-route-target"><span>路由目标</span><strong>{routeRule ? `${runtimeLabel(routeRule.runtimeKind)} · ${routeProvider?.name || routeRule.providerId} · ${routeModel?.name || routeRule.modelId}` : '未配置'}</strong></div>
+                <button className="secondary-button" type="button" disabled={!routeReady || running || !!busy} onClick={() => { if (routeRule) void configure({ runtimeKind: routeRule.runtimeKind, providerId: routeRule.providerId, model: routeRule.modelId, modelRouteTaskType: routeTaskType }, `已应用“${MODEL_ROUTE_TASKS.find(item => item.id === routeTaskType)?.name}”路由。`); }}>应用路由</button>
+                {!routeRule && <button className="text-button session-route-manage" type="button" onClick={() => openSettings('routing')}>配置模型路由</button>}
+                {routeRule && !routeReady && <span className="session-route-unavailable">目标模型或 Runtime 当前不可用，请检查配置。</span>}
+                <p className="session-route-confidence">路由置信度较低，尚无任务类型细分的历史基准。应用后会记录实际 Runtime 和模型。</p>
+              </div>
               <label>中转站<select aria-label="会话中转站" value={draftProvider} disabled={running || !!busy} onChange={e => selectSessionProvider(e.target.value)}>{!draftProvider && <option value="">请先配置中转站</option>}{draftProvider && !selectedProvider && <option value={draftProvider}>原中转站已删除</option>}{providerChoices.map(item => <option value={item.id} key={item.id} disabled={!item.enabled}>{item.name}{!item.enabled ? '（已停用）' : item.hasKey ? '' : '（未配置密钥）'}</option>)}</select></label>
               <label>模型<select aria-label="会话模型" value={draftModel} disabled={running || !!busy || !selectedProvider} onChange={e => { const modelId = e.target.value; const model = selectedProvider?.models.find(item => item.id === modelId); if (model) configureSelectedModel(draftProvider, model); else { setDraftModel(modelId); void configure({ providerId: draftProvider, model: modelId }); } }}>{!draftModel && <option value="">请选择模型</option>}{draftModel && !selectedProvider?.models.some(model => model.id === draftModel) && <option value={draftModel}>{draftModel}（不在当前列表）</option>}{selectedProvider?.models.map(item => <option key={item.id} value={item.id} disabled={!item.enabled}>{item.name || item.id}{item.name && item.name !== item.id ? ` · ${item.id}` : ''}{item.backend ? ` · ${item.backend}` : ''}{item.unavailableReason === 'claude-grok' ? '（Claude Runtime 不支持）' : item.enabled ? '' : '（已停用）'}</option>)}</select></label>
               <p className="field-hint">选择 GPT 或 Claude 模型会自动匹配 Runtime，也可在右侧手动切换。</p>
@@ -1245,7 +1333,7 @@ export function App() {
             </div>}
 </div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(draftReasoning || undefined)}`} title="当前会话推理强度">推理 {reasoningLabel(draftReasoning || undefined)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
             </div>
-          </> : <div className="welcome-screen"><div className="welcome-content"><div className="welcome-eyebrow"><span />本地优先 · 精工研发</div><Mark /><h1>从后往前看，挑战一切不可能</h1><p>创建独立会话，可选本地项目；<br />直接开始对话并按需管理会话配置。</p><button className="primary-button" onClick={() => openCreateSession()} disabled={!!busy || !data}><Icon name="plus" />{busy === 'session' ? '正在创建会话…' : '新建会话'}<Icon name="chevron" /></button><div className="welcome-steps"><div><span>01</span><strong>可选项目</strong><p>关联本地 Git 仓库</p></div><div><span>02</span><strong>配置模型</strong><p>使用您授权的中转站</p></div><div><span>03</span><strong>开始任务</strong><p>描述目标并开始</p></div></div></div><div className="welcome-bottom"><Icon name="shield" /><span>项目会话直接使用所选本地目录，执行时遵循本机安全策略。</span></div></div>}
+          </> : data ? <TaskWorkbench api={api} projects={data.projects} sessions={data.sessions} statuses={statuses} onOpenSession={item => { readSession(item.id); setProjectId(item.projectId ?? ''); setSessionId(item.id); }} onCreateSession={targetProjectId => openCreateSession(targetProjectId || projectId)} onAddProject={() => { void addProject(); }} onOpenJira={() => { setInspector('jira'); if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true }); }} onOpenIteration={() => { setInspector('iteration'); if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true }); }} onOpenExperts={() => openSettings('experts')} onOpenKnowledge={() => openSettings('knowledge')} /> : <div className="welcome-screen"><span>正在载入本地项目与会话…</span></div>}
         </main>
 
         {messageFileContextMenu && <div className="file-context-menu message-file-context-menu" role="menu" aria-label={`会话文件操作：${messageFileContextMenu.kind === 'project' ? messageFileContextMenu.path : messageFileContextMenu.attachment.name}`} style={{ left: Math.min(messageFileContextMenu.x, Math.max(8, window.innerWidth - 230)), top: Math.min(messageFileContextMenu.y, Math.max(8, window.innerHeight - 120)) }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}>
@@ -1256,9 +1344,10 @@ export function App() {
         {browserOpen && browserState && <BrowserPanel key={sessionId} api={api} state={browserState} suspended={showSettings || sessionSettingsOpen || !!fileContextMenu || !!messageFileContextMenu} onClose={() => { void closeBrowser(); }} onError={reason => setError(message(reason))} />}
         <aside id="right-panel" className="inspector" aria-label="右侧任务与代码面板" hidden={!layout.rightVisible || browserOpen}>
        <button type="button" className="panel-resize-handle inspector-resize-handle" role="separator" aria-label="调整右侧面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={840} aria-valuenow={Math.min(layout.rightWidth ?? 420, 840)} title="拖动调整右侧面板宽度" onPointerDown={event => beginResize('right', event)} onKeyDown={event => adjustResize('right', event)} onDoubleClick={() => changeLayout({ rightWidth: 420 })} />
-          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="files-panel-tab" className={currentInspector === 'files' ? 'active' : ''} aria-pressed={currentInspector === 'files'} aria-controls="files-panel" disabled={!project && !sessionProject} onClick={() => setInspector('files')}>项目文件</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
+          <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="iteration-panel-tab" className={currentInspector === 'iteration' ? 'active' : ''} aria-pressed={currentInspector === 'iteration'} aria-controls="iteration-panel" disabled={!project && !sessionProject} onClick={() => setInspector('iteration')}>项目工作台</button><button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="files-panel-tab" className={currentInspector === 'files' ? 'active' : ''} aria-pressed={currentInspector === 'files'} aria-controls="files-panel" disabled={!project && !sessionProject} onClick={() => setInspector('files')}>项目文件</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
           <div id="jira-panel" className="inspector-panel jira-inspector-panel" role="region" aria-label="右侧 Jira 任务" hidden={currentInspector !== 'jira'}>{data?.settings && <JiraPanel compact api={api} settings={data.settings.jira} projects={data.projects} projectId={jiraAssociationId} onProjectChange={setJiraLocalProjectId} onConfigure={() => openSettings('jira')} onCreateIssue={sessionFromJira} creating={isJiraSessionCreating(busy)} />}</div>
           {hasAgentTasks && <div id="agents-panel" className="inspector-panel" role="region" aria-labelledby="agents-panel-tab" hidden={currentInspector !== 'agents'}><AgentTasksPanel api={api} session={session} tasks={agentTasks.tasks} events={agentTasks.events} refreshTasks={agentTasks.refreshTasks} onError={text => setError(message(text))} /></div>}
+          <div id="iteration-panel" className="inspector-panel" role="region" aria-labelledby="iteration-panel-tab" hidden={currentInspector !== 'iteration'}>{(sessionProject || project) ? <IterationWorkbench project={sessionProject || project} session={session} runActive={running} onExecuteStep={executeGovernanceStep} onResume={resumeGovernedTask} /> : <div className="inspector-empty"><strong>选择项目后打开项目工作台</strong></div>}</div>
           <div id="performance-panel" className="inspector-panel" role="region" aria-label="执行监控" hidden={currentInspector !== 'performance'}>{currentInspector === 'performance' && <PerformancePanel api={api} session={session} />}</div>
           <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={currentInspector !== 'git'} style={{ '--git-diff-flex': gitDiffHeight === null ? '3 1 0' : `0 1 ${gitDiffHeight}px` } as CSSProperties}>
              {diffs.length ? <div id="diff-panel" className="diff-content"><GitChangesTree files={diffs} selectedPath={activeDiff?.path || ''} onSelect={path => { setSelectedFile(path); setDiffExpanded(true); }} onContextMenu={(file, x, y) => { setFileContextMenu({ file, x, y }); }} />{activeDiff && <DiffPreview key={sessionId} file={activeDiff} expanded={diffExpanded} onToggle={() => setDiffExpanded(value => !value)} />}</div> : <div id="diff-panel" className="inspector-empty"><div className="empty-icon"><Icon name="layers" /></div><strong>{diffBusy ? '正在读取 Git 差异' : session ? diffError ? '项目目录暂不可用' : '本次会话暂无代码变更' : '代码差异将在这里显示'}</strong><p>{session ? diffError || '仅展示本会话任务产生的修改；历史未采集修改不推断归属。' : '选择项目并创建会话，即可查看文件变更。'}</p></div>}

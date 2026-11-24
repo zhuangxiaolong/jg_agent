@@ -7,6 +7,7 @@ export interface ExpertProfile {
   version: number; contentHash: string; enabled: boolean; isDefault: boolean;
   workflowId: string; steps: string[]; sources: string[]; skillTags: string[]; output: string; checks: string;
 }
+export interface ExpertUsage { profileId: string; usageCount: number; lastUsedAt: string }
 export type ExpertScope = NonNullable<Session['manualKnowledgeScope']>;
 export interface ExpertSelection { profileId: string; scope: ExpertScope }
 export interface ExpertSource { kind: string; id: string; label: string; hash: string; version?: string }
@@ -26,6 +27,7 @@ export interface ExpertComparison {
 }
 export interface ExpertApi {
   profiles(): Promise<ExpertProfile[]>;
+  usage(): Promise<ExpertUsage[]>;
   session(id: string): Promise<{ selection: ExpertSelection; runs: ExpertRun[] }>;
   select(id: string, selection: ExpertSelection): Promise<void>;
   profile(action: 'copy' | 'edit' | 'toggle' | 'default' | 'restore' | 'delete', id: string, patch?: { name: string; output: string; steps: string[]; version: number }): Promise<ExpertProfile[]>;
