@@ -1,4 +1,4 @@
-type IconName = 'plus' | 'folder' | 'chat' | 'settings' | 'arrow' | 'branch' | 'refresh' | 'close' | 'check' | 'copy' | 'chevron' | 'file' | 'box' | 'shield' | 'download' | 'stop' | 'terminal' | 'alert' | 'layers' | 'edit' | 'panel-left' | 'panel-right' | 'panel-bottom' | 'eye' | 'eye-off';
+type IconName = 'plus' | 'folder' | 'chat' | 'settings' | 'arrow' | 'branch' | 'refresh' | 'close' | 'check' | 'copy' | 'chevron' | 'file' | 'box' | 'shield' | 'download' | 'stop' | 'terminal' | 'alert' | 'layers' | 'edit' | 'search' | 'panel-left' | 'panel-right' | 'panel-bottom' | 'eye' | 'eye-off';
 const paths: Record<IconName, string> = {
   plus: 'M12 5v14M5 12h14', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10H3Z',
   chat: 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z',
@@ -11,6 +11,7 @@ const paths: Record<IconName, string> = {
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5', stop: 'M6 6h12v12H6Z', terminal: 'm5 7 5 5-5 5M13 17h6',
   alert: 'm12 3 10 18H2ZM12 9v5M12 17h.01', layers: 'm12 3 10 5-10 5L2 8Zm-9 9 9 5 9-5M3 16l9 5 9-5',
   edit: 'm16 3 5 5-12 12-6 1 1-6Zm-2 2 5 5',
+  search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15Zm5.5 13 5 5',
   'panel-left': 'M3 3h18v18H3ZM9 3v18',
   'panel-right': 'M3 3h18v18H3ZM15 3v18',
   'panel-bottom': 'M3 3h18v18H3ZM3 15h18',

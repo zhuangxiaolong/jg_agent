@@ -1,6 +1,6 @@
 import { useTransientError } from './use-transient-error';
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, ModelRouteTaskType, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
+import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, MappingJobSelection, ModelRouteTaskType, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
 import { MODEL_ROUTE_TASKS } from '../../../../packages/domain/src/model-routing';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
@@ -27,6 +27,7 @@ import { SessionRow } from './SessionRow';
 import { AgentTasksPanel } from './AgentTasksPanel';
 import { TaskWorkbench } from './TaskWorkbench';
 import { IterationWorkbench } from './IterationWorkbench';
+import { DeliveryWorkbenchPage } from './DeliveryWorkbenchPage';
 import { agentTasksToReveal } from './agent-task-state';
 import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
@@ -186,6 +187,8 @@ export function App() {
   const [error, setError] = useTransientError();
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
+  const [deliveryWorkbenchOpen, setDeliveryWorkbenchOpen] = useState(false);
+  const [mappingLaunch, setMappingLaunch] = useState<{ sequence: number; selection: MappingJobSelection } | null>(null);
   const [newSessionMenu, setNewSessionMenu] = useState<{ x: number; y: number } | null>(null);
   const [browserStates, setBrowserStates] = useState<Record<string, BrowserPanelState>>({});
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false);
@@ -1237,10 +1240,27 @@ export function App() {
     '--composer-height': `${layout.composerHeight ?? 110}px`,
     '--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
+  if (deliveryWorkbenchOpen && api.deliveryWorkbench) return <DeliveryWorkbenchPage
+    api={api.deliveryWorkbench}
+    onClose={() => setDeliveryWorkbenchOpen(false)}
+    onOpenManuals={() => { setDeliveryWorkbenchOpen(false); openSettings('manuals'); }}
+    onOpenMapping={(linkedCodeProjectId, systemType, productVersion) => {
+      if (systemType === 'OTHER') { setError('该项目系统类型暂不支持数据映射，请先将系统类型设置为 MES5、MES6 或 WMS。'); return; }
+      const codeProject = data?.projects.find(item => item.id === linkedCodeProjectId);
+      if (!codeProject) { setError('关联的本地代码项目不可用，请重新选择项目关联。'); return; }
+      setDeliveryWorkbenchOpen(false);
+      setSessionSettingsOpen(false);
+      setSessionId('');
+      setProjectId(codeProject.id);
+      setInspector('iteration');
+      if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true });
+      setMappingLaunch(current => ({ sequence: (current?.sequence ?? 0) + 1, selection: { projectId: codeProject.id, systemType, productVersion, dataType: '' } }));
+    }}
+  />;
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>研发助手</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
-        <div className="sidebar-section top-nav"><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />研发任务工作台</button><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button></div>
+        <div className="sidebar-section top-nav"><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />研发任务工作台</button><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className="nav-item" disabled={!api.deliveryWorkbench} onClick={() => { setNewSessionMenu(null); setDeliveryWorkbenchOpen(true); }}><Icon name="box" />交付工作台</button></div>
       {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>
@@ -1347,7 +1367,7 @@ export function App() {
           <div className="inspector-tabs" role="group" aria-label="右侧面板分类"><button id="jira-panel-tab" className={currentInspector === 'jira' ? 'active' : ''} aria-pressed={currentInspector === 'jira'} aria-controls="jira-panel" onClick={() => setInspector('jira')}>Jira</button>{hasAgentTasks && <button id="agents-panel-tab" className={currentInspector === 'agents' ? 'active' : ''} aria-pressed={currentInspector === 'agents'} aria-controls="agents-panel" onClick={() => setInspector('agents')}>子 Agent</button>}<button id="iteration-panel-tab" className={currentInspector === 'iteration' ? 'active' : ''} aria-pressed={currentInspector === 'iteration'} aria-controls="iteration-panel" disabled={!project && !sessionProject} onClick={() => setInspector('iteration')}>项目工作台</button><button id="git-panel-tab" className={currentInspector === 'git' ? 'active' : ''} aria-pressed={currentInspector === 'git'} aria-controls="git-panel" disabled={!project && !sessionProject} onClick={() => setInspector('git')}>Git{diffs.length > 0 && <span>{diffs.length}</span>}</button><button id="files-panel-tab" className={currentInspector === 'files' ? 'active' : ''} aria-pressed={currentInspector === 'files'} aria-controls="files-panel" disabled={!project && !sessionProject} onClick={() => setInspector('files')}>项目文件</button><button id="performance-panel-tab" className={currentInspector === 'performance' ? 'active' : ''} aria-pressed={currentInspector === 'performance'} aria-controls="performance-panel" onClick={() => setInspector('performance')}>执行监控</button><button id="context-panel-tab" className={currentInspector === 'context' ? 'active' : ''} aria-pressed={currentInspector === 'context'} aria-controls="context-panel" onClick={() => setInspector('context')}>上下文</button><button className={`icon-button ${diffBusy ? 'spinning' : ''}`} onClick={() => refreshDiff()} disabled={!session?.projectId || diffBusy} title="刷新代码差异" aria-label="刷新代码差异"><Icon name="refresh" /></button></div>
           <div id="jira-panel" className="inspector-panel jira-inspector-panel" role="region" aria-label="右侧 Jira 任务" hidden={currentInspector !== 'jira'}>{data?.settings && <JiraPanel compact api={api} settings={data.settings.jira} projects={data.projects} projectId={jiraAssociationId} onProjectChange={setJiraLocalProjectId} onConfigure={() => openSettings('jira')} onCreateIssue={sessionFromJira} creating={isJiraSessionCreating(busy)} />}</div>
           {hasAgentTasks && <div id="agents-panel" className="inspector-panel" role="region" aria-labelledby="agents-panel-tab" hidden={currentInspector !== 'agents'}><AgentTasksPanel api={api} session={session} tasks={agentTasks.tasks} events={agentTasks.events} refreshTasks={agentTasks.refreshTasks} onError={text => setError(message(text))} /></div>}
-          <div id="iteration-panel" className="inspector-panel" role="region" aria-labelledby="iteration-panel-tab" hidden={currentInspector !== 'iteration'}>{(sessionProject || project) ? <IterationWorkbench project={sessionProject || project} session={session} runActive={running} onExecuteStep={executeGovernanceStep} onResume={resumeGovernedTask} /> : <div className="inspector-empty"><strong>选择项目后打开项目工作台</strong></div>}</div>
+          <div id="iteration-panel" className="inspector-panel" role="region" aria-labelledby="iteration-panel-tab" hidden={currentInspector !== 'iteration'}>{(sessionProject || project) ? <IterationWorkbench key={mappingLaunch?.sequence ?? 0} project={sessionProject || project} session={session} runActive={running} initialPane={mappingLaunch ? 'mapping' : undefined} initialMappingSelection={mappingLaunch?.selection} launchKey={mappingLaunch?.sequence} onExecuteStep={executeGovernanceStep} onResume={resumeGovernedTask} /> : <div className="inspector-empty"><strong>选择项目后打开项目工作台</strong></div>}</div>
           <div id="performance-panel" className="inspector-panel" role="region" aria-label="执行监控" hidden={currentInspector !== 'performance'}>{currentInspector === 'performance' && <PerformancePanel api={api} session={session} />}</div>
           <div id="git-panel" className="inspector-panel" role="region" aria-labelledby="git-panel-tab" hidden={currentInspector !== 'git'} style={{ '--git-diff-flex': gitDiffHeight === null ? '3 1 0' : `0 1 ${gitDiffHeight}px` } as CSSProperties}>
              {diffs.length ? <div id="diff-panel" className="diff-content"><GitChangesTree files={diffs} selectedPath={activeDiff?.path || ''} onSelect={path => { setSelectedFile(path); setDiffExpanded(true); }} onContextMenu={(file, x, y) => { setFileContextMenu({ file, x, y }); }} />{activeDiff && <DiffPreview key={sessionId} file={activeDiff} expanded={diffExpanded} onToggle={() => setDiffExpanded(value => !value)} />}</div> : <div id="diff-panel" className="inspector-empty"><div className="empty-icon"><Icon name="layers" /></div><strong>{diffBusy ? '正在读取 Git 差异' : session ? diffError ? '项目目录暂不可用' : '本次会话暂无代码变更' : '代码差异将在这里显示'}</strong><p>{session ? diffError || '仅展示本会话任务产生的修改；历史未采集修改不推断归属。' : '选择项目并创建会话，即可查看文件变更。'}</p></div>}

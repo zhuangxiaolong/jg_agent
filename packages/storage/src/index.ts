@@ -14,11 +14,14 @@ import { tokenizeManualContent, type ManualChunk, type ManualImportJob, type Man
 
 import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, ExpertRun, ExpertUsage } from '../../domain/src/expert';
 import type { ExpertCollaborationPlan } from '../../domain/src/expert-collaboration';
+import type { DeliveryActivity, DeliveryDocument, DeliveryIssue, DeliveryMeeting, DeliveryMilestone, DeliveryProject, DeliveryReport, DeliveryTask } from '../../domain/src/delivery-workbench';
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
+type DeliveryRecordTable = 'delivery_milestones' | 'delivery_tasks' | 'delivery_issues' | 'delivery_meetings' | 'delivery_documents' | 'delivery_reports';
+type DeliveryRecord = DeliveryMilestone | DeliveryTask | DeliveryIssue | DeliveryMeeting | DeliveryDocument | DeliveryReport;
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
 function safeRuntimeApproval(value: RuntimeApproval): RuntimeApproval {
@@ -758,6 +761,28 @@ export class LocalStore {
           PRAGMA user_version = 22;
         `);
       });
+      if (version < 23) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS delivery_projects (id TEXT PRIMARY KEY, code TEXT COLLATE NOCASE, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE UNIQUE INDEX IF NOT EXISTS delivery_projects_code ON delivery_projects(code COLLATE NOCASE) WHERE code IS NOT NULL AND code <> '';
+          CREATE INDEX IF NOT EXISTS delivery_projects_status ON delivery_projects(status, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_milestones (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(id, delivery_project_id));
+          CREATE INDEX IF NOT EXISTS delivery_milestones_project ON delivery_milestones(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_tasks (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), milestone_id TEXT, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(id, delivery_project_id), FOREIGN KEY(milestone_id, delivery_project_id) REFERENCES delivery_milestones(id, delivery_project_id));
+          CREATE INDEX IF NOT EXISTS delivery_tasks_project ON delivery_tasks(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_issues (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), linked_milestone_id TEXT, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL, FOREIGN KEY(linked_milestone_id, delivery_project_id) REFERENCES delivery_milestones(id, delivery_project_id));
+          CREATE INDEX IF NOT EXISTS delivery_issues_project ON delivery_issues(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_meetings (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS delivery_meetings_project ON delivery_meetings(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_documents (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS delivery_documents_project ON delivery_documents(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_reports (id TEXT PRIMARY KEY, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS delivery_reports_project ON delivery_reports(delivery_project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS delivery_activities (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, delivery_project_id TEXT NOT NULL REFERENCES delivery_projects(id), created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS delivery_activities_project ON delivery_activities(delivery_project_id, created_at DESC, seq DESC);
+          PRAGMA user_version = 23;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -847,6 +872,130 @@ export class LocalStore {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  listDeliveryProjects(includeArchived = true): DeliveryProject[] {
+    return includeArchived
+      ? this.rows('SELECT value FROM delivery_projects ORDER BY updated_at DESC, rowid DESC')
+      : this.rows("SELECT value FROM delivery_projects WHERE status <> 'archived' ORDER BY updated_at DESC, rowid DESC");
+  }
+  getDeliveryProject(id: string): DeliveryProject | undefined { return this.rows<DeliveryProject>('SELECT value FROM delivery_projects WHERE id = ?', [id])[0]; }
+  saveDeliveryProject(value: DeliveryProject, activity?: DeliveryActivity): void {
+    this.transaction(() => {
+      this.db.run('INSERT INTO delivery_projects(id, code, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET code=excluded.code, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [value.id, value.code?.trim() || null, value.status, value.updatedAt, JSON.stringify(value)]);
+      if (activity) this.insertDeliveryActivity(activity, false);
+    });
+  }
+  listDeliveryRecords<T>(table: DeliveryRecordTable, projectId: string): T[] {
+    return this.rows<T>(`SELECT value FROM ${table} WHERE delivery_project_id = ? ORDER BY updated_at DESC, rowid DESC`, [projectId]);
+  }
+  saveDeliveryRecord<T extends DeliveryRecord>(table: DeliveryRecordTable, value: T, activity?: DeliveryActivity): void {
+    const status = String((value as { status?: string; extractedTextStatus?: string }).status ?? (value as { extractedTextStatus?: string }).extractedTextStatus ?? '');
+    this.transaction(() => {
+      if (table === 'delivery_tasks') {
+        const item = value as DeliveryTask;
+        this.db.run('INSERT INTO delivery_tasks(id, delivery_project_id, milestone_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET delivery_project_id=excluded.delivery_project_id, milestone_id=excluded.milestone_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [item.id, item.deliveryProjectId, item.milestoneId ?? null, item.status, item.updatedAt, JSON.stringify(item)]);
+      } else if (table === 'delivery_issues') {
+        const item = value as DeliveryIssue;
+        this.db.run('INSERT INTO delivery_issues(id, delivery_project_id, linked_milestone_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET delivery_project_id=excluded.delivery_project_id, linked_milestone_id=excluded.linked_milestone_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value', [item.id, item.deliveryProjectId, item.linkedMilestoneId ?? null, item.status, item.updatedAt, JSON.stringify(item)]);
+      } else {
+        this.db.run(`INSERT INTO ${table}(id, delivery_project_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET delivery_project_id=excluded.delivery_project_id, status=excluded.status, updated_at=excluded.updated_at, value=excluded.value`, [value.id, value.deliveryProjectId, status, value.updatedAt, JSON.stringify(value)]);
+      }
+      if (activity) this.insertDeliveryActivity(activity);
+    });
+  }
+  saveDeliveryTasks(values: DeliveryTask[], activities: DeliveryActivity[]): void {
+    if (values.length !== activities.length) throw new Error('任务和动态记录数量不匹配');
+    this.transaction(() => {
+      values.forEach((item, index) => {
+        this.db.run('INSERT INTO delivery_tasks(id, delivery_project_id, milestone_id, status, updated_at, value) VALUES (?, ?, ?, ?, ?, ?)', [item.id, item.deliveryProjectId, item.milestoneId ?? null, item.status, item.updatedAt, JSON.stringify(item)]);
+        this.insertDeliveryActivity(activities[index]);
+      });
+    });
+  }
+  deleteDeliveryRecord(table: DeliveryRecordTable, projectId: string, id: string, activity: DeliveryActivity): void {
+    this.transaction(() => {
+      if (table === 'delivery_tasks') {
+        const issues = this.rows<DeliveryIssue>('SELECT value FROM delivery_issues WHERE delivery_project_id = ?', [projectId]);
+        for (const issue of issues.filter(item => item.linkedTaskIds.includes(id))) {
+          const updated: DeliveryIssue = { ...issue, linkedTaskIds: issue.linkedTaskIds.filter(taskId => taskId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_issues SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), issue.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'issue', entityId: issue.id, action: 'updated', summary: `问题“${issue.title}”已解除任务关联` });
+        }
+        const meetings = this.rows<DeliveryMeeting>('SELECT value FROM delivery_meetings WHERE delivery_project_id = ?', [projectId]);
+        for (const meeting of meetings.filter(item => item.linkedTaskIds.includes(id))) {
+          const updated: DeliveryMeeting = { ...meeting, linkedTaskIds: meeting.linkedTaskIds.filter(taskId => taskId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_meetings SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), meeting.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'meeting', entityId: meeting.id, action: 'updated', summary: `会议“${meeting.title}”已解除任务关联` });
+        }
+      }
+      if (table === 'delivery_issues') {
+        const tasks = this.rows<DeliveryTask>('SELECT value FROM delivery_tasks WHERE delivery_project_id = ?', [projectId]);
+        for (const task of tasks.filter(item => item.linkedIssueIds.includes(id))) {
+          const updated: DeliveryTask = { ...task, linkedIssueIds: task.linkedIssueIds.filter(issueId => issueId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_tasks SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), task.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'task', entityId: task.id, action: 'updated', summary: `任务“${task.title}”已解除问题关联` });
+        }
+        const meetings = this.rows<DeliveryMeeting>('SELECT value FROM delivery_meetings WHERE delivery_project_id = ?', [projectId]);
+        for (const meeting of meetings.filter(item => item.linkedIssueIds.includes(id))) {
+          const updated: DeliveryMeeting = { ...meeting, linkedIssueIds: meeting.linkedIssueIds.filter(issueId => issueId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_meetings SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), meeting.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'meeting', entityId: meeting.id, action: 'updated', summary: `会议“${meeting.title}”已解除问题关联` });
+        }
+      }
+      if (table === 'delivery_meetings') {
+        const tasks = this.rows<DeliveryTask>('SELECT value FROM delivery_tasks WHERE delivery_project_id = ?', [projectId]);
+        for (const task of tasks.filter(item => item.linkedMeetingIds.includes(id))) {
+          const updated: DeliveryTask = { ...task, linkedMeetingIds: task.linkedMeetingIds.filter(meetingId => meetingId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_tasks SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), task.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'task', entityId: task.id, action: 'updated', summary: `任务“${task.title}”已解除会议关联` });
+        }
+        const issues = this.rows<DeliveryIssue>('SELECT value FROM delivery_issues WHERE delivery_project_id = ?', [projectId]);
+        for (const issue of issues.filter(item => item.linkedMeetingIds.includes(id))) {
+          const updated: DeliveryIssue = { ...issue, linkedMeetingIds: issue.linkedMeetingIds.filter(meetingId => meetingId !== id), updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_issues SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), issue.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'issue', entityId: issue.id, action: 'updated', summary: `问题“${issue.title}”已解除会议关联` });
+        }
+      }
+      if (table === 'delivery_milestones') {
+        const tasks = this.rows<DeliveryTask>('SELECT value FROM delivery_tasks WHERE delivery_project_id = ? AND milestone_id = ?', [projectId, id]);
+        for (const task of tasks) {
+          const updated: DeliveryTask = { ...task, milestoneId: undefined, updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_tasks SET milestone_id=NULL, updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), task.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'task', entityId: task.id, action: 'updated', summary: `任务“${task.title}”已解除里程碑关联` });
+        }
+        const issues = this.rows<DeliveryIssue>('SELECT value FROM delivery_issues WHERE delivery_project_id = ? AND linked_milestone_id = ?', [projectId, id]);
+        for (const issue of issues) {
+          const updated: DeliveryIssue = { ...issue, linkedMilestoneId: undefined, updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_issues SET linked_milestone_id=NULL, updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), issue.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'issue', entityId: issue.id, action: 'updated', summary: `问题“${issue.title}”已解除里程碑关联` });
+        }
+        const meetings = this.rows<DeliveryMeeting>('SELECT value FROM delivery_meetings WHERE delivery_project_id = ?', [projectId]);
+        for (const meeting of meetings.filter(item => item.linkedMilestoneId === id)) {
+          const updated: DeliveryMeeting = { ...meeting, linkedMilestoneId: undefined, updatedAt: activity.createdAt };
+          this.db.run('UPDATE delivery_meetings SET updated_at=?, value=? WHERE id=? AND delivery_project_id=?', [updated.updatedAt, JSON.stringify(updated), meeting.id, projectId]);
+          this.insertDeliveryActivity({ ...activity, id: randomUUID(), entityType: 'meeting', entityId: meeting.id, action: 'updated', summary: `会议“${meeting.title}”已解除里程碑关联` });
+        }
+      }
+      this.db.run(`DELETE FROM ${table} WHERE id=? AND delivery_project_id=?`, [id, projectId]);
+      this.insertDeliveryActivity(activity);
+    });
+  }
+  listDeliveryActivities(projectId: string, limit = 100): DeliveryActivity[] {
+    return this.rows('SELECT value FROM delivery_activities WHERE delivery_project_id = ? ORDER BY seq DESC LIMIT ?', [projectId, limit]);
+  }
+  listRecentDeliveryActivities(limit = 100): DeliveryActivity[] {
+    return this.rows('SELECT value FROM delivery_activities ORDER BY seq DESC LIMIT ?', [limit]);
+  }
+  recordDeliveryActivity(value: DeliveryActivity): void { this.transaction(() => this.insertDeliveryActivity(value)); }
+
+  private insertDeliveryActivity(value: DeliveryActivity, updateProject = true): void {
+    this.db.run('INSERT INTO delivery_activities(id, delivery_project_id, created_at, value) VALUES (?, ?, ?, ?)', [value.id, value.deliveryProjectId, value.createdAt, JSON.stringify(value)]);
+    if (!updateProject || value.entityType === 'project') return;
+    const project = this.getDeliveryProject(value.deliveryProjectId);
+    if (!project) throw new Error('交付项目不存在');
+    const updated = { ...project, updatedAt: value.createdAt };
+    this.db.run('UPDATE delivery_projects SET updated_at=?, value=? WHERE id=?', [updated.updatedAt, JSON.stringify(updated), updated.id]);
   }
 
   expertProfiles(): ExpertProfile[] { return this.rows('SELECT value FROM expert_profiles ORDER BY rowid'); }

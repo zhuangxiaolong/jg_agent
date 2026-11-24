@@ -82,6 +82,7 @@ import { registerTaskGovernanceIpc } from './task-governance-ipc';
 import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
 import { registerImpactAnalysisIpc } from './impact-analysis-ipc';
 import { registerDeliveryIpc } from './delivery-ipc';
+import { registerDeliveryWorkbenchIpc } from './delivery-workbench-ipc';
 import { KnowledgeEngine } from './knowledge-engine';
 
 app.setName('精工Agent');
@@ -1468,6 +1469,12 @@ if (primaryInstance) app.whenReady().then(async () => {
     selectFile: async (title, extensions) => { const result = await dialog.showOpenDialog(window, { title, properties: ['openFile'], filters: [{ name: '项目文件', extensions }] }); return result.canceled ? undefined : result.filePaths[0]; },
     selectSave: async (name, extensions) => { const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: '导出文件', extensions }] }); return result.canceled ? undefined : result.filePath; },
     reveal: file => shell.showItemInFolder(file),
+  });
+  registerDeliveryWorkbenchIpc({ handle, store, dataRoot,
+    selectFile: async (title, extensions) => { const result = await dialog.showOpenDialog(window, { title, properties: ['openFile'], filters: [{ name: '项目资料', extensions }] }); return result.canceled ? undefined : result.filePaths[0]; },
+    selectSave: async (name, extensions) => { const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: 'Markdown', extensions }] }); return result.canceled ? undefined : result.filePath; },
+    openPath: file => shell.openPath(file),
+    revealPath: file => shell.showItemInFolder(file),
   });
   handle('plugin:select-path', async (value: unknown) => {
     const sourceType = z.enum(['zip', 'folder']).parse(value);

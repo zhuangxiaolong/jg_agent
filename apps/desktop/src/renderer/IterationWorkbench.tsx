@@ -8,7 +8,7 @@ import './iteration-workbench.css';
 
 type Pane = 'context' | 'mapping' | 'plan' | 'impact' | 'delivery';
 type ContextData = { workspace?: ProjectWorkspaceContext; resources: ProjectResourceLink[]; facts: ProjectFact[]; decisions: ProjectDecision[] };
-type Props = { project?: Project; session?: Session; runActive?: boolean; onExecuteStep?: TaskGovernancePanelProps['onExecuteStep']; onResume?: TaskGovernancePanelProps['onResume'] };
+type Props = { project?: Project; session?: Session; runActive?: boolean; initialPane?: Pane; initialMappingSelection?: MappingJobSelection; launchKey?: number; onExecuteStep?: TaskGovernancePanelProps['onExecuteStep']; onResume?: TaskGovernancePanelProps['onResume'] };
 const assertionLabels: Record<ProjectAssertionStatus, string> = { proposed: '草稿待确认', confirmed: '已确认', rejected: '已驳回', superseded: '已被替代' };
 const resourceLabels: Record<ProjectResourceLink['status'], string> = { active: '有效', superseded: '已有新版本', unavailable: '来源失效／待重新关联', archived: '已归档' };
 const ruleKeys = new Set(['trim', 'uppercase', 'lowercase', 'prefix', 'suffix', 'replaceFrom', 'replaceTo', 'constant', 'defaultValue', 'joinKeys', 'separator', 'splitDelimiter', 'splitIndex', 'enumMap', 'multiplier', 'decimals', 'type', 'required', 'maxLength', 'min', 'max', 'allowedValues', 'unique', 'skipReason']);
@@ -16,11 +16,11 @@ const ruleKeys = new Set(['trim', 'uppercase', 'lowercase', 'prefix', 'suffix', 
 /** 项目切换时卸载内部状态，防止旧客户源文件和映射留在另一个项目中。 */
 export function IterationWorkbench(props: Props) {
   if (!props.project) return <div className="inspector-empty"><strong>选择本地项目后使用 0.7 工作台</strong><p>资料、规则与转换历史按当前项目隔离保存。</p></div>;
-  return <ProjectWorkbench key={props.project.id} {...props} project={props.project} />;
+  return <ProjectWorkbench key={`${props.project.id}-${props.launchKey ?? 0}`} {...props} project={props.project} />;
 }
-function ProjectWorkbench({ project, session, runActive, onExecuteStep, onResume }: Props & { project: Project }) {
+function ProjectWorkbench({ project, session, runActive, initialPane, initialMappingSelection, onExecuteStep, onResume }: Props & { project: Project }) {
   const api = window.jinggong.iteration;
-  const [pane, setPane] = useState<Pane>('context');
+  const [pane, setPane] = useState<Pane>(initialPane ?? 'context');
   const [busy, setBusy] = useState('');
   const [feedback, setFeedback] = useState('');
   const [context, setContext] = useState<ContextData | null>(null);
@@ -31,7 +31,7 @@ function ProjectWorkbench({ project, session, runActive, onExecuteStep, onResume
   const [factContent, setFactContent] = useState('');
   const [decisionTitle, setDecisionTitle] = useState('');
   const [decisionText, setDecisionText] = useState('');
-  const [selection, setSelection] = useState<MappingJobSelection>({ systemType: 'MES6', dataType: '' });
+  const [selection, setSelection] = useState<MappingJobSelection>(initialMappingSelection ?? { systemType: 'MES6', dataType: '' });
   const [jobId, setJobId] = useState('');
   const [source, setSource] = useState<MappingSourcePreview | null>(null);
   const [template, setTemplate] = useState<MappingSourcePreview | null>(null);
@@ -46,7 +46,7 @@ function ProjectWorkbench({ project, session, runActive, onExecuteStep, onResume
     if (value.workspace) {
       const item = value.workspace;
       setForm({ name: item.name, customerName: item.customerName ?? '', systemType: item.systemType, versions: item.productVersions.join(', '), stage: item.stage, owner: item.owner ?? '', projectCode: item.projectCode ?? '', description: item.description ?? '' });
-      if (!jobId) setSelection(current => ({ ...current, ...(item.systemType !== 'OTHER' ? { systemType: item.systemType } : {}), productVersion: item.productVersions[0] ?? '' }));
+      if (!jobId && !initialMappingSelection) setSelection(current => ({ ...current, ...(item.systemType !== 'OTHER' ? { systemType: item.systemType } : {}), productVersion: item.productVersions[0] ?? '' }));
     }
   }
   useEffect(() => {
