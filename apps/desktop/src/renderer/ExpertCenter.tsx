@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ExpertApi, ExpertCase, ExpertComparison, ExpertGrade, ExpertProfile } from '../../../../packages/domain/src/expert';
 import type { Session } from '../../../../packages/domain/src';
 import { formatLocalDateTime } from './message-timing';
@@ -49,7 +49,7 @@ function Review({ run, arm, save }: { run: ExpertComparison; arm: 'baseline' | '
 }
 
 function MatrixHeader({ profile, index, selected, onSelect }: { profile: ExpertProfile; index: number; selected: boolean; onSelect: () => void }) {
-  return <button type="button" className={`matrix-profile ${selected ? 'is-selected' : ''}`} aria-pressed={selected} onClick={onSelect}>
+  return <button type="button" className={`matrix-profile matrix-profile-row ${selected ? 'is-selected' : ''}`} aria-pressed={selected} onClick={onSelect}>
     <span className="matrix-profile-index">{String(index + 1).padStart(2, '0')}</span>
     <ExpertAvatar id={profile.id} size={44} />
     <span className="matrix-profile-copy"><strong>{profile.name}</strong><small>{familyLabel(profile)} · v{profile.version}</small></span>
@@ -123,7 +123,7 @@ export function ExpertCenter({ api, sessions }: { api: ExpertApi; sessions: Sess
 
   const editingCase = draft && cases.find(item => item.id === draft.id);
   const savedCase = draft && editingCase && (Object.keys(draft) as Array<keyof ExpertCase>).every(key => draft[key] === editingCase[key]);
-  const matrixColumns = `minmax(148px, .72fr) repeat(${Math.max(visibleProfiles.length, 1)}, minmax(214px, 1fr))`;
+  const matrixColumns = `minmax(270px, 1.35fr) repeat(${Math.max(matrixDimensions.length, 1)}, minmax(126px, .6fr))`;
 
   return <section className="expert-center expert-workbench">
     <header className="expert-workbench-header">
@@ -155,15 +155,15 @@ export function ExpertCenter({ api, sessions }: { api: ExpertApi; sessions: Sess
     </div>
 
     {tab === 'matrix' && <>
-      <div className="matrix-intro"><div><strong>横向能力矩阵</strong><span>以同一套维度快速比较每个角色的覆盖重心</span></div><span className="matrix-legend"><i className="legend-high" />强项 <i className="legend-mid" />可协同 <i className="legend-low" />待补充</span></div>
+      <div className="matrix-intro"><div><strong>专家能力矩阵</strong><span>专家为行、技能为列，交叉单元显示该专家的技能分数</span></div><span className="matrix-legend"><i className="legend-high" />强项 <i className="legend-mid" />可协同 <i className="legend-low" />待补充</span></div>
       <div className="expert-matrix-shell">
         <div className="expert-matrix" style={{ gridTemplateColumns: matrixColumns }}>
-          <div className="matrix-corner"><span>能力维度</span><small>CAPABILITY AXIS</small></div>
-          {visibleProfiles.map((item, index) => <MatrixHeader key={item.id} profile={item} index={index} selected={item.id === selected} onSelect={() => { setSelected(item.id); setEditing(undefined); }} />)}
-          {matrixDimensions.map((label, index) => <div className="matrix-row" key={label}>
-            <div className="matrix-row-label"><span>{String(index + 1).padStart(2, '0')}</span><strong>{label}</strong></div>
-            {visibleProfiles.map(item => { const score = scoreFor(item, index); return <button type="button" key={item.id} className={`matrix-score ${item.id === selected ? 'is-selected' : ''} score-${score}`} onClick={() => setSelected(item.id)} title={`${item.name} · ${label} ${score}/5`}><span>{score}</span><i /><i /><i /><i /><i /></button>; })}
-          </div>)}
+          <div className="matrix-corner"><span>专家角色</span><small>EXPERT / SCORE</small></div>
+          {matrixDimensions.map((label, index) => <div className="matrix-axis-header" key={label}><span>{String(index + 1).padStart(2, '0')}</span><strong>{label}</strong><small>技能分数</small></div>)}
+          {visibleProfiles.map((item, index) => <Fragment key={item.id}>
+            <MatrixHeader profile={item} index={index} selected={item.id === selected} onSelect={() => { setSelected(item.id); setEditing(undefined); }} />
+            {matrixDimensions.map((label, dimensionIndex) => { const score = scoreFor(item, dimensionIndex); return <button type="button" key={`${item.id}-${label}`} className={`matrix-score ${item.id === selected ? 'is-selected' : ''} score-${score}`} onClick={() => setSelected(item.id)} title={`${item.name} · ${label} ${score}/5`}><span>{score}</span><i /><i /><i /><i /><i /></button>; })}
+          </Fragment>)}
         </div>
         {!visibleProfiles.length && <div className="matrix-empty"><Icon name="eye-off" /><strong>没有匹配的专家</strong><span>调整家族筛选或搜索关键词后重试。</span></div>}
       </div>

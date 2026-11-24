@@ -5,7 +5,7 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
@@ -17,7 +17,7 @@ import type { ExpertCollaborationPlan } from '../../domain/src/expert-collaborat
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -737,6 +737,27 @@ export class LocalStore {
           PRAGMA user_version = 21;
         `);
       });
+      if (version < 22) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS knowledge_sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, project_id TEXT, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_sources_project ON knowledge_sources(project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS knowledge_documents (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE, project_id TEXT, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_documents_source ON knowledge_documents(source_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS knowledge_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, source_id TEXT NOT NULL, project_id TEXT, content_hash TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_chunks_source ON knowledge_chunks(source_id, project_id);
+          CREATE INDEX IF NOT EXISTS knowledge_chunks_hash ON knowledge_chunks(content_hash);
+          CREATE TABLE IF NOT EXISTS knowledge_symbols (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE, project_id TEXT NOT NULL, file_path TEXT NOT NULL, content_hash TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_symbols_project ON knowledge_symbols(project_id, file_path);
+          CREATE INDEX IF NOT EXISTS knowledge_symbols_hash ON knowledge_symbols(project_id, content_hash);
+          CREATE TABLE IF NOT EXISTS knowledge_relations (id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_relations_from ON knowledge_relations(from_id, relation);
+          CREATE TABLE IF NOT EXISTS project_knowledge_items (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS project_knowledge_items_project ON project_knowledge_items(project_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS knowledge_index_jobs (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS knowledge_index_jobs_source ON knowledge_index_jobs(source_id, updated_at DESC);
+          PRAGMA user_version = 22;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -867,6 +888,49 @@ export class LocalStore {
       [item.id, item.sessionId, item.projectId ?? null, item.status, item.createdAt, item.updatedAt, JSON.stringify(item)],
     ));
   }
+  listKnowledgeSources(projectId?: string): KnowledgeSource[] {
+    return projectId === undefined ? this.rows('SELECT value FROM knowledge_sources ORDER BY updated_at DESC') : this.rows('SELECT value FROM knowledge_sources WHERE project_id IS NULL OR project_id=? ORDER BY updated_at DESC', [projectId]);
+  }
+  saveKnowledgeSource(item: KnowledgeSource): void {
+    this.transaction(() => this.db.run('INSERT INTO knowledge_sources(id,kind,status,project_id,updated_at,value) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,status=excluded.status,project_id=excluded.project_id,updated_at=excluded.updated_at,value=excluded.value', [item.id, item.kind, item.status, item.projectId ?? null, item.updatedAt, JSON.stringify(item)]));
+  }
+  deleteKnowledgeSource(id: string): void { this.transaction(() => this.db.run('DELETE FROM knowledge_sources WHERE id=?', [id])); }
+  listKnowledgeDocuments(sourceId?: string, projectId?: string): KnowledgeDocument[] {
+    if (sourceId) return this.rows('SELECT value FROM knowledge_documents WHERE source_id=? ORDER BY updated_at DESC', [sourceId]);
+    return projectId ? this.rows('SELECT value FROM knowledge_documents WHERE project_id=? ORDER BY updated_at DESC', [projectId]) : this.rows('SELECT value FROM knowledge_documents ORDER BY updated_at DESC');
+  }
+  saveKnowledgeDocuments(documents: KnowledgeDocument[]): void {
+    if (!documents.length) return;
+    this.transaction(() => { for (const item of documents) this.db.run('INSERT INTO knowledge_documents(id,source_id,project_id,updated_at,value) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source_id=excluded.source_id,project_id=excluded.project_id,updated_at=excluded.updated_at,value=excluded.value', [item.id, item.sourceId, item.projectId ?? null, item.updatedAt, JSON.stringify(item)]); });
+  }
+  replaceKnowledgeDocuments(sourceId: string, documents: KnowledgeDocument[]): void {
+    this.transaction(() => {
+      if (documents.length) {
+        const placeholders = documents.map(() => '?').join(',');
+        this.db.run(`DELETE FROM knowledge_documents WHERE source_id=? AND id NOT IN (${placeholders})`, [sourceId, ...documents.map(item => item.id)]);
+      } else {
+        this.db.run('DELETE FROM knowledge_documents WHERE source_id=?', [sourceId]);
+      }
+      for (const item of documents) this.db.run('INSERT INTO knowledge_documents(id,source_id,project_id,updated_at,value) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source_id=excluded.source_id,project_id=excluded.project_id,updated_at=excluded.updated_at,value=excluded.value', [item.id, item.sourceId, item.projectId ?? null, item.updatedAt, JSON.stringify(item)]);
+    });
+  }
+  replaceKnowledgeChunks(documentId: string, sourceId: string, projectId: string | undefined, chunks: KnowledgeChunk[]): void {
+    this.transaction(() => { this.db.run('DELETE FROM knowledge_chunks WHERE document_id=?', [documentId]); for (const chunk of chunks) this.db.run('INSERT INTO knowledge_chunks(id,document_id,source_id,project_id,content_hash,value) VALUES (?,?,?,?,?,?)', [chunk.id, documentId, sourceId, projectId ?? null, chunk.contentHash, JSON.stringify(chunk)]); });
+  }
+  listKnowledgeChunks(input: { sourceId?: string; projectId?: string; documentId?: string } = {}): KnowledgeChunk[] {
+    if (input.documentId) return this.rows('SELECT value FROM knowledge_chunks WHERE document_id=? ORDER BY rowid', [input.documentId]);
+    if (input.projectId) return this.rows('SELECT value FROM knowledge_chunks WHERE project_id=? OR project_id IS NULL ORDER BY rowid', [input.projectId]);
+    return input.sourceId ? this.rows('SELECT value FROM knowledge_chunks WHERE source_id=? ORDER BY rowid', [input.sourceId]) : this.rows('SELECT value FROM knowledge_chunks ORDER BY rowid');
+  }
+  replaceKnowledgeSymbols(projectId: string, sourceId: string, symbols: CodeIndexSymbol[]): void {
+    this.transaction(() => { this.db.run('DELETE FROM knowledge_symbols WHERE project_id=? AND source_id=?', [projectId, sourceId]); for (const symbol of symbols) this.db.run('INSERT INTO knowledge_symbols(id,source_id,project_id,file_path,content_hash,value) VALUES (?,?,?,?,?,?)', [symbol.id, symbol.sourceId, symbol.projectId, symbol.filePath, symbol.contentHash, JSON.stringify(symbol)]); });
+  }
+  listKnowledgeSymbols(projectId?: string): CodeIndexSymbol[] { return projectId ? this.rows('SELECT value FROM knowledge_symbols WHERE project_id=? ORDER BY file_path,line', [projectId]) : this.rows('SELECT value FROM knowledge_symbols ORDER BY file_path,line'); }
+  saveKnowledgeRelations(items: KnowledgeRelation[]): void { this.transaction(() => { for (const item of items) this.db.run('INSERT INTO knowledge_relations(id,from_id,to_id,relation,value) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value', [item.id, item.fromId, item.toId, item.relation, JSON.stringify(item)]); }); }
+  listProjectKnowledge(projectId: string): ProjectKnowledgeItem[] { return this.rows('SELECT value FROM project_knowledge_items WHERE project_id=? ORDER BY updated_at DESC', [projectId]); }
+  saveProjectKnowledge(item: ProjectKnowledgeItem): void { this.transaction(() => this.db.run('INSERT INTO project_knowledge_items(id,project_id,updated_at,value) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at,value=excluded.value', [item.id, item.projectId, item.updatedAt, JSON.stringify(item)])); }
+  saveKnowledgeIndexJob(item: KnowledgeIndexJob): void { this.transaction(() => this.db.run('INSERT INTO knowledge_index_jobs(id,source_id,status,updated_at,value) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at,value=excluded.value', [item.id, item.sourceId, item.status, item.updatedAt, JSON.stringify(item)])); }
+  listKnowledgeIndexJobs(sourceId?: string): KnowledgeIndexJob[] { return sourceId ? this.rows('SELECT value FROM knowledge_index_jobs WHERE source_id=? ORDER BY updated_at DESC', [sourceId]) : this.rows('SELECT value FROM knowledge_index_jobs ORDER BY updated_at DESC'); }
 
   listProjects(): Project[] { return this.rows<Project>('SELECT value FROM projects ORDER BY rowid'); }
 

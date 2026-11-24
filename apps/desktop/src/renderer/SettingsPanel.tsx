@@ -10,13 +10,14 @@ import { PluginManagerPanel } from './PluginManagerPanel';
 import { SessionDataSettings } from './SessionDataSettings';
 import { OperationManualsPanel } from './OperationManualsPanel';
 import { ExpertCenter } from './ExpertCenter';
+import { KnowledgeCenter } from './KnowledgeCenter';
 import './provider-models.css';
 import './settings-feedback.css';
 
-export type SettingsTab = 'providers' | 'appearance' | 'profile' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions' | 'manuals' | 'experts';
+export type SettingsTab = 'providers' | 'appearance' | 'profile' | 'jira' | 'documents' | 'requirements' | 'memories' | 'updates' | 'runtime' | 'wecom' | 'plugins' | 'sessions' | 'manuals' | 'experts' | 'knowledge';
 type Tab = SettingsTab;
 const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' | 'chat' | 'shield' | 'refresh' | 'terminal' | 'edit' }[] = [
-  { id: 'providers', name: '模型中转站', icon: 'box' }, { id:'experts',name:'专家中心',icon:'layers' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
+  { id: 'providers', name: '模型中转站', icon: 'box' }, { id:'experts',name:'专家中心',icon:'layers' }, { id:'knowledge',name:'知识中心',icon:'layers' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
   { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'manuals', name: '产品手册', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
 ];
 const failure = readableError;
@@ -76,6 +77,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
         {tab === 'wecom' && <WeComSettings snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'updates' && <Updates snapshot={snapshot} pending={pending} act={act} api={api} />}
         {tab === 'experts' && api.experts && <ExpertCenter api={api.experts} sessions={sessions} />}
+        {tab === 'knowledge' && <KnowledgeCenter api={api} projects={projects} currentProjectId={currentProjectId} />}
         {tab === 'manuals' && <OperationManualsPanel sessions={sessions} pending={pending} act={act} api={api} />}
         {tab === 'requirements' && <RequirementsSyncPanel api={api} state={snapshot.requirementsSync} pending={pending} act={act} />}
         {(tab === 'documents' || tab === 'requirements') && <Documents key={tab} kind={tab === 'documents' ? 'dictionary' : 'requirement'} onKindChange={kind => setTab(kind === 'dictionary' ? 'documents' : 'requirements')} documents={snapshot.documents} pending={pending} act={act} api={api} />}

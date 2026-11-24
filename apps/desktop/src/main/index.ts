@@ -82,6 +82,7 @@ import { registerTaskGovernanceIpc } from './task-governance-ipc';
 import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
 import { registerImpactAnalysisIpc } from './impact-analysis-ipc';
 import { registerDeliveryIpc } from './delivery-ipc';
+import { KnowledgeEngine } from './knowledge-engine';
 
 app.setName('精工Agent');
 let browsers: BrowserManager;
@@ -111,6 +112,7 @@ let codexAppServerPrewarm: CodexAppServerPrewarm | undefined;
 let agentTaskRunner: AgentTaskRunner | undefined;
 let performanceService: DesktopPerformanceService | undefined;
 let operationManualLibrary: OperationManualLibrary | undefined;
+let knowledgeEngine: KnowledgeEngine | undefined;
 const liveApprovals = new Map<string, Map<string, NonNullable<AgentEvent['approval']>>>();
 const runtimeEventBuffers = new Map<string, RuntimeEventBatcher>();
 const SKILL_RUNTIME_TOOL_DEFINITIONS: NonNullable<RuntimeOptions['skillTools']>['definitions'] = [
@@ -1349,6 +1351,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     if (bundledManuals.installed) console.info(`已安装 ${bundledManuals.installed} 份内置操作手册（${bundledManuals.version}）`);
   }
   git = new GitConnector(path.join(dataRoot, 'workspaces'));
+  knowledgeEngine = new KnowledgeEngine(store, git, () => operationManualLibrary);
   sessionGit = new SessionGitService(git, path.join(dataRoot, 'session-git'));
   await migrateLegacySessionWorkspaces();
   grokSettings = new GrokSettingsService(store, dataRoot, assertIdle);
@@ -2594,6 +2597,26 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('manuals:test-search', (value: unknown) => {
     const input = z.object({ productTypes: z.array(z.enum(['MES5', 'MES6', 'WMS', 'SRM', 'JMOM', 'PDA', 'COMMON'])).min(1).max(7), query: z.string().trim().min(1).max(2000) }).strict().parse(value);
     return operationManualLibrary!.search(input.productTypes as ManualProductType[], input.query, 20);
+  });
+  handle('knowledge:sources', () => knowledgeEngine!.listSources());
+  handle('knowledge:search', (value: unknown) => {
+    const input = z.object({ query: z.string().trim().min(1).max(2000), system: z.enum(['MES5', 'MES6', 'WMS', '前端', '通用']).optional(), projectId: projectIdSchema.optional(), limit: z.number().int().min(1).max(100).optional() }).strict().parse(value);
+    if (input.projectId && !store.listProjects().some(item => item.id === input.projectId)) throw new Error('项目未授权');
+    return knowledgeEngine!.search(input);
+  });
+  handle('knowledge:index-project', async (value: unknown) => {
+    assertIdle(); const input = z.object({ projectId: projectIdSchema, sourceId: idSchema.optional() }).strict().parse(value);
+    if (!store.listProjects().some(item => item.id === input.projectId)) throw new Error('项目未授权');
+    return knowledgeEngine!.indexProject(input);
+  });
+  handle('knowledge:project-list', (value: unknown) => {
+    const projectId = projectIdSchema.parse(value);
+    if (!store.listProjects().some(item => item.id === projectId)) throw new Error('项目未授权');
+    return knowledgeEngine!.listProjectKnowledge(projectId);
+  });
+  handle('knowledge:project-save', (value: unknown) => {
+    const input = z.object({ projectId: projectIdSchema, title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(20000), source: z.literal('user_confirmed'), confirmed: z.literal(true) }).strict().parse(value);
+    return knowledgeEngine!.saveProjectKnowledge(input);
   });
   handle('sessions:manual-knowledge-scope', (sessionValue: unknown, scopeValue: unknown) => {
     const session = store.getSession(idSchema.parse(sessionValue));

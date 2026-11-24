@@ -9,6 +9,7 @@ import { assertDocumentTextSize, documentLimits, MAX_DOCUMENT_CHARACTERS, MAX_DI
 export { assertNoPlaintextCredentials } from './security';
 export type { ManagedDocument, ProductSystem } from '../../domain/src/index';
 export { MAX_DOCUMENT_CHARACTERS, MAX_DICTIONARY_CHARACTERS } from './limits';
+export * from './engine';
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv', '.sql', '.html', '.htm']);
 export const SUPPORTED_DOCUMENT_TEXT_EXTENSIONS = Object.freeze([...TEXT_EXTENSIONS, '.pdf', '.docx', '.xlsx', '.pptx', '.pptm']);
 const SUPPORTED_DOCUMENT_TEXT_EXTENSION_SET = new Set(SUPPORTED_DOCUMENT_TEXT_EXTENSIONS);

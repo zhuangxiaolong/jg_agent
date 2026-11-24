@@ -8,6 +8,8 @@ export * from './skill-intelligence';
 export * from './learning';
 export * from './run-lifecycle';
 export * from './expert-collaboration';
+export * from './knowledge';
+import type { KnowledgeApi } from './knowledge';
 import type { DeliveryApi } from './delivery';
 import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
 import type { RecoveryStatus, TaskCheckpoint, TaskPlan, TaskPlanStep, TaskPlanStepStatus } from './iteration-governance';
@@ -393,6 +395,7 @@ export interface TaskGovernanceRecoveryAssessment {
   reasons: string[];
 }
 export interface DesktopApi {
+  knowledge?: KnowledgeApi;
   experts?: import('./expert').ExpertApi;
   expertCollaboration?: import('./expert-collaboration').ExpertCollaborationApi;
   learningEngine?: LearningEngineApi;

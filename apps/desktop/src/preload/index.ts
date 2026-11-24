@@ -8,6 +8,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   return result.value;
 }
 const api: DesktopApi = {
+  knowledge: {
+    listSources: () => invoke('knowledge:sources'),
+    search: input => invoke('knowledge:search', input),
+    indexProject: input => invoke('knowledge:index-project', input),
+    listProjectKnowledge: projectId => invoke('knowledge:project-list', projectId),
+    saveProjectKnowledge: item => invoke('knowledge:project-save', item),
+  },
   experts: {
     profiles:()=>invoke('experts:profiles'), session:id=>invoke('experts:session',id),
     select:(id,selection)=>invoke('experts:select',id,selection), profile:(action,id,patch)=>invoke('experts:profile',action,id,patch),
