@@ -5,7 +5,7 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, ModelRoutingPolicy, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, ModelRoutingPolicy, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob, DiagnosticCase, DiagnosticRun, DiagnosticStep, DiagnosticEvidence, DiagnosticHypothesis, DiagnosticResolution, DiagnosticKnowledgeCase, DiagnosticEvent, DiagnosticListInput } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
@@ -18,7 +18,7 @@ import type { DeliveryActivity, DeliveryDocument, DeliveryIssue, DeliveryMeeting
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 23;
+const SCHEMA_VERSION = 25;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 type DeliveryRecordTable = 'delivery_milestones' | 'delivery_tasks' | 'delivery_issues' | 'delivery_meetings' | 'delivery_documents' | 'delivery_reports';
 type DeliveryRecord = DeliveryMilestone | DeliveryTask | DeliveryIssue | DeliveryMeeting | DeliveryDocument | DeliveryReport;
@@ -783,6 +783,36 @@ export class LocalStore {
           PRAGMA user_version = 23;
         `);
       });
+      if (version < 24) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS diagnostic_cases (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, status TEXT NOT NULL, product TEXT NOT NULL, priority TEXT NOT NULL, delivery_project_id TEXT REFERENCES delivery_projects(id) ON DELETE SET NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_cases_project ON diagnostic_cases(delivery_project_id, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS diagnostic_cases_status ON diagnostic_cases(status, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS diagnostic_cases_priority ON diagnostic_cases(priority, status, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS diagnostic_runs (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, revision INTEGER NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(case_id, revision));
+          CREATE INDEX IF NOT EXISTS diagnostic_runs_case ON diagnostic_runs(case_id, revision DESC);
+          CREATE TABLE IF NOT EXISTS diagnostic_steps (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES diagnostic_runs(id) ON DELETE CASCADE, plan_revision INTEGER NOT NULL, step_order INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(case_id, plan_revision, step_order));
+          CREATE INDEX IF NOT EXISTS diagnostic_steps_case ON diagnostic_steps(case_id, plan_revision, step_order);
+          CREATE TABLE IF NOT EXISTS diagnostic_evidence (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, kind TEXT NOT NULL, status TEXT NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_evidence_case ON diagnostic_evidence(case_id, created_at DESC);
+          CREATE TABLE IF NOT EXISTS diagnostic_hypotheses (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES diagnostic_runs(id) ON DELETE CASCADE, status TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_hypotheses_case ON diagnostic_hypotheses(case_id, status);
+          CREATE TABLE IF NOT EXISTS diagnostic_resolutions (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_resolutions_case ON diagnostic_resolutions(case_id, created_at DESC);
+          CREATE TABLE IF NOT EXISTS diagnostic_knowledge_cases (id TEXT PRIMARY KEY, source_case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, status TEXT NOT NULL, shared_across_projects INTEGER NOT NULL, product TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_knowledge_shared ON diagnostic_knowledge_cases(status, shared_across_projects, product, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS diagnostic_knowledge_source ON diagnostic_knowledge_cases(source_case_id, updated_at DESC);
+          CREATE TABLE IF NOT EXISTS diagnostic_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, case_id TEXT NOT NULL REFERENCES diagnostic_cases(id) ON DELETE CASCADE, event_type TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS diagnostic_events_case ON diagnostic_events(case_id, seq DESC);
+          PRAGMA user_version = 24;
+        `);
+      });
+      if (version < 25) store.transaction(() => {
+        store.db.exec(`
+          CREATE INDEX IF NOT EXISTS diagnostic_cases_delivery_issue ON diagnostic_cases(delivery_project_id, json_extract(value, '$.deliveryIssueId'));
+          PRAGMA user_version = 25;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -872,6 +902,84 @@ export class LocalStore {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  listDiagnosticCases(): DiagnosticCase[] { return this.rows('SELECT value FROM diagnostic_cases ORDER BY updated_at DESC, rowid DESC'); }
+  findDiagnosticCaseByDeliveryIssue(projectId: string, issueId: string): DiagnosticCase | undefined {
+    return this.rows<DiagnosticCase>('SELECT value FROM diagnostic_cases WHERE delivery_project_id = ? AND json_extract(value, \'$.deliveryIssueId\') = ? LIMIT 1', [projectId, issueId])[0];
+  }
+  queryDiagnosticCases(input: DiagnosticListInput): DiagnosticCase[] {
+    const where: string[] = [];
+    const params: SqlValue[] = [];
+    if (input.status && input.status !== 'all') { where.push('status = ?'); params.push(input.status); }
+    if (input.product && input.product !== 'all') { where.push('product = ?'); params.push(input.product); }
+    if (input.priority && input.priority !== 'all') { where.push('priority = ?'); params.push(input.priority); }
+    if (input.issueCategory && input.issueCategory !== 'all') { where.push("json_extract(value, '$.issueCategory') = ?"); params.push(input.issueCategory); }
+    if (input.deliveryProjectId) { where.push('delivery_project_id = ?'); params.push(input.deliveryProjectId); }
+    if (input.module?.trim()) { where.push("json_extract(value, '$.module') LIKE ?"); params.push(`%${input.module.trim()}%`); }
+    if (input.assigneeLabel?.trim()) { where.push("json_extract(value, '$.assigneeLabel') LIKE ?"); params.push(`%${input.assigneeLabel.trim()}%`); }
+    if (input.reporterLabel?.trim()) { where.push("json_extract(value, '$.reporterLabel') LIKE ?"); params.push(`%${input.reporterLabel.trim()}%`); }
+    if (input.query?.trim()) { where.push("(code LIKE ? OR json_extract(value, '$.title') LIKE ? OR json_extract(value, '$.symptom') LIKE ?)"); const query = `%${input.query.trim()}%`; params.push(query, query, query); }
+    const ordering = input.sortBy === 'priority'
+      ? "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END ASC, updated_at DESC, rowid DESC"
+      : 'updated_at DESC, rowid DESC';
+    return this.rows(`SELECT value FROM diagnostic_cases ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${ordering} LIMIT ? OFFSET ?`, [...params, input.limit ?? 100, input.offset ?? 0]);
+  }
+  getDiagnosticCase(id: string): DiagnosticCase | undefined { return this.rows<DiagnosticCase>('SELECT value FROM diagnostic_cases WHERE id = ?', [id])[0]; }
+  listDiagnosticRuns(caseId: string): DiagnosticRun[] { return this.rows('SELECT value FROM diagnostic_runs WHERE case_id = ? ORDER BY revision DESC', [caseId]); }
+  listDiagnosticSteps(caseId: string): DiagnosticStep[] { return this.rows('SELECT value FROM diagnostic_steps WHERE case_id = ? ORDER BY plan_revision, step_order', [caseId]); }
+  listDiagnosticEvidence(caseId: string): DiagnosticEvidence[] { return this.rows('SELECT value FROM diagnostic_evidence WHERE case_id = ? ORDER BY created_at DESC', [caseId]); }
+  listDiagnosticHypotheses(caseId: string): DiagnosticHypothesis[] { return this.rows('SELECT value FROM diagnostic_hypotheses WHERE case_id = ? ORDER BY rowid', [caseId]); }
+  listDiagnosticResolutions(caseId: string): DiagnosticResolution[] { return this.rows('SELECT value FROM diagnostic_resolutions WHERE case_id = ? ORDER BY created_at DESC', [caseId]); }
+  listDiagnosticKnowledgeCases(caseId: string): DiagnosticKnowledgeCase[] { return this.rows('SELECT value FROM diagnostic_knowledge_cases WHERE source_case_id = ? ORDER BY updated_at DESC', [caseId]); }
+  listDiagnosticEvents(caseId: string): DiagnosticEvent[] { return this.rows('SELECT value FROM diagnostic_events WHERE case_id = ? ORDER BY seq', [caseId]); }
+  countDiagnosticKnowledgeReview(): number {
+    return Number(this.records<{ count: number }>('SELECT COUNT(*) AS count FROM diagnostic_knowledge_cases WHERE status = ?', ['pending_review'])[0]?.count ?? 0);
+  }
+  searchDiagnosticKnowledgeCases(product: DiagnosticKnowledgeCase['product'], sharedOnly: boolean, deliveryProjectId?: string): DiagnosticKnowledgeCase[] {
+    return this.rows<DiagnosticKnowledgeCase>(
+      `SELECT k.value FROM diagnostic_knowledge_cases k JOIN diagnostic_cases c ON c.id = k.source_case_id WHERE k.product = ? AND k.status = 'approved' AND (k.shared_across_projects = 1 OR (? = 0 AND c.delivery_project_id = ?)) ORDER BY k.updated_at DESC`,
+      [product, sharedOnly ? 1 : 0, deliveryProjectId ?? ''],
+    );
+  }
+  saveDiagnosticBundle(input: {
+    cases?: DiagnosticCase[]; runs?: DiagnosticRun[]; steps?: DiagnosticStep[]; evidence?: DiagnosticEvidence[];
+    hypotheses?: DiagnosticHypothesis[]; resolutions?: DiagnosticResolution[]; knowledgeCases?: DiagnosticKnowledgeCase[]; events?: DiagnosticEvent[];
+  }): void {
+    this.transaction(() => {
+      for (const item of input.cases ?? []) this.db.run(
+        'INSERT INTO diagnostic_cases(id, code, status, product, priority, delivery_project_id, updated_at, value) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, product=excluded.product, priority=excluded.priority, delivery_project_id=excluded.delivery_project_id, updated_at=excluded.updated_at, value=excluded.value',
+        [item.id, item.code, item.status, item.product, item.priority, item.deliveryProjectId ?? null, item.updatedAt, JSON.stringify(item)],
+      );
+      for (const item of input.runs ?? []) this.db.run(
+        'INSERT INTO diagnostic_runs(id, case_id, revision, status, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value',
+        [item.id, item.caseId, item.revision, item.status, JSON.stringify(item)],
+      );
+      for (const item of input.steps ?? []) this.db.run(
+        'INSERT INTO diagnostic_steps(id, case_id, run_id, plan_revision, step_order, status, updated_at, value) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, value=excluded.value',
+        [item.id, item.caseId, item.runId, item.planRevision, item.order, item.status, item.updatedAt, JSON.stringify(item)],
+      );
+      for (const item of input.evidence ?? []) this.db.run(
+        'INSERT INTO diagnostic_evidence(id, case_id, kind, status, sha256, created_at, value) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value',
+        [item.id, item.caseId, item.kind, item.status, item.sha256, item.createdAt, JSON.stringify(item)],
+      );
+      for (const item of input.hypotheses ?? []) this.db.run(
+        'INSERT INTO diagnostic_hypotheses(id, case_id, run_id, status, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, value=excluded.value',
+        [item.id, item.caseId, item.runId, item.status, JSON.stringify(item)],
+      );
+      for (const item of input.resolutions ?? []) this.db.run(
+        'INSERT INTO diagnostic_resolutions(id, case_id, created_at, value) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',
+        [item.id, item.caseId, item.createdAt, JSON.stringify(item)],
+      );
+      for (const item of input.knowledgeCases ?? []) this.db.run(
+        'INSERT INTO diagnostic_knowledge_cases(id, source_case_id, status, shared_across_projects, product, updated_at, value) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, shared_across_projects=excluded.shared_across_projects, product=excluded.product, updated_at=excluded.updated_at, value=excluded.value',
+        [item.id, item.sourceCaseId, item.status, item.sharedAcrossProjects ? 1 : 0, item.product, item.updatedAt, JSON.stringify(item)],
+      );
+      for (const item of input.events ?? []) this.db.run(
+        'INSERT INTO diagnostic_events(id, case_id, event_type, created_at, value) VALUES (?, ?, ?, ?, ?)',
+        [item.id, item.caseId, item.eventType, item.createdAt, JSON.stringify(item)],
+      );
+    });
   }
 
   listDeliveryProjects(includeArchived = true): DeliveryProject[] {

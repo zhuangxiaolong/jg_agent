@@ -191,6 +191,7 @@
 .delivery-progress-grid .delivery-stat > strong { font-size: 16px; }
 
 .delivery-record-row { align-items: flex-start; gap: 14px; min-height: 65px; padding: 12px 5px; border-bottom: 1px solid var(--line, #2b302e); }
+.delivery-record-row.targeted { border-left: 3px solid var(--accent, #8fbe9d); background: color-mix(in srgb, var(--accent, #8fbe9d) 8%, transparent); }
 .delivery-record-main { flex: 1; min-width: 0; align-items: flex-start; flex-direction: column; gap: 5px; }
 .delivery-record-main strong { color: var(--text, #e5e7e6); font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
 .delivery-record-main small,

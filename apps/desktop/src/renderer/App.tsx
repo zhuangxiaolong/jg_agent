@@ -28,6 +28,7 @@ import { AgentTasksPanel } from './AgentTasksPanel';
 import { TaskWorkbench } from './TaskWorkbench';
 import { IterationWorkbench } from './IterationWorkbench';
 import { DeliveryWorkbenchPage } from './DeliveryWorkbenchPage';
+import { DiagnosticsPage } from './DiagnosticsPage';
 import { agentTasksToReveal } from './agent-task-state';
 import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
@@ -188,6 +189,8 @@ export function App() {
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
   const [deliveryWorkbenchOpen, setDeliveryWorkbenchOpen] = useState(false);
+  const [deliveryWorkbenchLaunch, setDeliveryWorkbenchLaunch] = useState<{ projectId: string; issueId?: string } | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [mappingLaunch, setMappingLaunch] = useState<{ sequence: number; selection: MappingJobSelection } | null>(null);
   const [newSessionMenu, setNewSessionMenu] = useState<{ x: number; y: number } | null>(null);
   const [browserStates, setBrowserStates] = useState<Record<string, BrowserPanelState>>({});
@@ -1240,9 +1243,20 @@ export function App() {
     '--composer-height': `${layout.composerHeight ?? 110}px`,
     '--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
+  if (diagnosticsOpen && api.diagnostics) return <DiagnosticsPage
+    api={api.diagnostics}
+    onClose={() => setDiagnosticsOpen(false)}
+    onOpenDeliveryProject={(projectId, issueId) => {
+      setDiagnosticsOpen(false);
+      setDeliveryWorkbenchLaunch({ projectId, issueId });
+      setDeliveryWorkbenchOpen(true);
+    }}
+  />;
   if (deliveryWorkbenchOpen && api.deliveryWorkbench) return <DeliveryWorkbenchPage
     api={api.deliveryWorkbench}
-    onClose={() => setDeliveryWorkbenchOpen(false)}
+    initialProjectId={deliveryWorkbenchLaunch?.projectId}
+    initialIssueId={deliveryWorkbenchLaunch?.issueId}
+    onClose={() => { setDeliveryWorkbenchOpen(false); setDeliveryWorkbenchLaunch(null); }}
     onOpenManuals={() => { setDeliveryWorkbenchOpen(false); openSettings('manuals'); }}
     onOpenMapping={(linkedCodeProjectId, systemType, productVersion) => {
       if (systemType === 'OTHER') { setError('该项目系统类型暂不支持数据映射，请先将系统类型设置为 MES5、MES6 或 WMS。'); return; }
@@ -1260,7 +1274,7 @@ export function App() {
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>研发助手</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
-        <div className="sidebar-section top-nav"><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />研发任务工作台</button><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className="nav-item" disabled={!api.deliveryWorkbench} onClick={() => { setNewSessionMenu(null); setDeliveryWorkbenchOpen(true); }}><Icon name="box" />交付工作台</button></div>
+        <div className="sidebar-section top-nav"><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />研发任务工作台</button><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className="nav-item" disabled={!api.deliveryWorkbench} onClick={() => { setNewSessionMenu(null); setDeliveryWorkbenchLaunch(null); setDeliveryWorkbenchOpen(true); }}><Icon name="box" />交付工作台</button><button type="button" className="nav-item" disabled={!api.diagnostics} onClick={() => { setNewSessionMenu(null); setDiagnosticsOpen(true); }}><Icon name="shield" />现场问题诊断</button></div>
       {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
         <div className="sidebar-section projects-heading"><span>本地项目</span><button className="icon-button" onClick={() => { void addProject(); }} disabled={!!busy} title="添加项目目录" aria-label="添加项目目录"><Icon name="plus" /></button></div>

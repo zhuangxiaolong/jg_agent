@@ -83,6 +83,7 @@ import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
 import { registerImpactAnalysisIpc } from './impact-analysis-ipc';
 import { registerDeliveryIpc } from './delivery-ipc';
 import { registerDeliveryWorkbenchIpc } from './delivery-workbench-ipc';
+import { registerDiagnosticsIpc } from './diagnostics-ipc';
 import { KnowledgeEngine } from './knowledge-engine';
 
 app.setName('精工Agent');
@@ -1475,6 +1476,27 @@ if (primaryInstance) app.whenReady().then(async () => {
     selectSave: async (name, extensions) => { const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: 'Markdown', extensions }] }); return result.canceled ? undefined : result.filePath; },
     openPath: file => shell.openPath(file),
     revealPath: file => shell.showItemInFolder(file),
+  });
+  registerDiagnosticsIpc({ handle, store, dataRoot, settings,
+    manuals: () => operationManualLibrary,
+    manualEnabled: () => performanceService?.telemetry.getSettings().contextSources.operation_manual !== false,
+    session: sessionById,
+    credentials: session => {
+      const provider = settings.profiles().find(profile => profile.id === session.providerId) ?? (!session.providerId ? settings.profiles()[0] : undefined);
+      if (!provider || !provider.models.includes(session.model)) throw new Error('会话模型配置不可用');
+      const apiKey = settings.credential(provider.id).read(provider.baseUrl);
+      if (!apiKey) throw new Error('请先配置当前模型凭据');
+      return { provider: provider.id, baseUrl: provider.baseUrl, apiKey };
+    },
+    secrets: () => settings.memorySecrets(),
+    selectEvidence: async () => {
+      const result = await dialog.showOpenDialog(window, { title: '选择现场诊断证据', properties: ['openFile', 'multiSelections'], filters: [{ name: '诊断证据', extensions: ['png', 'jpg', 'jpeg', 'webp', 'txt', 'log', 'md', 'json', 'xml', 'csv', 'pdf', 'docx', 'xlsx'] }] });
+      return result.canceled ? [] : result.filePaths;
+    },
+    selectSave: async (name, extension) => {
+      const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: extension.toUpperCase(), extensions: [extension] }] });
+      return result.canceled ? undefined : result.filePath;
+    },
   });
   handle('plugin:select-path', async (value: unknown) => {
     const sourceType = z.enum(['zip', 'folder']).parse(value);

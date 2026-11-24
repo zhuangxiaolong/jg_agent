@@ -5,6 +5,7 @@ export * from './iteration-07';
 export * from './iteration-governance';
 export * from './delivery';
 export * from './delivery-workbench';
+export * from './diagnostics';
 export * from './skill-intelligence';
 export * from './learning';
 export * from './run-lifecycle';
@@ -404,6 +405,7 @@ export interface DesktopApi {
   learningEngine?: LearningEngineApi;
   delivery?: DeliveryApi;
   deliveryWorkbench?: import('./delivery-workbench').DeliveryWorkbenchApi;
+  diagnostics?: import('./diagnostics').DiagnosticApi;
   impactReview?: ImpactReviewApi;
   iteration?: IterationApi;
   taskGovernance?: TaskGovernanceApi;
