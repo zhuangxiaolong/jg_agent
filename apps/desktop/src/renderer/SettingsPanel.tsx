@@ -61,7 +61,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  return <div className="modal-backdrop"><div className="settings-shell" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={key}>
+  return <div className="modal-backdrop"><div className={`settings-shell ${tab === 'experts' ? 'expert-settings-shell' : ''}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={key}>
     <header className="settings-header"><div><h2 id="settings-title">设置</h2><p>管理本地研发环境与个人偏好</p></div><button className="icon-button" aria-label="关闭设置" title="关闭设置" onClick={onClose} disabled={pending}><Icon name="close" /></button></header>
     <div className="settings-body"><nav className="settings-navigation" aria-label="设置分类">{tabs.map(item => <button key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => setTab(item.id)} disabled={pending}><Icon name={item.icon} />{item.name}</button>)}</nav>
       <div className="settings-content">
