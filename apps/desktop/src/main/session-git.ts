@@ -47,7 +47,18 @@ export class SessionGitService {
     this.active.set(key, session.id);
     try {
       const record = await this.load(session);
-      if (record.active) throw new Error('上次任务异常退出，无法确定后续修改归属；请新建会话继续，原文件已保留');
+      if (record.active) {
+        // 活动快照只可能在应用异常退出后遗留。先把当前目录封存为上一轮的变更，
+        // 再建立本轮快照，既保留文件也避免后续任务永久卡在“无法确定归属”。
+        const recoveredAfter = await this.git.sessionSnapshot(session.workspacePath, `refs/jinggong/sessions/${session.id}/${record.active.key}-recovered-after`, true);
+        if (record.active.before !== recoveredAfter) {
+          const previous = record.changes.at(-1);
+          if (previous?.after === record.active.before && !previous.excluded?.length) previous.after = recoveredAfter;
+          else record.changes.push({ before: record.active.before, after: recoveredAfter });
+        }
+        record.active = undefined;
+        await this.save(session, record);
+      }
       if ((await this.git.state(session.workspacePath, true)).branch !== record.branch) throw new Error('项目分支已切换，请新建会话后继续，避免混入其他分支修改');
       const token = randomUUID();
       const before = await this.git.sessionSnapshot(session.workspacePath, `refs/jinggong/sessions/${session.id}/${token}-before`, true);

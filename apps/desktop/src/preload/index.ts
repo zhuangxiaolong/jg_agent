@@ -160,6 +160,15 @@ const api: DesktopApi = {
   openProjectFile: (target, file) => invoke('git:project-file-open', target, file),
   listAgentTasks: id => invoke('agent-task:list', id),
   getAgentOrchestrationAvailability: id => invoke('agent-task:availability', id),
+  expertCollaboration: {
+    preview: (sessionId, prompt) => invoke('expert-collaboration:preview', sessionId, prompt),
+    list: sessionId => invoke('expert-collaboration:list', sessionId),
+    edit: (sessionId, planId, tasks) => invoke('expert-collaboration:edit', sessionId, planId, tasks),
+    confirm: (sessionId, planId) => invoke('expert-collaboration:confirm', sessionId, planId),
+    reject: (sessionId, planId, reason) => invoke('expert-collaboration:reject', sessionId, planId, reason),
+    cancel: (sessionId, planId) => invoke('expert-collaboration:cancel', sessionId, planId),
+    aggregate: (sessionId, planId) => invoke('expert-collaboration:aggregate', sessionId, planId),
+  },
   taskEngineering: {
     detail: (sessionId, taskId) => invoke('agent-task:engineering-detail', sessionId, taskId),
     revise: input => invoke('agent-task:contract-revise', input),

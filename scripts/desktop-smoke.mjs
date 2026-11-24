@@ -108,10 +108,11 @@ try {
   await page.getByRole('button', { name: '全局设置', exact: true }).click();
   await page.getByRole('navigation', { name:'设置分类' }).getByRole('button',{name:'专家中心'}).click();
   const directory = page.getByRole('group',{name:'专家档案'});
-  await expect(directory.getByRole('button',{pressed:true})).toContainText('MES/WMS 需求与研发总专家');
+  const selectedExpert = page.locator('button.matrix-profile[aria-pressed="true"]');
+  await expect(selectedExpert).toHaveAccessibleName(/MES\/WMS 需求与研发总专家/);
   await expect.poll(()=>directory.locator('img').evaluateAll(images => new Set(images.filter(image=>image.naturalWidth>0).map(image=>image.src)).size)).toBe(10);
-  await directory.getByRole('button',{name:'后端开发专家'}).click();
-  await expect(directory.getByRole('button',{pressed:true})).toContainText('后端开发专家');
+  await directory.getByRole('button',{name:/后端开发专家/}).click();
+  await expect(selectedExpert).toHaveAccessibleName(/后端开发专家/);
   await page.getByRole('button',{name:'复制档案',exact:true}).click();
   await expect(page.getByRole('button',{name:'删除档案'})).toBeEnabled();
   await page.getByRole('button',{name:'删除档案'}).click();

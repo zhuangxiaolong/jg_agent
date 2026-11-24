@@ -65,3 +65,17 @@
 .agent-task-create .agent-task-form { max-height: none; }
 .agent-task-list { flex: 0 1 auto; max-height: 28%; }
 .agent-task-detail { flex: 1; max-height: none; min-height: 120px; }
+.agent-collaboration-plans { flex-shrink: 0; max-height: 42%; overflow: auto; border-bottom: 1px solid var(--line); padding: 3px 8px 8px; }
+.agent-collaboration-plan { margin: 0 4px 7px; padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-1); }
+.agent-collaboration-plan>p { margin: 5px 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.agent-collaboration-task-list { display: grid; gap: 4px; }
+.agent-collaboration-task { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; padding: 5px 0; border-top: 1px solid var(--line); }
+.agent-collaboration-task>span { min-width: 0; }
+.agent-collaboration-task strong, .agent-collaboration-task small { display: block; overflow-wrap: anywhere; }
+.agent-collaboration-task strong { color: var(--text); font-size: 9px; }
+.agent-collaboration-task small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.agent-collaboration-task button, .agent-collaboration-actions button { flex-shrink: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-secondary); font-size: 8px; }
+.agent-collaboration-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding-top: 7px; }
+.agent-collaboration-actions span { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.agent-collaboration-plan details { margin-top: 6px; color: var(--muted); font-size: 8px; }
+.agent-collaboration-plan details p, .agent-collaboration-plan details small { display: block; margin: 4px 0; overflow-wrap: anywhere; }

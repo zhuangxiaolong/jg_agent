@@ -13,10 +13,11 @@ import { grokProfileId, safeGrokProvider, safeGrokRuntime, type GrokModelProfile
 import { tokenizeManualContent, type ManualChunk, type ManualImportJob, type ManualProductType, type OperationManual } from '../../operation-manuals/src';
 
 import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, ExpertRun } from '../../domain/src/expert';
+import type { ExpertCollaborationPlan } from '../../domain/src/expert-collaboration';
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -728,6 +729,14 @@ export class LocalStore {
           PRAGMA user_version = 20;
         `);
       });
+      if (version < 21) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS expert_collaboration_plans (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, project_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS expert_collaboration_plans_session ON expert_collaboration_plans(session_id, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS expert_collaboration_plans_status ON expert_collaboration_plans(status, updated_at DESC);
+          PRAGMA user_version = 21;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -843,6 +852,20 @@ export class LocalStore {
   expertComparisons(): ExpertComparison[] { return this.rows('SELECT value FROM expert_eval_runs ORDER BY rowid DESC'); }
   saveExpertComparison(item: ExpertComparison): void {
     this.transaction(() => this.db.run('INSERT INTO expert_eval_runs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',[item.id,JSON.stringify(item)]));
+  }
+  expertCollaborationPlans(sessionId?: string): ExpertCollaborationPlan[] {
+    return sessionId === undefined
+      ? this.rows('SELECT value FROM expert_collaboration_plans ORDER BY updated_at DESC')
+      : this.rows('SELECT value FROM expert_collaboration_plans WHERE session_id=? ORDER BY updated_at DESC', [sessionId]);
+  }
+  expertCollaborationPlan(id: string): ExpertCollaborationPlan | undefined {
+    return this.rows<ExpertCollaborationPlan>('SELECT value FROM expert_collaboration_plans WHERE id=?', [id])[0];
+  }
+  saveExpertCollaborationPlan(item: ExpertCollaborationPlan): void {
+    this.transaction(() => this.db.run(
+      'INSERT INTO expert_collaboration_plans(id,session_id,project_id,status,created_at,updated_at,value) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET session_id=excluded.session_id,project_id=excluded.project_id,status=excluded.status,updated_at=excluded.updated_at,value=excluded.value',
+      [item.id, item.sessionId, item.projectId ?? null, item.status, item.createdAt, item.updatedAt, JSON.stringify(item)],
+    ));
   }
 
   listProjects(): Project[] { return this.rows<Project>('SELECT value FROM projects ORDER BY rowid'); }
@@ -1166,6 +1189,37 @@ export class LocalStore {
       this.appendTaskLifecycleEvent(next, latest ? 'contract.revised' : 'contract.created', actor, { contractVersion: record.version, contractHash: record.contentHash, previousContractHash: latest?.contentHash });
     });
     return record;
+  }
+
+  saveAgentTaskContracts(entries: Array<{ task: AgentTask; contract: TaskContract; expectedContractVersion: number }>, actor: string, plan?: ExpertCollaborationPlan): TaskContractRecord[] {
+    if (!entries.length) return [];
+    const ids = new Set<string>();
+    const prepared = entries.map(({ task, contract: contractInput, expectedContractVersion }) => {
+      if (ids.has(task.id)) throw new Error('专家计划包含重复任务 ID');
+      ids.add(task.id);
+      const contract = validateTaskContract(contractInput);
+      const session = this.getSession(task.sessionId);
+      const current = this.listAgentTasks().find(item => item.id === task.id);
+      const latest = this.getAgentTaskContractVersions(task.sessionId, task.id).at(-1);
+      if (!session || task.projectId !== session.projectId || current || latest || !Number.isSafeInteger(expectedContractVersion) || expectedContractVersion !== 0 || contract.contractVersion !== 1) throw new Error('专家任务创建状态已变化，请重新加载计划');
+      if (actor !== contract.createdBy || contract.taskId !== task.id || contract.sessionId !== task.sessionId || contract.projectId !== task.projectId || contract.runtimeKind !== (task.runtimeKind ?? 'codex') || contract.title !== task.name || contract.description !== task.description) throw new Error('专家任务契约与任务快照不一致');
+      if (taskContentHash(contract.dependencies.map(item => item.taskId).sort()) !== taskContentHash([...task.dependencyIds].sort()) || (contract.workspacePolicy === 'isolated_worktree') !== (task.workspaceMode === 'worktree')) throw new Error('专家任务契约与任务依赖或工作区模式不一致');
+      const next: AgentTask = { ...task, contractVersion: 1, executionStatus: executionStatusOf(task), verificationStatus: 'NOT_STARTED', acceptanceStatus: 'NOT_SUBMITTED', evidenceIds: [], stateVersion: 1, updatedAt: new Date().toISOString(), dependencyConditions: Object.fromEntries(contract.dependencies.map(item => [item.taskId, item.condition])), maxAttempts: contract.budgetPolicy.maxRetriesPerTask + 1, timeoutMs: contract.budgetPolicy.maxRuntimeMinutes * 60000 };
+      const record: TaskContractRecord = { taskId: task.id, sessionId: task.sessionId, version: 1, contract, contentHash: taskContentHash(contract), createdBy: actor, createdAt: contract.createdAt };
+      return { next, record };
+    });
+    const sessionIds = new Set(prepared.map(item => item.next.sessionId));
+    for (const sessionId of sessionIds) assertTaskGraph(this.listAgentTasks(sessionId).concat(prepared.filter(item => item.next.sessionId === sessionId).map(item => item.next)));
+    if (plan && (plan.status !== 'executing' || plan.tasks.length !== prepared.length || plan.tasks.some(spec => !spec.agentTaskId || !prepared.some(item => item.next.id === spec.agentTaskId && item.next.expertPlanId === plan.id && item.next.sessionId === plan.sessionId)))) throw new Error('专家协作计划与待创建的任务组不一致');
+    this.transaction(() => {
+      for (const { next, record } of prepared) {
+        this.writeAgentTask(next);
+        this.db.run('INSERT INTO agent_task_contracts(task_id, session_id, version, content_hash, created_at, value) VALUES (?, ?, ?, ?, ?, ?)', [record.taskId, record.sessionId, record.version, record.contentHash, record.createdAt, JSON.stringify(record)]);
+        this.appendTaskLifecycleEvent(next, 'contract.created', actor, { contractVersion: record.version, contractHash: record.contentHash });
+      }
+      if (plan) this.db.run('INSERT INTO expert_collaboration_plans(id,session_id,project_id,status,created_at,updated_at,value) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at,value=excluded.value', [plan.id, plan.sessionId, plan.projectId ?? null, plan.status, plan.createdAt, plan.updatedAt, JSON.stringify(plan)]);
+    });
+    return prepared.map(item => item.record);
   }
 
   transitionTaskLifecycle(input: TaskLifecycleTransition): AgentTask {

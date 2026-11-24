@@ -44,6 +44,24 @@ test('没有归属记录的历史会话不会显示项目原有修改；同项�
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('异常退出遗留活动快照时，新一轮会话会封存上一轮并继续执行', async () => {
+  const f = await fixture();
+  try {
+    const session = f.session('crashed');
+    await f.service.begin(session);
+    await writeFile(path.join(f.repo, '异常退出后保留.txt'), '上一轮任务留下的文件\n');
+
+    // 模拟进程在 begin 后直接退出，新的服务实例只能从账本恢复。
+    const reopened = new SessionGitService(f.connector, path.join(f.root, 'ledger'));
+    await reopened.begin(session);
+    await writeFile(path.join(f.repo, '新一轮任务.txt'), '新任务修改\n');
+    await reopened.finish(session);
+
+    const prepared = await reopened.prepare(session);
+    assert.deepEqual(prepared.diffs.map(file => file.path).sort(), ['异常退出后保留.txt', '新一轮任务.txt']);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('会话修改的大文本文件仍展示差异，但标记超限以阻止不完整校验和提交', async () => {
   const f = await fixture();
   try {

@@ -7,6 +7,7 @@ export * from './delivery';
 export * from './skill-intelligence';
 export * from './learning';
 export * from './run-lifecycle';
+export * from './expert-collaboration';
 import type { DeliveryApi } from './delivery';
 import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
 import type { RecoveryStatus, TaskCheckpoint, TaskPlan, TaskPlanStep, TaskPlanStepStatus } from './iteration-governance';
@@ -175,6 +176,8 @@ export interface AgentTask {
   sessionId: string;
   projectId?: string;
   orchestrationId?: string;
+  expertId?: string;
+  expertPlanId?: string;
   parentTaskId?: string;
   name: string;
   role: AgentTaskRole;
@@ -391,6 +394,7 @@ export interface TaskGovernanceRecoveryAssessment {
 }
 export interface DesktopApi {
   experts?: import('./expert').ExpertApi;
+  expertCollaboration?: import('./expert-collaboration').ExpertCollaborationApi;
   learningEngine?: LearningEngineApi;
   delivery?: DeliveryApi;
   impactReview?: ImpactReviewApi;

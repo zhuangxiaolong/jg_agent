@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { assertCommitBlocked } from './helpers/sqlite-commit';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import initSqlJs from 'sql.js';
 import { LocalStore } from '../packages/storage/src/index';
-import type { AgentEvent, AgentTask, Project, Session } from '../packages/domain/src/index';
-import { createAgentTask, transitionAgentTask } from '../packages/agent-orchestrator/src';
+import type { AgentEvent, AgentTask, ExpertCollaborationPlan, ExpertPlannerContext, Project, Session } from '../packages/domain/src/index';
+import { createAgentTask, createExpertCollaborationPlan, createTaskContract, transitionAgentTask } from '../packages/agent-orchestrator/src';
 import { tokenizeManualQuery, type ManualChunk, type OperationManual } from '../packages/operation-manuals/src';
 
 test('工作区会话无需项目，分组重启保留且删除工作区后成为独立会话', async () => {
@@ -51,6 +52,39 @@ test('编排工具调用按 orchestration 和 toolCallId 幂等，未知结果�
     assert.throws(() => store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-1', toolName: 'platform_agent_get_task', requestHash }), /不同请求占用/);
     assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'started' });
     assert.deepEqual(store.beginOrchestrationToolCall({ sessionId: 'orchestration-session', orchestrationId: 'run-1', toolCallId: 'call-2', toolName: 'platform_agent_list_tasks', requestHash }), { state: 'unknown_outcome' });
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('专家协作计划、任务契约和专家归属原子落库并在重启后恢复', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jinggong-expert-collaboration-'));
+  const filename = join(root, 'agent.db');
+  let store = await LocalStore.open(filename);
+  const project: Project = { id: 'expert-project', path: join(root, 'project'), name: '专家协作测试', branch: 'main' };
+  const session: Session = { id: 'expert-session', projectId: project.id, title: '专家协作测试', workspacePath: project.path, status: 'idle', createdAt: '2026-11-24T00:00:00.000Z', model: 'test-model', runtimeKind: 'codex' };
+  const profiles: ExpertPlannerContext[] = [
+    { id: 'mes-wms-backend', name: '后端开发专家', role: 'backend_developer', familyId: 'backend', enabled: true },
+    { id: 'mes-wms-frontend', name: '前端开发专家', role: 'frontend_developer', familyId: 'frontend', enabled: true },
+  ];
+  try {
+    store.saveProject(project);
+    store.saveSession(session);
+    const plan = createExpertCollaborationPlan({ sessionId: session.id, projectId: project.id, prompt: '分析后端接口和前端页面', profiles });
+    const taskIds = new Map(plan.tasks.map(task => [task.taskKey, randomUUID()]));
+    const entries = plan.tasks.map(spec => {
+      const task = createAgentTask({ id: taskIds.get(spec.taskKey)!, sessionId: session.id, projectId: project.id, orchestrationId: plan.id, expertId: spec.expertId, expertPlanId: plan.id, name: `专家[${spec.expertName}] ${spec.objective.slice(0, 96)}`, role: spec.role, description: `${spec.objective}\n约束：${spec.constraints.join('；')}`, input: plan.prompt, dependencyIds: spec.dependencyKeys.map(key => taskIds.get(key)!), model: session.model, runtimeKind: 'codex', workspaceMode: 'read' });
+      return { task, contract: createTaskContract(task, { createdBy: 'expert-planner', inputRefs: [], outputExpectations: spec.expectedOutput, acceptanceCriteria: spec.acceptanceCriteria, permissionProfile: `expert:${spec.expertId}` }), expectedContractVersion: 0 };
+    });
+    const executing: ExpertCollaborationPlan = { ...plan, tasks: plan.tasks.map(spec => ({ ...spec, agentTaskId: taskIds.get(spec.taskKey)! })), status: 'executing', confirmedAt: '2026-11-24T00:01:00.000Z', updatedAt: '2026-11-24T00:01:00.000Z' };
+    store.saveExpertCollaborationPlan(plan);
+    assertCommitBlocked(filename, () => store.saveAgentTaskContracts(entries, 'expert-planner', executing));
+    assert.deepEqual(store.listAgentTasks(session.id), []);
+    assert.equal(store.expertCollaborationPlan(plan.id)?.status, 'review');
+    store.saveAgentTaskContracts(entries, 'expert-planner', executing);
+    assert.equal(store.listAgentTasks(session.id).filter(task => task.expertPlanId === plan.id).length, plan.tasks.length);
+    assert.equal(store.expertCollaborationPlan(plan.id)?.status, 'executing');
+    store.close(); store = await LocalStore.open(filename);
+    assert.equal(store.expertCollaborationPlan(plan.id)?.tasks.every(task => Boolean(task.agentTaskId)), true);
+    assert.equal(store.listAgentTasks(session.id).every(task => task.expertPlanId === plan.id && task.contractVersion === 1), true);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

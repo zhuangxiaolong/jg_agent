@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentOrchestrationAvailability, AgentTask, AgentTaskEvent, AgentTaskRole, DesktopApi, Session } from '../../../../packages/domain/src';
+import type { AgentOrchestrationAvailability, AgentTask, AgentTaskEvent, AgentTaskRole, DesktopApi, ExpertCollaborationAggregate, ExpertCollaborationPlan, Session } from '../../../../packages/domain/src';
 import { mergeAgentTaskEvents, selectedAgentTask } from './agent-task-state';
 import { Icon } from './ui';
 import { TaskEngineeringPanel } from './TaskEngineeringPanel';
@@ -11,6 +11,9 @@ const roleLabels: Record<AgentTaskRole, string> = {
 };
 const statusLabels: Record<AgentTask['status'], string> = {
   PENDING: '等待运行', RUNNING: '运行中', COMPLETED: '已完成', FAILED: '失败', CANCELLED: '已取消', WAITING: '等待依赖', BLOCKED: '已阻塞',
+};
+const planStatusLabels: Record<ExpertCollaborationPlan['status'], string> = {
+  review: '待确认', confirmed: '已确认', executing: '执行中', completed: '已完成', partial: '部分完成', conflicted: '存在冲突', rejected: '已拒绝', cancelled: '已取消', failed: '失败',
 };
 const taskName = (task: AgentTask) => task.name.replace(/^自动子Agent\[[a-f0-9]{12}\]\s*/, '');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -36,6 +39,8 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
   const [selectedTask, setSelectedTask] = useState(tasks[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [availability, setAvailability] = useState<AgentOrchestrationAvailability>();
+  const [plans, setPlans] = useState<ExpertCollaborationPlan[]>([]);
+  const [aggregate, setAggregate] = useState<Record<string, ExpertCollaborationAggregate | undefined>>({});
   const mounted = useRef(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -54,6 +59,14 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
     void api.getAgentOrchestrationAvailability(session.id).then(value => { if (live && mounted.current) setAvailability(value); }).catch(error => { if (live && mounted.current) onErrorRef.current(errorMessage(error)); });
     return () => { live = false; };
   }, [api, session.id]);
+
+  async function refreshPlans() {
+    if (!api.expertCollaboration) return;
+    try { setPlans(await api.expertCollaboration.list(session.id)); }
+    catch (error) { if (mounted.current) onErrorRef.current(errorMessage(error)); }
+  }
+
+  useEffect(() => { void refreshPlans(); }, [api, session.id]);
 
   const selected = selectedAgentTask(tasks, session.id, selectedTask);
   useEffect(() => {
@@ -81,11 +94,41 @@ function SessionAgentTasksPanel({ api, session, tasks, events: liveEvents, refre
     finally { if (mounted.current) setBusy(false); }
   }
 
+  async function planAction(plan: ExpertCollaborationPlan, action: 'confirm' | 'reject' | 'cancel' | 'aggregate') {
+    const collaboration = api.expertCollaboration;
+    if (!collaboration) return;
+    setBusy(true);
+    try {
+      if (action === 'confirm') await collaboration.confirm(session.id, plan.id);
+      if (action === 'reject') await collaboration.reject(session.id, plan.id);
+      if (action === 'cancel') await collaboration.cancel(session.id, plan.id);
+      if (action === 'aggregate') {
+        const result = await collaboration.aggregate(session.id, plan.id);
+        setAggregate(current => ({ ...current, [plan.id]: result }));
+      }
+      await refreshPlans();
+      await refreshTasks();
+    } catch (error) { if (mounted.current) onErrorRef.current(errorMessage(error)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+
+  async function removePlannedTask(plan: ExpertCollaborationPlan, taskKey: string) {
+    const collaboration = api.expertCollaboration;
+    if (!collaboration || plan.status !== 'review') return;
+    setBusy(true);
+    try {
+      await collaboration.edit(session.id, plan.id, plan.tasks.filter(task => task.taskKey !== taskKey));
+      await refreshPlans();
+    } catch (error) { if (mounted.current) onErrorRef.current(errorMessage(error)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+
   const selectedEvents = selected ? mergeAgentTaskEvents(events, liveEvents, session.id, selected.id).filter(event => event.type !== 'approval') : [];
   const groups = [...new Set(tasks.map(task => task.orchestrationId ?? '历史任务'))].map(orchestrationId => ({ orchestrationId, tasks: tasks.filter(task => (task.orchestrationId ?? '历史任务') === orchestrationId) }));
   return <div className="agent-tasks-panel">
-    <div className="agent-tasks-heading"><div><strong>子 Agent</strong><span>{tasks.filter(task => task.status === 'RUNNING').length} 个运行中 · {tasks.length ? '按编排轮次分组' : '等待主 Agent 动态委派'}</span></div><button className="icon-button" type="button" title="刷新子任务" aria-label="刷新子任务" disabled={busy} onClick={() => { void refreshTasks().catch(error => { if (mounted.current) onErrorRef.current(errorMessage(error)); }); }}><Icon name="refresh" /></button></div>
+    <div className="agent-tasks-heading"><div><strong>子 Agent</strong><span>{tasks.filter(task => task.status === 'RUNNING').length} 个运行中 · {tasks.length ? '按编排轮次分组' : '等待主 Agent 动态委派'}</span></div><button className="icon-button" type="button" title="刷新子任务与专家计划" aria-label="刷新子任务与专家计划" disabled={busy} onClick={() => { void Promise.all([refreshTasks(), refreshPlans()]).catch(error => { if (mounted.current) onErrorRef.current(errorMessage(error)); }); }}><Icon name="refresh" /></button></div>
     {availability && <section className={`agent-orchestration-gate gate-${availability.status}`} aria-label="子 Agent 运行状态"><strong>{availability.status === 'available' ? '子 Agent 可用' : '当前 Runtime 不支持子 Agent'}</strong><p>{availability.reason}</p><small>Runtime {availability.runtimeKind} {availability.runtimeVersion} · Provider {availability.providerId ?? '未配置'} · Model {availability.modelId}</small></section>}
+    {plans.length > 0 && <section className="agent-collaboration-plans" aria-label="专家协作计划"><div className="agent-task-group-heading"><span>专家协作计划 · {plans.length}</span><button type="button" disabled={busy} onClick={() => { void refreshPlans(); }}>刷新</button></div>{plans.slice(0, 5).map(plan => <article className="agent-collaboration-plan" key={plan.id}><div className="agent-task-detail-heading"><strong>{plan.classification === 'parallel' ? '并行协作' : plan.classification === 'sequential' ? '串行协作' : '单专家任务'}</strong><b>{planStatusLabels[plan.status]}</b></div><p>{plan.reason}</p><div className="agent-collaboration-task-list">{plan.tasks.map(task => <div className="agent-collaboration-task" key={task.taskKey}><span><strong>{task.expertName}</strong><small>{task.objective}</small></span>{plan.status === 'review' && <button type="button" disabled={busy} onClick={() => { void removePlannedTask(plan, task.taskKey); }}>移除</button>}</div>)}</div><div className="agent-collaboration-actions">{plan.status === 'review' && <><button type="button" disabled={busy || !plan.tasks.length} onClick={() => { void planAction(plan, 'confirm'); }}>确认执行</button><button type="button" disabled={busy} onClick={() => { void planAction(plan, 'reject'); }}>拒绝</button></>}{['executing', 'partial'].includes(plan.status) && <><button type="button" disabled={busy} onClick={() => { void planAction(plan, 'aggregate'); }}>汇总结果</button><button type="button" disabled={busy} onClick={() => { void planAction(plan, 'cancel'); }}>取消计划</button></>}{aggregate[plan.id] && <span>{aggregate[plan.id]!.summary}</span>}</div>{plan.aggregate && <details><summary>最近汇总 · {plan.aggregate.conflicts.length} 项冲突</summary><p>{plan.aggregate.summary}</p>{plan.aggregate.conflicts.map(conflict => <small key={`${conflict.kind}-${conflict.subject}`}>冲突：{conflict.subject} · {conflict.details.join(' / ')}</small>)}</details>}</article>)}</section>}
     {!tasks.length && <div className="agent-tasks-empty">{availability?.status === 'available' ? '当前没有本会话子 Agent 任务；满足拆分条件时会自动创建分析任务。' : availability?.status === 'unsupported' ? availability.reason : '正在检查子 Agent 运行状态…'}</div>}
     <div className="agent-task-list" aria-label="子 Agent 任务列表">{groups.map(group => <section className="agent-task-group" key={group.orchestrationId}><div className="agent-task-group-heading"><span>编排轮次：{group.orchestrationId}</span>{group.orchestrationId !== '历史任务' && <button type="button" disabled={busy} onClick={() => { void cancelOrchestration(group.orchestrationId); }}>取消本轮</button>}</div>{group.tasks.map(task => <button type="button" key={task.id} className={`agent-task-row ${selectedTask === task.id ? 'selected' : ''}`} onClick={() => setSelectedTask(task.id)}><span className={`agent-task-dot task-${task.status.toLowerCase()}`} /><span><strong>{taskName(task)}</strong><small>{roleLabels[task.role]} · {task.runtimeKind ?? 'codex'} / {task.model ?? '未记录'} · 第 {task.attempt}/{task.maxAttempts} 次{task.parentTaskId ? ` · 修订自 ${task.parentTaskId.slice(0, 8)}` : ''}</small></span><b>{statusLabels[task.status]}</b></button>)}</section>)}</div>
     {selected && <section className="agent-task-detail" aria-label="子 Agent 任务详情"><div className="agent-task-detail-heading"><strong>{taskName(selected)}</strong>{selected.status === 'PENDING' || selected.status === 'WAITING' || selected.status === 'RUNNING' || Boolean(selected.contractVersion && !['COMPLETED', 'CANCELLED'].includes(selected.executionStatus ?? selected.status)) ? <button className="cancel-button" type="button" disabled={busy} onClick={() => { void cancel(selected.id); }}><Icon name="stop" />{selected.status === 'RUNNING' ? '停止' : '终止并保留成果'}</button> : null}</div>

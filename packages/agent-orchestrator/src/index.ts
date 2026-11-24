@@ -2,6 +2,7 @@ import type { AgentTask, AgentTaskResult, AgentTaskStatus, RuntimeKind } from '.
 import { executionStatusOf, taskDependenciesSatisfied } from './engineering';
 export * from './engineering';
 export * from './governance';
+export * from './expert-collaboration';
 
 export const TASK_GOVERNANCE_BLOCKED_PREFIX = '[TASK_GOVERNANCE_BLOCKED]';
 
@@ -17,6 +18,8 @@ export interface CreateAgentTaskInput {
   sessionId: string;
   projectId?: string;
   orchestrationId?: string;
+  expertId?: string;
+  expertPlanId?: string;
   parentTaskId?: string;
   name: string;
   role: AgentTask['role'];
@@ -69,7 +72,7 @@ export function createAgentTask(input: CreateAgentTaskInput): AgentTask {
   if (workspaceMode === 'worktree' && !input.projectId) throw new Error('写入型任务必须绑定项目');
   if (workspaceMode === 'read' && input.workspacePath !== undefined) throw new Error('只读任务不能绑定写入工作区');
   return {
-    id: input.id, sessionId: input.sessionId, ...(input.projectId ? { projectId: input.projectId } : {}), ...(input.orchestrationId ? { orchestrationId: input.orchestrationId } : {}),
+    id: input.id, sessionId: input.sessionId, ...(input.projectId ? { projectId: input.projectId } : {}), ...(input.orchestrationId ? { orchestrationId: input.orchestrationId } : {}), ...(input.expertId ? { expertId: input.expertId } : {}), ...(input.expertPlanId ? { expertPlanId: input.expertPlanId } : {}),
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}), name,
     role: input.role, description, ...(input.input !== undefined ? { input: text(input.input, '任务输入', 50000, false) } : {}),
     ...(input.model ? { model: text(input.model, '模型', 160) } : {}), ...(input.runtimeKind ? { runtimeKind: input.runtimeKind } : {}),

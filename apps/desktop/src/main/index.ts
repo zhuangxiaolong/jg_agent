@@ -60,7 +60,7 @@ import { jiraExecutionInstructions, requiresRequirementAdmission } from '../../.
 import { PluginManagerService } from './plugin-manager';
 import { migrateLegacyDataRoot } from './data-migration';
 import { AgentTaskRunner, AUTOMATIC_AGENT_TASK_PREFIX, automaticAgentTaskSummary, inferAutomaticAgentTaskPlan } from './agent-tasks';
-import { automaticAgentTaskAvailability, classifyRetryFailure, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash } from '../../../../packages/agent-orchestrator/src';
+import { automaticAgentTaskAvailability, classifyRetryFailure, CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, createAgentTask, createTaskContract, MAX_AGENT_TASKS_PER_SESSION, taskContentHash, createExpertCollaborationPlan } from '../../../../packages/agent-orchestrator/src';
 import { TaskEngineeringService } from './task-engineering';
 import { LearningEngineService } from './learning-engine';
 import { TaskWorkspaceService } from './task-workspaces';
@@ -73,6 +73,7 @@ import type { ContextCandidate } from '../../../../packages/performance/src';
 import { expertInstructions, resolveExpert, type Resolution } from '../../../../packages/expert-engine/src';
 import type { ExpertSource } from '../../../../packages/domain/src/expert';
 import { finishExpertRun, registerExpertCenter } from './expert-center';
+import { registerExpertCollaborationIpc } from './expert-collaboration';
 import { OperationManualLibrary } from './operation-manual-library';
 import { hasManualVersionConflict, isManualQuery, manualProductScope, type ManualProductType } from '../../../../packages/operation-manuals/src';
 import { RuntimeEventBatcher } from './runtime-event-batcher';
@@ -807,40 +808,21 @@ function agentOrchestrationAvailability(session: Session): AgentOrchestrationAva
   return { status: available ? 'available' : 'unsupported', reason, runtimeKind, runtimeVersion, ...(provider ? { providerId: provider.id } : {}), modelId: session.model, wireApi: 'responses', testSuiteVersion: CONTROLLED_ANALYSIS_TEST_SUITE_VERSION, capabilities: latest, ...(capabilities[0] ? { testRunId: capabilities[0].testRunId, testedAt: capabilities[0].testedAt, evidenceRef: capabilities[0].evidenceRef } : {}) };
 }
 
-/** 会话发送前按需求工作面自动生成分析子 Agent，由调度器并行执行并汇总。 */
+/** 会话发送前生成可审阅的专家协作计划，只有用户确认后才创建并运行子 Agent。 */
 function createAutomaticAgentTasks(session: Session, prompt: string): string[] {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
   if (!agentTaskRunner || !session.projectId || !automaticAgentTaskAvailability(runtimeKind).available) return [];
-  const plans = inferAutomaticAgentTaskPlan(prompt);
-  if (!plans.length) return [];
-  if (store.listAgentTasks(session.id).length + plans.length > MAX_AGENT_TASKS_PER_SESSION) {
-    emit(session.id, 'message', '当前会话历史子任务已接近容量上限，本轮由主 Agent 直接处理。');
-    return [];
-  }
-  const group = taskContentHash({ sessionId: session.id, prompt, runId: randomUUID() }).slice(0, 12);
-  const prefix = `${AUTOMATIC_AGENT_TASK_PREFIX}[${group}]`;
-  const taskIds: string[] = [];
-  const ruleRefs = applicableDocuments(store.listDocuments(), session).filter(document => document.kind === 'requirement').map(document => ({ type: 'document', ref: `${document.id}@${document.digest}` }));
-  const entries = plans.map(plan => {
-    const task = createAgentTask({
-      id: randomUUID(), sessionId: session.id, projectId: session.projectId,
-      name: `${prefix} ${plan.name}`, role: plan.role,
-      description: plan.description, input: prompt, model: session.model,
-      runtimeKind, workspaceMode: 'read',
-    });
-    const contract = createTaskContract(task, {
-      createdBy: 'automatic-planner', inputRefs: ruleRefs,
-      outputExpectations: plan.outputExpectations,
-      acceptanceCriteria: plan.acceptanceCriteria,
-    });
-    return { task, contract };
+  const plan = createExpertCollaborationPlan({
+    sessionId: session.id,
+    projectId: session.projectId,
+    system: session.system,
+    prompt,
+    profiles: store.expertProfiles().map(profile => ({ id: profile.id, name: profile.name, role: profile.role, familyId: profile.familyId, enabled: profile.enabled })),
   });
-  // 整组先完成格式与容量校验，避免逐项校验失败留下未关联本轮的任务。
-  for (const { task, contract } of entries) {
-    store.saveAgentTaskContract(task, contract, 0, 'automatic-planner');
-    taskIds.push(task.id);
-  }
-  return taskIds;
+  if (!plan.tasks.length) return [];
+  store.saveExpertCollaborationPlan(plan);
+  emit(session.id, 'message', `已生成专家协作计划（${plan.tasks.length} 个工作面），请在“子 Agent”面板确认后执行。`);
+  return [];
 }
 async function checkRuntime(kind: RuntimeKind = store.getRuntimeKind()) {
   if (!runtimePrewarm) throw new Error('Runtime 后台服务尚未就绪');
@@ -1453,6 +1435,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       const result = await dialog.showSaveDialog(window,{defaultPath:'专家对照评测.'+format,filters:[{name:format.toUpperCase(),extensions:[format]}]});
       return result.canceled ? undefined : result.filePath;
     }});
+  registerExpertCollaborationIpc({ handle, store, runner: agentTaskRunner!, session: sessionById });
   const iterationProject = (value: unknown) => {
     const id = projectIdSchema.parse(value); const project = store.listProjects().find(item => item.id === id);
     if (!project) throw new Error('项目未授权，请重新选择');
