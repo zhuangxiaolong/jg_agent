@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { RuntimeKind } from '../../domain/src';
-import type { PerformanceReport, PerformanceSettings, PerformanceSpan, PerformanceStage, PerformanceState, PerformanceStatus, PerformanceTrace } from './types';
+import type { PerformanceBenchmarkSummary, PerformanceReport, PerformanceSettings, PerformanceSpan, PerformanceStage, PerformanceState, PerformanceStatus, PerformanceTrace } from './types';
 
 const MAX_TRACES = 200;
 const MAX_SPANS = 1500;
@@ -38,6 +38,44 @@ function endpoint(value?: string): string | undefined {
 export function cleanPerformanceText(value: string): string {
   return value.replace(/Bearer\s+[^\s,;"'<>]+/gi, 'Bearer [已脱敏]').replace(/\bsk-[A-Za-z0-9_-]{8,}/g, '[已脱敏]')
     .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|cookie|authorization)(["'\s]*[:=]["'\s]*)([^\s,"'}]+)/gi, '$1$2[已脱敏]');
+}
+
+function percentile(values: number[], p: number): number | undefined {
+  if (!values.length) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1));
+  return Math.round(sorted[index]);
+}
+
+function metric(trace: PerformanceTrace, stage: PerformanceStage): number | undefined {
+  const values = trace.spans.filter(span => span.stage === stage && typeof span.durationMs === 'number').map(span => span.durationMs!);
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : undefined;
+}
+
+export function summarizePerformanceTraces(traces: PerformanceTrace[]): PerformanceBenchmarkSummary[] {
+  const groups = new Map<string, PerformanceTrace[]>();
+  for (const trace of traces) {
+    const key = JSON.stringify([trace.runtimeKind, trace.providerId ?? '', trace.modelId ?? '', trace.workspaceId ?? '', trace.taskId ?? '']);
+    const items = groups.get(key) ?? []; items.push(trace); groups.set(key, items);
+  }
+  return [...groups.entries()].map(([key, items]) => {
+    const completed = items.filter(item => item.status === 'completed');
+    const firstToken = items.map(item => item.firstVisibleResponseMs).filter((value): value is number => typeof value === 'number');
+    const total = items.map(item => item.totalDurationMs).filter((value): value is number => typeof value === 'number');
+    const startup = items.map(item => (metric(item, 'runtime.spawn') ?? 0) + (metric(item, 'runtime.initialize') ?? 0)).filter(value => value > 0);
+    const toolDuration = items.map(item => metric(item, 'tool.execute')).filter((value): value is number => typeof value === 'number');
+    const sample = items[0];
+    return {
+      key, runtimeKind: sample.runtimeKind, ...(sample.providerId ? { providerId: sample.providerId } : {}), ...(sample.modelId ? { modelId: sample.modelId } : {}), ...(sample.workspaceId ? { workspaceId: sample.workspaceId } : {}), ...(sample.taskId ? { taskId: sample.taskId } : {}),
+      sampleCount: items.length, completedCount: completed.length, successRate: items.length ? Number((completed.length / items.length).toFixed(4)) : 0,
+      baselineStatus: items.length >= 5 ? 'available' : 'insufficient_samples',
+      ...(percentile(firstToken, .5) !== undefined ? { medianTimeToFirstTokenMs: percentile(firstToken, .5), p90TimeToFirstTokenMs: percentile(firstToken, .9) } : {}),
+      ...(percentile(total, .5) !== undefined ? { medianTotalDurationMs: percentile(total, .5), p90TotalDurationMs: percentile(total, .9) } : {}),
+      ...(percentile(startup, .5) !== undefined ? { medianRuntimeStartupMs: percentile(startup, .5), p90RuntimeStartupMs: percentile(startup, .9) } : {}),
+      ...(percentile(toolDuration, .5) !== undefined ? { medianToolDurationMs: percentile(toolDuration, .5), p90ToolDurationMs: percentile(toolDuration, .9) } : {}),
+      toolCallCount: items.reduce((sum, item) => sum + item.toolEvents, 0), retryCount: items.reduce((sum, item) => sum + item.retryCount, 0),
+    } satisfies PerformanceBenchmarkSummary;
+  });
 }
 
 /** 仅记录白名单指标，不保存模型文本、隐藏推理或完整工具参数。 */
@@ -100,7 +138,7 @@ export class PerformanceTelemetry {
   startTrace(input: { sessionId: string; taskId?: string; workspaceId?: string; runtimeKind: RuntimeKind; providerId?: string; modelId?: string; baseUrl?: string }): string | undefined {
     if (!this.isEnabled(input.runtimeKind, input.workspaceId) || !this.state.settings.telemetryEnabled) return;
     const id = randomUUID();
-    const trace: PerformanceTrace = { id, sessionId: input.sessionId, taskId: input.taskId ?? id, workspaceId: input.workspaceId,
+    const trace: PerformanceTrace = { id, sessionId: input.sessionId, taskId: input.taskId ?? input.sessionId, workspaceId: input.workspaceId,
       runtimeKind: input.runtimeKind, providerId: identifier(input.providerId), modelId: identifier(input.modelId), endpoint: endpoint(input.baseUrl),
       status: 'running', startedAt: new Date().toISOString(), toolEvents: 0, retryCount: 0, spans: [] };
     this.state.traces.push(trace); this.clocks.set(id, this.now()); this.prune(); this.persist(); return id;
@@ -184,9 +222,10 @@ export class PerformanceTelemetry {
     const traces = this.state.traces.filter(item => item.sessionId === sessionId);
     const copies = structuredClone(traces);
     for (const trace of copies) if (trace.status === 'running') { const started = this.clocks.get(trace.id); if (started !== undefined) trace.totalDurationMs = Math.max(0, this.now() - started); }
-    const result: PerformanceReport = { settings: this.getSettings(), traces: copies, latest: copies.at(-1),
+    const summaries = summarizePerformanceTraces(copies);
+    const result: PerformanceReport = { settings: this.getSettings(), traces: copies, latest: copies.at(-1), summaries,
       unavailable: ['模型首 token（仅测量首个可见响应）', '模型调用次数与内部等待时间', '输入/输出 token（当前 Runtime 未公开用量）', '原生工具排队时间与未上报关联边界的工具耗时', '未接入平台验证器的测试结果'], sampleCount: traces.filter(item => item.status === 'completed').length,
-      baselineStatus: 'insufficient_samples' };
+      baselineStatus: summaries.length > 0 && summaries.every(item => item.baselineStatus === 'available') ? 'available' : 'insufficient_samples' };
     return result;
   }
   export(sessionId: string): string { const value = JSON.stringify(this.report(sessionId), null, 2); return this.options.redact?.(cleanPerformanceText(value)) ?? cleanPerformanceText(value); }

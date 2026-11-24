@@ -35,7 +35,29 @@ export interface PerformanceSettings {
 export interface PerformanceState { version: 1; settings: PerformanceSettings; traces: PerformanceTrace[] }
 export interface PerformanceReport {
   settings: PerformanceSettings; traces: PerformanceTrace[]; latest?: PerformanceTrace;
-  unavailable: string[]; sampleCount: number; baselineStatus: 'insufficient_samples' | 'available';
+  unavailable: string[]; sampleCount: number; baselineStatus: 'insufficient_samples' | 'available'; summaries: PerformanceBenchmarkSummary[];
+}
+export interface PerformanceBenchmarkSummary {
+  key: string;
+  runtimeKind: RuntimeKind;
+  providerId?: string;
+  modelId?: string;
+  workspaceId?: string;
+  taskId?: string;
+  sampleCount: number;
+  completedCount: number;
+  successRate: number;
+  baselineStatus: 'insufficient_samples' | 'available';
+  medianTimeToFirstTokenMs?: number;
+  p90TimeToFirstTokenMs?: number;
+  medianTotalDurationMs?: number;
+  p90TotalDurationMs?: number;
+  medianRuntimeStartupMs?: number;
+  p90RuntimeStartupMs?: number;
+  medianToolDurationMs?: number;
+  p90ToolDurationMs?: number;
+  toolCallCount: number;
+  retryCount: number;
 }
 export interface ContextFragment {
   workspaceId: string; repositoryId: string; worktreeId: string; path: string; hash: string; indexVersion: number;

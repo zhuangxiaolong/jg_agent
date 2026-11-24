@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-export interface RunTicket { readonly sessionId: string; readonly startedAt: number; readonly orchestrationId: string; runtimeThreadId?: string; activeTurnId?: string; cancelled: boolean }
+export interface RunTicket { readonly sessionId: string; readonly runId: string; readonly startedAt: number; readonly orchestrationId: string; runtimeThreadId?: string; activeTurnId?: string; goal?: string; cancelled: boolean }
 
 /** 异步启动的各阶段共享令牌，取消后旧请求不能继续启动工具或覆盖新任务。 */
 export class RunLifecycle {
@@ -13,7 +13,7 @@ export class RunLifecycle {
 
   begin(sessionId: string): RunTicket {
     if (this.active.has(sessionId)) throw new Error('当前会话有正在执行的任务，请等待或取消');
-    const ticket: RunTicket = { sessionId, startedAt: Date.now(), orchestrationId: randomUUID(), cancelled: false };
+    const ticket: RunTicket = { sessionId, runId: randomUUID(), startedAt: Date.now(), orchestrationId: randomUUID(), cancelled: false };
     this.active.set(sessionId, ticket);
     return ticket;
   }

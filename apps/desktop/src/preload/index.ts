@@ -51,11 +51,18 @@ const api: DesktopApi = {
     settings: patch => invoke('performance:settings', patch),
     reset: () => invoke('performance:reset'),
     export: id => invoke('performance:export', id),
+    exportDiagnostics: id => invoke('performance:export-diagnostics', id),
     clear: id => invoke('performance:clear', id),
     indexStatus: id => invoke('performance:index-status', id),
     rebuildIndex: id => invoke('performance:index-rebuild', id),
     testPlan: (id, fullRequested) => invoke('performance:test-plan', id, fullRequested),
     markFirstUiRender: id => invoke('performance:ui-render', id),
+  },
+  runLifecycle: {
+    list: id => invoke('run:list', id),
+    events: (sessionId, runId) => invoke('run:events', sessionId, runId),
+    checkpoints: (sessionId, runId) => invoke('run:checkpoints', sessionId, runId),
+    recover: (sessionId, runId, decision) => invoke('run:recover', sessionId, runId, decision),
   },
   pluginManager: {
     selectPluginPath: sourceType => invoke('plugin:select-path', sourceType),

@@ -6,6 +6,7 @@ export * from './iteration-governance';
 export * from './delivery';
 export * from './skill-intelligence';
 export * from './learning';
+export * from './run-lifecycle';
 import type { DeliveryApi } from './delivery';
 import type { ImpactReviewApi } from '../../impact-analysis/src/contracts';
 import type { RecoveryStatus, TaskCheckpoint, TaskPlan, TaskPlanStep, TaskPlanStepStatus } from './iteration-governance';
@@ -395,6 +396,12 @@ export interface DesktopApi {
   impactReview?: ImpactReviewApi;
   iteration?: IterationApi;
   taskGovernance?: TaskGovernanceApi;
+  runLifecycle?: {
+    list(sessionId: string): Promise<import('./run-lifecycle').AgentRunRecord[]>;
+    events(sessionId: string, runId: string): Promise<import('./run-lifecycle').AgentRunEvent[]>;
+    checkpoints(sessionId: string, runId: string): Promise<import('./run-lifecycle').AgentRunCheckpoint[]>;
+    recover(sessionId: string, runId: string, decision: import('./run-lifecycle').AgentRunRecoveryDecision): Promise<import('./run-lifecycle').AgentRunRecord>;
+  };
   grok?: GrokManagerApi;
   respondRuntimeApproval?(sessionId: string, requestId: string, decision: 'allow_once' | 'reject_once' | 'full'): Promise<void>;
   performance?: {
@@ -402,6 +409,7 @@ export interface DesktopApi {
     settings(patch: Partial<import('../../performance/src/types').PerformanceSettings>): Promise<import('../../performance/src/types').PerformanceSettings>;
     reset(): Promise<import('../../performance/src/types').PerformanceSettings>;
     export(sessionId: string): Promise<string>;
+    exportDiagnostics(sessionId: string): Promise<string | null>;
     clear(sessionId: string): Promise<void>;
     indexStatus(sessionId: string): Promise<{ status: string; fileCount: number; updatedAt?: string; error?: string }>;
     rebuildIndex(sessionId: string): Promise<void>;

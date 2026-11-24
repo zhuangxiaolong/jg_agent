@@ -5,7 +5,7 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
@@ -16,7 +16,7 @@ import type { ExpertProfile, ExpertSelection, ExpertCase, ExpertComparison, Expe
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -712,6 +712,22 @@ export class LocalStore {
         }
         store.db.exec('DROP INDEX IF EXISTS operation_manual_chunks_hash; CREATE UNIQUE INDEX operation_manual_chunks_hash ON operation_manual_chunks(manual_id, generation, content_hash); PRAGMA user_version = 19');
       });
+      if (version < 20) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS agent_runs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, project_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS agent_runs_session ON agent_runs(session_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS agent_runs_status ON agent_runs(status, updated_at DESC);
+          CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_active_session ON agent_runs(session_id) WHERE status IN ('queued', 'preparing', 'running', 'waiting_tool', 'stopping');
+          CREATE TABLE IF NOT EXISTS agent_run_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, event_type TEXT NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS agent_run_events_run ON agent_run_events(run_id, seq);
+          CREATE TABLE IF NOT EXISTS agent_run_checkpoints (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS agent_run_checkpoints_run ON agent_run_checkpoints(run_id, created_at DESC);
+          CREATE TABLE IF NOT EXISTS runtime_benchmark_runs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS runtime_benchmark_samples (id TEXT PRIMARY KEY, benchmark_run_id TEXT NOT NULL REFERENCES runtime_benchmark_runs(id) ON DELETE CASCADE, sample_index INTEGER NOT NULL, created_at TEXT NOT NULL, value TEXT NOT NULL);
+          CREATE UNIQUE INDEX IF NOT EXISTS runtime_benchmark_sample_order ON runtime_benchmark_samples(benchmark_run_id, sample_index);
+          PRAGMA user_version = 20;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -769,6 +785,7 @@ export class LocalStore {
           }
         });
       }
+      if (options.recoverUnfinished !== false) store.recoverUnfinishedAgentRuns();
       return store;
     } catch (error) {
       db?.close();
@@ -1342,6 +1359,63 @@ export class LocalStore {
   }
 
   events(sessionId: string): AgentEvent[] { return this.rows<AgentEvent>('SELECT value FROM events WHERE session_id = ? ORDER BY seq', [sessionId]); }
+
+  createAgentRun(run: AgentRunRecord): void {
+    if (!this.getSession(run.sessionId)) throw new Error('运行记录绑定的会话不存在');
+    if (!run.id || !run.sessionId || !run.workspacePath || !run.createdAt || !run.updatedAt) throw new Error('运行记录字段不完整');
+    if (!['queued', 'preparing', 'running', 'waiting_tool', 'stopping', 'completed', 'failed', 'cancelled', 'interrupted', 'recovery_required'].includes(run.status)) throw new Error('运行记录状态无效');
+    this.transaction(() => this.db.run('INSERT INTO agent_runs(id, session_id, project_id, status, created_at, updated_at, value) VALUES (?, ?, ?, ?, ?, ?, ?)', [run.id, run.sessionId, run.projectId ?? null, run.status, run.createdAt, run.updatedAt, JSON.stringify(run)]));
+  }
+
+  getAgentRun(id: string): AgentRunRecord | undefined { return this.rows<AgentRunRecord>('SELECT value FROM agent_runs WHERE id = ?', [id])[0]; }
+
+  listAgentRuns(sessionId?: string, limit = 100): AgentRunRecord[] {
+    const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
+    return sessionId ? this.rows<AgentRunRecord>('SELECT value FROM agent_runs WHERE session_id = ? ORDER BY created_at DESC LIMIT ?', [sessionId, bounded]) : this.rows<AgentRunRecord>('SELECT value FROM agent_runs ORDER BY created_at DESC LIMIT ?', [bounded]);
+  }
+
+  updateAgentRun(run: AgentRunRecord): void {
+    const current = this.getAgentRun(run.id);
+    if (!current) throw new Error('运行记录不存在');
+    if (current.sessionId !== run.sessionId) throw new Error('运行记录不能更换会话');
+    if (!run.updatedAt || !['queued', 'preparing', 'running', 'waiting_tool', 'stopping', 'completed', 'failed', 'cancelled', 'interrupted', 'recovery_required'].includes(run.status)) throw new Error('运行记录状态无效');
+    this.transaction(() => this.db.run('UPDATE agent_runs SET project_id = ?, status = ?, updated_at = ?, value = ? WHERE id = ?', [run.projectId ?? null, run.status, run.updatedAt, JSON.stringify(run), run.id]));
+  }
+
+  appendAgentRunEvent(event: AgentRunEvent): number {
+    const run = this.getAgentRun(event.runId);
+    if (!run || run.sessionId !== event.sessionId) throw new Error('运行事件绑定的运行记录不存在');
+    if (!event.id || !event.summary || event.summary.length > 1000 || event.data && JSON.stringify(event.data).length > 12000) throw new Error('运行事件内容无效');
+    this.transaction(() => this.db.run('INSERT OR IGNORE INTO agent_run_events(id, run_id, session_id, event_type, created_at, value) VALUES (?, ?, ?, ?, ?, ?)', [event.id, event.runId, event.sessionId, event.type, event.createdAt, JSON.stringify(event)]));
+    const row = this.db.prepare('SELECT seq FROM agent_run_events WHERE id = ?').get(event.id) as { seq?: number } | undefined;
+    return Number(row?.seq ?? 0);
+  }
+
+  listAgentRunEvents(runId: string): AgentRunEvent[] { return this.records<{ seq: number; value: string }>('SELECT seq, value FROM agent_run_events WHERE run_id = ? ORDER BY seq', [runId]).map(row => ({ ...JSON.parse(row.value) as AgentRunEvent, seq: Number(row.seq) })); }
+
+  saveAgentRunCheckpoint(checkpoint: AgentRunCheckpoint): void {
+    const run = this.getAgentRun(checkpoint.runId);
+    if (!run || run.sessionId !== checkpoint.sessionId) throw new Error('运行检查点绑定的运行记录不存在');
+    if (checkpoint.schemaVersion !== 1 || checkpoint.runId === '' || checkpoint.sessionId === '' || checkpoint.goal.length > 4000 || checkpoint.plan.length > 100 || checkpoint.completed.length > 100 || checkpoint.pending.length > 100 || checkpoint.validation.length > 100 || checkpoint.knownRisks.length > 100) throw new Error('运行检查点内容无效');
+    this.transaction(() => this.db.run('INSERT INTO agent_run_checkpoints(id, run_id, session_id, created_at, value) VALUES (?, ?, ?, ?, ?)', [checkpoint.id, checkpoint.runId, checkpoint.sessionId, checkpoint.createdAt, JSON.stringify(checkpoint)]));
+  }
+
+  listAgentRunCheckpoints(runId: string): AgentRunCheckpoint[] { return this.rows<AgentRunCheckpoint>('SELECT value FROM agent_run_checkpoints WHERE run_id = ? ORDER BY created_at DESC', [runId]); }
+
+  recoverUnfinishedAgentRuns(): AgentRunRecord[] {
+    const active = this.rows<AgentRunRecord>("SELECT value FROM agent_runs WHERE status IN ('queued', 'preparing', 'running', 'waiting_tool', 'stopping')");
+    if (!active.length) return [];
+    const now = new Date().toISOString();
+    const recovered = active.map(run => ({ ...run, status: 'interrupted' as AgentRunStatus, endedAt: now, heartbeatAt: now, updatedAt: now, recoveryReason: '应用退出时运行尚未结束，Runtime 存活状态未能确认，未自动重放。', failure: { class: 'unknown' as const, message: '应用退出时运行尚未结束，未自动重放。', recoverable: true, retryCount: run.retryCount, maxRetries: run.maxRetries } }));
+    this.transaction(() => {
+      for (const run of recovered) {
+        this.db.run('UPDATE agent_runs SET status = ?, updated_at = ?, value = ? WHERE id = ?', [run.status, run.updatedAt, JSON.stringify(run), run.id]);
+        const event: AgentRunEvent = { id: randomUUID(), runId: run.id, sessionId: run.sessionId, type: 'interrupted', status: run.status, createdAt: now, summary: run.recoveryReason! };
+        this.db.run('INSERT INTO agent_run_events(id, run_id, session_id, event_type, created_at, value) VALUES (?, ?, ?, ?, ?, ?)', [event.id, event.runId, event.sessionId, event.type, event.createdAt, JSON.stringify(event)]);
+      }
+    });
+    return recovered;
+  }
 
   nameSessionFromContent(id: string, prompt: string): Session {
     const current = this.getSession(id); if (!current) throw new Error('会话不存在');

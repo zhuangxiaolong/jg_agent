@@ -25,6 +25,25 @@ test('性能追踪使用单调时钟，记录结构化工具边界而不保存�
   assert.ok(!JSON.stringify(saved).includes('PRIVATE_USER_CONTENT')); assert.ok(!service.export('s').includes('secret output'));
   assert.equal(report.baselineStatus, 'insufficient_samples'); assert.ok(report.unavailable.length > 0);
 });
+test('性能报告按 Runtime、模型和任务配置聚合中位数、P90与成功率', () => {
+  let now = 0;
+  const service = new PerformanceTelemetry({ now: () => now });
+  for (let index = 0; index < 5; index += 1) {
+    const id = service.startTrace({ sessionId: 'aggregate', workspaceId: 'project-1', runtimeKind: 'codex', providerId: 'provider-1', modelId: 'model-1' })!;
+    now += 10 + index;
+    service.recordRuntimeEvent(id, { type: 'delta', text: '首个响应' });
+    now += 30 + index;
+    service.recordRuntimeEvent(id, { type: 'status', text: index === 4 ? 'failed' : 'completed' });
+  }
+  const report = service.report('aggregate');
+  assert.equal(report.summaries.length, 1);
+  assert.equal(report.summaries[0].sampleCount, 5);
+  assert.equal(report.summaries[0].completedCount, 4);
+  assert.equal(report.summaries[0].successRate, 0.8);
+  assert.equal(report.summaries[0].baselineStatus, 'available');
+  assert.equal(report.summaries[0].taskId, 'aggregate');
+  assert.ok(report.summaries[0].p90TotalDurationMs !== undefined);
+});
 test('工具未完成或未知退出码不会冒充成功；结束通知没有开始时不造耗时', () => {
   const service = new PerformanceTelemetry(); const id = service.startTrace({ sessionId: 's', runtimeKind: 'codex' });
   service.recordRuntimeEvent(id, { type: 'tool', text: '', performance: { callId: 'missing', phase: 'completed', stage: 'command', operation: '命令', exitCode: 0 } });
