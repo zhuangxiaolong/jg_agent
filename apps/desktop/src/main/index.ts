@@ -15,7 +15,7 @@ import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/sr
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
-import { assertAgentRunTransition, MODEL_ROUTE_TASKS, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
+import { assertAgentRunTransition, MODEL_ROUTE_TASKS, type AgentDelegationMode, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { JiraConnector } from '../../../../packages/jira-connector/src';
 import { importDocumentFile, readDocumentTextFile, SUPPORTED_DOCUMENT_TEXT_EXTENSIONS } from '../../../../packages/knowledge/src';
@@ -70,7 +70,7 @@ import type { FieldMapping, MappingJob, MappingRuleSet, MappingValidationIssue, 
 import { DesktopPerformanceService } from './performance-service';
 import { dictionaryContextCandidates, memoryContextCandidates, operationManualContextCandidates } from './context-sources';
 import type { ContextCandidate } from '../../../../packages/performance/src';
-import { expertInstructions, resolveExpert, type Resolution } from '../../../../packages/expert-engine/src';
+import { buildExpertCollaborationGuidance, expertInstructions, resolveExpert, type Resolution } from '../../../../packages/expert-engine/src';
 import type { ExpertSource } from '../../../../packages/domain/src/expert';
 import { finishExpertRun, registerExpertCenter } from './expert-center';
 import { registerExpertCollaborationIpc } from './expert-collaboration';
@@ -794,8 +794,14 @@ function emit(sessionId: string, type: AgentEvent['type'], text: string, request
   if (!window.isDestroyed()) window.webContents.send('agent:event', event);
 }
 
+function sessionDelegationMode(session: Session): AgentDelegationMode {
+  const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+  return runtimeKind === 'codex' ? session.delegationMode ?? 'native' : runtimeKind === 'jinggong' ? 'governed' : 'off';
+}
+
 function agentOrchestrationAvailability(session: Session): AgentOrchestrationAvailability {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+  const delegationMode = sessionDelegationMode(session);
   const runtimeVersion = runtimeKind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : runtimeKind === 'codex' ? CODEX_RUNTIME_VERSION : runtimeKind === 'claude_agent_sdk' ? CLAUDE_AGENT_SDK_RUNTIME_VERSION : session.runtimeVersion ?? 'unknown';
   const provider = settings.profiles().find(item => item.id === (session.providerId ?? '')) ?? (!session.providerId ? settings.profiles()[0] : undefined);
   const identity = { runtimeKind, runtimeVersion, providerId: provider?.id ?? '', modelId: session.model, wireApi: 'responses' };
@@ -803,9 +809,13 @@ function agentOrchestrationAvailability(session: Session): AgentOrchestrationAva
   const latest: AgentOrchestrationAvailability['capabilities'] = {};
   for (const item of capabilities) if (latest[item.capability] === undefined) latest[item.capability] = item.testStatus;
   const supportedRuntime = runtimeKind === 'codex' || runtimeKind === 'jinggong' || runtimeKind === 'claude_agent_sdk';
-  const available = supportedRuntime && !!agentTaskRunner && !!session.projectId;
+  const available = delegationMode === 'governed' && supportedRuntime && !!agentTaskRunner && !!session.projectId;
   const reason = available
     ? '已取消 Runtime、Provider 和 Model 预认证门禁；子 Agent 复用当前会话配置并按任务契约和预算执行。'
+    : delegationMode === 'native'
+      ? '当前会话使用 Codex 原生 Multi-Agent V2，平台治理型子 Agent 已关闭。'
+      : delegationMode === 'off'
+        ? '当前会话已关闭子 Agent。'
     : !supportedRuntime
       ? `${runtimeKind} Runtime 暂不支持平台受控子 Agent。`
       : !session.projectId ? '当前会话未关联项目，不能启动子 Agent。' : '子 Agent 服务尚未就绪。';
@@ -815,7 +825,7 @@ function agentOrchestrationAvailability(session: Session): AgentOrchestrationAva
 /** 会话发送前生成可审阅的专家协作计划，只有用户确认后才创建并运行子 Agent。 */
 function createAutomaticAgentTasks(session: Session, prompt: string): string[] {
   const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
-  if (!agentTaskRunner || !session.projectId || !automaticAgentTaskAvailability(runtimeKind).available) return [];
+  if (sessionDelegationMode(session) !== 'governed' || !agentTaskRunner || !session.projectId || !automaticAgentTaskAvailability(runtimeKind).available) return [];
   const plan = createExpertCollaborationPlan({
     sessionId: session.id,
     projectId: session.projectId,
@@ -909,6 +919,7 @@ function assertClaudeModelCompatible(session: Session): void {
 async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = ''): Promise<RuntimeAdapter> {
   runs.assertCurrent(ticket);
   const kind: RuntimeKind = session.runtimeKind ?? 'codex';
+  const delegationMode = sessionDelegationMode(session);
   const provider = kind === 'grok_build_acp' ? undefined : settings.profiles().find(item => item.id === session.providerId) ?? (!session.providerId ? settings.profiles()[0] : undefined);
   assertClaudeModelCompatible(session);
   // Grok 和原生 Codex 核对完整配置后尝试复用，其它 Runtime 保持冷恢复。
@@ -1016,14 +1027,14 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     if (expert?.profile) for (const item of items) expertSources.push({id:item.id,label:sourceLabel(item.sourceType === 'operation_manual' ? item.sourceId : item.title),kind:item.sourceType,hash:item.contentHash,version:item.version});
   };
   let verifiedSkills: ContextCandidate[] = [];
-  if (kind === 'jinggong' && expert?.profile) {
-    try { verifiedSkills = pluginManager.contextSkillCandidates({sessionId:session.id,userPrompt:skillQuery,projectId:session.projectId,projectSystem:session.system}); }
+  if ((kind === 'jinggong' || kind === 'codex') && expert?.profile) {
+    try { verifiedSkills = pluginManager.contextSkillCandidates({ sessionId: session.id, runtimeKind: kind, userPrompt: skillQuery, expertTags: expert.profile.skillTags, projectId: session.projectId, projectSystem: session.system }); }
     catch { emit(session.id,'tool','本轮专家 Skill 推荐不可用'); }
   }
   collect(operationManualContextCandidates(manualHits));
   collect(projectContext?.candidates ?? []);
   collect(verifiedSkills);
-  const professional = expert?.profile ? '\n' + expertInstructions(expert) + (verifiedSkills.length ? '\n已匹配的 Skill：' + verifiedSkills.map(s=>s.title).join('、') : '') : '';
+  const professional = expert?.profile ? '\n' + expertInstructions(expert) + '\n' + buildExpertCollaborationGuidance(expert, delegationMode, delegationMode === 'native') + (verifiedSkills.length ? '\n已匹配的 Skill：' + verifiedSkills.map(s=>s.title).join('、') : '') : '';
   const legacyInstructions = () => buildDeveloperContext(documents, memories) + professional + profileContext + codexMemoryContext + projectInstructions + jiraContext + admissionContext + taskInstruction + manualStatusInstruction + manualFallbackContext + ((!session.runtimeThreadId || (session.runtimeCapabilitiesVersion ?? 0) < RUNTIME_CAPABILITIES_VERSION) ? sharedSessionContext(store, session) : '') + (previousHistory ? '\n【工具升级前会话历史摘录，仅供参考】\n' + previousHistory : '') + browserInstruction + computerInstruction + skillInstructions;
   const performanceSettings = performanceService?.telemetry.getSettings();
   const performanceIdentity = performanceService?.identity(session);
@@ -1044,9 +1055,9 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
       collect([...dictionaryCandidates,...memoryCandidates]);
       candidates.push(...dictionaryCandidates);
       if (manualHits.length && performanceSettings.contextSources.operation_manual) candidates.push(...operationManualContextCandidates(manualHits));
-      if (kind === 'jinggong') {
+      if (kind === 'jinggong' || kind === 'codex') {
         const skillSpan = performanceService.telemetry.startSpan(performanceService.traceId(session.id), { stage: 'context.skill_retrieve', operation: 'verified_session_skill_metadata_match' });
-        const skillCandidates = expert?.profile ? verifiedSkills : pluginManager.contextSkillCandidates({ sessionId: session.id, userPrompt: currentTask, projectId: session.projectId, projectSystem: session.system });
+        const skillCandidates = expert?.profile ? verifiedSkills : pluginManager.contextSkillCandidates({ sessionId: session.id, runtimeKind: kind, userPrompt: currentTask, projectId: session.projectId, projectSystem: session.system });
         performanceService.telemetry.endSpan(skillSpan, 'completed', { itemCount: skillCandidates.length });
         candidates.push(...skillCandidates);
       }
@@ -1075,7 +1086,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     else if (event === 'app_server_initialize_start') lifecycleSpans.set('initialize', performanceService?.telemetry.startSpan(traceId, { stage: 'runtime.initialize', operation: `${kind}.app_server_initialize` }));
     else if (event === 'app_server_initialized') performanceService?.telemetry.endSpan(lifecycleSpans.get('initialize'), 'completed');
   };
-  const orchestrationProvider = agentTaskRunner && provider && (kind === 'codex' || kind === 'jinggong') ? createAgentOrchestrationProvider({
+  const orchestrationProvider = agentTaskRunner && provider && (kind === 'jinggong' || (kind === 'codex' && delegationMode === 'governed')) ? createAgentOrchestrationProvider({
     store, runner: agentTaskRunner, session, orchestrationId: ticket.orchestrationId, runtimeKind: kind,
     assertCurrent: request => {
       runs.assertCurrent(ticket);
@@ -1085,7 +1096,7 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
     },
     audit: (toolName, requestHash, resultHash, success) => emit(session.id, 'tool', `平台编排工具 ${toolName} 已${success ? '完成' : '拒绝'}（参数摘要 ${requestHash.slice(0, 12)}；结果摘要 ${resultHash.slice(0, 12)}）`),
   }) : undefined;
-  const runtimeOptions: RuntimeOptions = { runtimeAccess: store.getRuntimeAccess(), executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
+  const runtimeOptions: RuntimeOptions = { runtimeAccess: store.getRuntimeAccess(), delegationMode, executable: kind === 'jinggong' ? jinggongExecutable : executable, home: runtimeHome, ...(selectedPlugins ? { pluginsEnabled: true } : {}), baseUrl: provider?.baseUrl ?? '', model: session.model, apiKey, reasoningEffort: session.reasoningEffort, developerInstructions, executionRulesVersion: session.runtimeExecutionRulesVersion ?? 0, dictionaries: documents.filter(item => item.kind === 'dictionary'), shellToolEnabled: true, maxParallelDictionaryReads, authorizedDirectories: () => authorizedReadPolicy(),
     ...(orchestrationProvider ? { platformToolProvider: orchestrationProvider, onTurnStarted: (threadId: string, turnId: string) => runs.bindActiveTurn(ticket, threadId, turnId) } : {}),
     ...(kind === 'jinggong' ? { skillTools: { definitions: SKILL_RUNTIME_TOOL_DEFINITIONS, call: async request => {
       runs.assertCurrent(ticket);
@@ -1751,7 +1762,9 @@ if (primaryInstance) app.whenReady().then(async () => {
       const reasoningEffort = savedProvider ? modelDefaults?.reasoningEffort : undefined;
       if (input.runtimeKind === 'grok_build_acp' && !provider) throw new Error('请在【模型中转站】中配置模型和 API Key，再在会话中选择');
       const createdAt = new Date().toISOString();
-      const session: Session = { id: sessionId, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(project ? { projectId: project.id } : {}), title: initialSessionTitle(jiraIssue), ...(input.alias?.trim() ? { alias: input.alias.trim() } : {}), workspacePath, ...(branch ? { branch } : {}), ...(baseBranch ? { baseBranch } : {}), runtimeKind: input.runtimeKind, status: 'idle', createdAt, model, providerId: provider?.id, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}), readAccess: { mode: 'full', directories: [] }, ...(detected ? { system: detected.system } : {}), ...(jiraIssue ? { jiraIssue, jiraProjectKey, requirementAdmission } : {}) };
+      const delegationMode = input.runtimeKind === 'codex' ? input.delegationMode ?? 'native' : 'off';
+      if (input.runtimeKind !== 'codex' && input.delegationMode !== undefined && input.delegationMode !== 'off') throw new Error('Multi-Agent 委派模式仅适用于 Codex Runtime');
+      const session: Session = { id: sessionId, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(project ? { projectId: project.id } : {}), title: initialSessionTitle(jiraIssue), ...(input.alias?.trim() ? { alias: input.alias.trim() } : {}), workspacePath, ...(branch ? { branch } : {}), ...(baseBranch ? { baseBranch } : {}), runtimeKind: input.runtimeKind, delegationMode, status: 'idle', createdAt, model, providerId: provider?.id, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}), readAccess: { mode: 'full', directories: [] }, ...(detected ? { system: detected.system } : {}), ...(jiraIssue ? { jiraIssue, jiraProjectKey, requirementAdmission } : {}) };
       store.saveSession(session);
       sessionSaved = true;
       if (selectedPluginIds !== undefined) {
@@ -1940,6 +1953,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       timeoutMs: z.number().int().min(1000).max(24 * 60 * 60 * 1000).optional(), maxAttempts: z.number().int().min(1).max(3).optional(),
     }).strict().parse(value);
     const session = sessionById(input.sessionId);
+    if (sessionDelegationMode(session) !== 'governed') throw new Error('当前会话未启用治理型子 Agent');
     if (!session.projectId) throw new Error('子 Agent 任务必须绑定一个项目，请先将会话关联到项目');
     if (runs.get(session.id)) throw new Error('当前会话主 Agent 正在运行，请等待本轮结束后再创建子 Agent');
     if (session.runtimeKind === 'claude_agent_sdk' || session.runtimeKind === 'grok_build_acp') throw new Error(`${session.runtimeKind === 'grok_build_acp' ? 'Grok Build' : 'Claude Agent SDK'} Runtime 暂不支持分析子 Agent`);
@@ -2026,10 +2040,19 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('session:configure', async (value: unknown, input: unknown) => {
     const session = sessionById(value); assertSessionIdle(session.id); const options = sessionOptionsSchema.parse(input);
     const runtimeKind = options.runtimeKind ?? session.runtimeKind ?? 'codex';
+    if (runtimeKind !== 'codex' && options.delegationMode !== undefined && options.delegationMode !== 'off') throw new Error('只有 Codex Runtime 可以配置原生或治理型 Multi-Agent');
     if (session.runtimeKind === 'grok_build_acp' && (session.runtimeThreadId || session.grokBinding) && runtimeKind !== session.runtimeKind) throw new Error('Grok 会话已绑定 Runtime，请新建会话后切换 Runtime');
     if (runtimes.hasActive(session.id)) throw new Error('请等待当前会话任务结束后再修改会话');
     creating.add(session.id);
     try {
+      if (Object.keys(options).length === 1 && options.delegationMode !== undefined) {
+        if (runtimeKind !== 'codex') throw new Error('只有 Codex Runtime 可以配置 Multi-Agent 委派模式');
+        if (sessionDelegationMode(session) === options.delegationMode) return session;
+        await runtimes.closeSession(session.id);
+        const updated: Session = { ...session, delegationMode: options.delegationMode, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined };
+        store.saveSession(updated);
+        return updated;
+      }
       if (Object.keys(options).length === 1 && options.runtimeKind !== undefined) {
         if (runtimeKind === 'claude_agent_sdk') assertClaudeModelCompatible({ ...session, runtimeKind });
         if (runtimeKind === (session.runtimeKind ?? 'codex')) {
@@ -2046,7 +2069,8 @@ if (primaryInstance) app.whenReady().then(async () => {
           if (!provider?.hasKey || !model) throw new Error('请在【模型中转站】配置模型和凭据，再在会话中选择');
         }
         await runtimes.closeSession(session.id);
-        const updated: Session = { ...session, runtimeKind, modelRouteTaskType: undefined, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
+        const delegationMode = runtimeKind === 'codex' ? session.delegationMode ?? 'native' : 'off';
+        const updated: Session = { ...session, runtimeKind, delegationMode, modelRouteTaskType: undefined, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
         store.saveSession(updated); return updated;
       }
       const providerId = options.providerId ?? session.providerId;
@@ -2072,14 +2096,15 @@ if (primaryInstance) app.whenReady().then(async () => {
         const provider = grokSettings.profiles().find(item => item.id === providerId);
         if (!provider?.hasKey) throw new Error('任务路由目标中转站尚未配置 API Key');
       }
-      const configurationChanged = runtimeKind !== (session.runtimeKind ?? 'codex') || providerId !== session.providerId || model !== session.model || (options.system !== undefined && options.system !== session.system);
+      const delegationMode = runtimeKind === 'codex' ? options.delegationMode ?? session.delegationMode ?? 'native' : 'off';
+      const configurationChanged = runtimeKind !== (session.runtimeKind ?? 'codex') || delegationMode !== sessionDelegationMode(session) || providerId !== session.providerId || model !== session.model || (options.system !== undefined && options.system !== session.system);
       if (configurationChanged) await runtimes.closeSession(session.id);
       // 仅改推理强度或重复应用同一配置时保留原生会话；系统实际变化须重建以加载新的业务上下文。
       const explicitModelChoice = options.providerId !== undefined || options.model !== undefined || options.runtimeKind !== undefined;
       const modelRouteTaskType = routeTaskType ?? (explicitModelChoice ? undefined : session.modelRouteTaskType);
       const updated: Session = !configurationChanged
-        ? { ...session, ...options, modelRouteTaskType, runtimeKind }
-        : { ...session, ...options, modelRouteTaskType, runtimeKind, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
+        ? { ...session, ...options, delegationMode, modelRouteTaskType, runtimeKind }
+        : { ...session, ...options, delegationMode, modelRouteTaskType, runtimeKind, runtimeThreadId: undefined, runtimeNativeSessionId: undefined, runtimeVersion: undefined, runtimeCapabilitiesVersion: undefined, grokBinding: undefined };
       store.saveSession(updated, { rememberModelDefaults: true }); return updated;
     } finally { creating.delete(session.id); agentTaskRunner?.refreshSchedule(); }
   });

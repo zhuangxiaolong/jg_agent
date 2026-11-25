@@ -1,4 +1,4 @@
-import type { DeliveryActivity, DeliveryHealth, DeliveryIssue, DeliveryMilestone, DeliveryOverview, DeliveryProject, DeliveryProjectBundle, DeliveryTask } from '../../domain/src/delivery-workbench';
+import type { DeliveryActivity, DeliveryDashboardException, DeliveryHealth, DeliveryIssue, DeliveryMilestone, DeliveryOverview, DeliveryProject, DeliveryProjectBundle, DeliveryTask } from '../../domain/src/delivery-workbench';
 
 export function deliveryHealth(input: Pick<DeliveryProjectBundle, 'project' | 'milestones' | 'tasks' | 'issues'>, today = localDate()): { health: DeliveryHealth; reasons: string[] } {
   const red: string[] = [];
@@ -20,6 +20,40 @@ export function deliveryHealth(input: Pick<DeliveryProjectBundle, 'project' | 'm
 
 export function deliveryOverview(bundles: DeliveryProjectBundle[], activities: DeliveryActivity[], today = localDate()): DeliveryOverview {
   const active = bundles.filter(item => item.project.status === 'active');
+  const currentProjects = bundles.filter(item => item.project.status !== 'archived');
+  const todos = currentProjects.flatMap(bundle => bundle.tasks
+    .filter(task => task.status !== 'cancelled')
+    .map(task => ({ project: bundle.project, task })))
+    .sort((a, b) => (a.task.dueDate ?? '9999-12-31').localeCompare(b.task.dueDate ?? '9999-12-31') || priorityRank(b.task.priority) - priorityRank(a.task.priority));
+  const priorityIssues = currentProjects.flatMap(bundle => bundle.issues
+    .filter(issue => (issue.priority === 'high' || issue.priority === 'critical') && !['resolved', 'closed'].includes(issue.status))
+    .map(issue => ({ project: bundle.project, issue })))
+    .sort((a, b) => priorityRank(b.issue.priority) - priorityRank(a.issue.priority) || (a.issue.dueDate ?? '9999-12-31').localeCompare(b.issue.dueDate ?? '9999-12-31'));
+  const milestoneItems = currentProjects.flatMap(bundle => bundle.milestones
+    .filter(item => {
+      if (item.status === 'completed' || item.status === 'cancelled' || !item.plannedDate) return false;
+      return item.plannedDate < today || item.plannedDate <= addDays(today, 7);
+    })
+    .map(milestone => ({ project: bundle.project, milestone })))
+    .sort((a, b) => (a.milestone.plannedDate ?? '9999-12-31').localeCompare(b.milestone.plannedDate ?? '9999-12-31'));
+  const exceptions: DeliveryDashboardException[] = currentProjects.flatMap(bundle => {
+    const taskExceptions = bundle.tasks.flatMap(task => {
+      const overdue = task.status !== 'completed' && task.status !== 'cancelled' && !!task.dueDate && task.dueDate < today;
+      if (task.status !== 'blocked' && !overdue) return [];
+      return [{ project: bundle.project, entityType: 'task' as const, entityId: task.id, title: task.title, reason: [task.status === 'blocked' ? '任务受阻' : '', overdue ? '任务已逾期' : ''].filter(Boolean).join(' · '), owner: task.owner, dueDate: task.dueDate, priority: task.priority }];
+    });
+    const issueExceptions = bundle.issues.flatMap(issue => {
+      if (['resolved', 'closed'].includes(issue.status)) return [];
+      const reasons = [issue.priority === 'critical' ? '紧急问题未关闭' : issue.priority === 'high' ? '高优先级问题未关闭' : '', issue.type === 'blocker' ? '存在阻塞项' : ''].filter(Boolean);
+      if (!reasons.length) return [];
+      return [{ project: bundle.project, entityType: 'issue' as const, entityId: issue.id, title: issue.title, reason: reasons.join(' · '), owner: issue.owner, dueDate: issue.dueDate, priority: issue.priority }];
+    });
+    const milestoneExceptions = bundle.milestones.flatMap(milestone => {
+      if (milestone.status === 'completed' || milestone.status === 'cancelled' || !milestone.plannedDate || milestone.plannedDate >= today) return [];
+      return [{ project: bundle.project, entityType: 'milestone' as const, entityId: milestone.id, title: milestone.name, reason: '里程碑已逾期', owner: milestone.owner, dueDate: milestone.plannedDate }];
+    });
+    return [...taskExceptions, ...issueExceptions, ...milestoneExceptions];
+  }).sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') || priorityRank('priority' in b ? b.priority : 'medium') - priorityRank('priority' in a ? a.priority : 'medium'));
   return {
     activeProjects: active.length,
     totalProjects: bundles.length,
@@ -31,6 +65,22 @@ export function deliveryOverview(bundles: DeliveryProjectBundle[], activities: D
     upcomingMilestones: bundles.reduce((count, bundle) => count + bundle.milestones.filter(item => item.status !== 'completed' && item.status !== 'cancelled' && !!item.plannedDate && item.plannedDate >= today && item.plannedDate <= addDays(today, 7)).length, 0),
     attentionProjects: active.map(bundle => ({ project: bundle.project, health: bundle.health, reasons: bundle.healthReasons })).filter(item => item.health !== 'green').sort((a, b) => healthRank(a.health) - healthRank(b.health)),
     recentActivities: activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20),
+    portfolio: bundles.map(bundle => {
+      const completedTaskCount = bundle.tasks.filter(task => task.status === 'completed').length;
+      const cancelledTaskCount = bundle.tasks.filter(task => task.status === 'cancelled').length;
+      const taskCount = bundle.tasks.length;
+      const plannedTaskCount = taskCount - cancelledTaskCount;
+      return {
+        project: bundle.project, health: bundle.health, healthReasons: bundle.healthReasons,
+        taskCount, completedTaskCount, cancelledTaskCount,
+        progressPercent: plannedTaskCount ? Math.round(completedTaskCount / plannedTaskCount * 100) : null,
+        openIssueCount: bundle.issues.filter(issue => !['resolved', 'closed'].includes(issue.status)).length,
+      };
+    }),
+    todos,
+    priorityIssues,
+    milestoneItems,
+    exceptions,
   };
 }
 
@@ -51,6 +101,7 @@ function daysBetween(from: string, to: string): number {
   return Math.floor((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000);
 }
 function healthRank(value: DeliveryHealth): number { return value === 'red' ? 0 : value === 'yellow' ? 1 : value === 'gray' ? 2 : 3; }
+function priorityRank(value: string): number { return value === 'critical' ? 3 : value === 'high' ? 2 : value === 'medium' ? 1 : 0; }
 
 export function deliveryReportMarkdown(bundle: DeliveryProjectBundle, type: 'weekly' | 'risk', snapshotHash: string, periodStart?: string, periodEnd?: string): string {
   const { project, tasks, milestones, issues, meetings, health, healthReasons } = bundle;

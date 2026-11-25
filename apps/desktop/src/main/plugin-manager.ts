@@ -31,6 +31,7 @@ import type {
   SkillScope,
   SkillUsageEvent,
   SkillUsageEventType,
+  RuntimeKind,
 } from '../../../../packages/domain/src';
 import { skillCompatibilityStatus } from '../../../../packages/domain/src/skill-intelligence';
 import { matchSkills, type SkillMatcherCandidate } from '../../../../packages/plugin-manager/src/skill-matcher';
@@ -139,9 +140,10 @@ export class PluginManagerService {
     ]).filter((home): home is string => !!home && home.trim().length > 0).map(home => path.resolve(home)))];
   }
 
-  contextSkillCandidates(input: { sessionId: string; userPrompt: string; projectId?: string; projectSystem?: string }): ContextCandidate[] {
+  contextSkillCandidates(input: { sessionId: string; runtimeKind?: RuntimeKind; userPrompt: string; expertTags?: string[]; projectId?: string; projectSystem?: string }): ContextCandidate[] {
     const snapshot = this.store.getSessionPluginSnapshot(input.sessionId);
-    if (!snapshot || snapshot.runtimeKind !== 'jinggong' || snapshot.effectiveScope !== 'session' || !snapshot.skillEntries) return [];
+    const runtimeKind = input.runtimeKind ?? snapshot?.runtimeKind;
+    if (!snapshot || snapshot.runtimeKind !== runtimeKind || snapshot.effectiveScope !== 'session' || !snapshot.skillEntries) return [];
     const entries = snapshot.skillEntries.filter(entry => entry.scope === 'global' || !!input.projectId && entry.projectId === input.projectId);
     const candidates: SkillMatcherCandidate[] = entries.flatMap(entry => {
       const plugin = this.store.getPlugin(entry.pluginId);
@@ -150,10 +152,10 @@ export class PluginManagerService {
       const trusted = plugin.trustStatus === 'trusted' && this.hasTrust(plugin.id, 'install');
       return [{ skillId: skill.id, pluginId: plugin.id, name: skill.name, description: skill.description, tags: skill.metadata?.tags,
         pluginEnabled: plugin.enabled, trusted, skillEnabled: skill.enabled,
-        compatibility: skillCompatibilityStatus('jinggong', skill.enabled, plugin.enabled, plugin.trustStatus === 'trusted'),
+        compatibility: skillCompatibilityStatus(runtimeKind, skill.enabled, plugin.enabled, plugin.trustStatus === 'trusted'),
         scope: entry.scope, projectId: entry.projectId }];
     });
-    const recommendations = matchSkills({ candidates, userPrompt: input.userPrompt, projectSystem: input.projectSystem, projectId: input.projectId, limit: 3 });
+    const recommendations = matchSkills({ candidates, userPrompt: [input.userPrompt, ...(input.expertTags ?? [])].filter(Boolean).join('\n'), projectSystem: input.projectSystem, projectId: input.projectId, limit: 3 });
     const entryById = new Map(entries.map(entry => [entry.skillId, entry]));
     return recommendations.flatMap(recommendation => {
       const entry = entryById.get(recommendation.skillId);
@@ -639,9 +641,13 @@ export class PluginManagerService {
     const previous = input.sessionId ? this.store.getSessionPluginSnapshot(input.sessionId) : undefined;
     if (previous) throw new Error('会话插件快照已冻结，不能覆盖');
     const entries = plugins.map(plugin => ({ pluginId: plugin.id, name: plugin.name, version: plugin.version, contentHash: plugin.contentHash, skillIds: skills.filter(skill => skill.pluginId === plugin.id).map(skill => skill.id), skillNames: skills.filter(skill => skill.pluginId === plugin.id).map(skill => skill.name), mcpServerIds: this.store.listPluginMcpServers(plugin.id).map(server => server.id) }));
-    const body = { pluginIds: plugins.map(plugin => plugin.id), skillIds: selectedSkillIds, entries };
+    const skillEntries = skills.map(skill => {
+      const plugin = plugins.find(item => item.id === skill.pluginId)!;
+      return { skillId: skill.id, pluginId: plugin.id, pluginVersion: plugin.version, pluginHash: plugin.contentHash, skillHash: skill.contentHash, selectionSource: 'manual' as const, scope: 'global' as const };
+    });
+    const body = { pluginIds: plugins.map(plugin => plugin.id), skillIds: selectedSkillIds, entries, skillEntries };
     const snapshotHash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
-    const snapshot: SessionPluginSnapshot = { sessionId: input.sessionId ?? `profile-${profileId}`, profileId, profileRevision: 1, runtimeKind: 'codex', effectiveScope: input.sessionId ? 'session' : 'runtime-profile', pluginIds: body.pluginIds, skillIds: body.skillIds, plugins: entries, snapshotHash, createdAt: timestamp() };
+    const snapshot: SessionPluginSnapshot = { sessionId: input.sessionId ?? `profile-${profileId}`, profileId, profileRevision: 1, runtimeKind: 'codex', effectiveScope: input.sessionId ? 'session' : 'runtime-profile', pluginIds: body.pluginIds, skillIds: body.skillIds, plugins: entries, skillEntries, snapshotHash, createdAt: timestamp() };
     if (input.sessionId) this.store.saveSessionPluginSnapshot(snapshot);
     this.audit(audit(undefined, 'session-selection', 'success', { profileId, pluginCount: plugins.length, skillCount: skills.length }, input.sessionId));
     return snapshot;
@@ -900,7 +906,7 @@ export class PluginManagerService {
       const session = this.store.listSessions().find(item => `session-${item.id}` === profileId);
       const snapshot = session ? this.store.getSessionPluginSnapshot(session.id) : undefined;
       if (!session || !snapshot || snapshot.profileId !== profileId || snapshot.runtimeKind !== 'codex' || snapshot.effectiveScope !== 'session') throw new Error('Codex Session Profile 缺少有效插件快照');
-      const body = { pluginIds: snapshot.pluginIds, skillIds: snapshot.skillIds, entries: snapshot.plugins };
+      const body = { pluginIds: snapshot.pluginIds, skillIds: snapshot.skillIds, entries: snapshot.plugins, ...(snapshot.skillEntries !== undefined ? { skillEntries: snapshot.skillEntries } : {}) };
       if (createHash('sha256').update(JSON.stringify(body)).digest('hex') !== snapshot.snapshotHash) throw new Error('Codex Session Profile 快照 Hash 无效');
       if (new Set(snapshot.pluginIds).size !== snapshot.pluginIds.length || new Set(snapshot.skillIds).size !== snapshot.skillIds.length || snapshot.plugins.length !== snapshot.pluginIds.length) throw new Error('Codex Session Profile 快照内容不一致');
       const entries = new Map(snapshot.plugins.map(entry => [entry.pluginId, entry]));

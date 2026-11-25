@@ -1,6 +1,6 @@
 import { useTransientError } from './use-transient-error';
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type SetStateAction, type UIEvent } from 'react';
-import type { AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, MappingJobSelection, ModelRouteTaskType, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
+import type { AgentDelegationMode, AgentEvent, Bootstrap, BrowserPanelState, CompletionSound, ConversationAttachment, FileDiff, LayoutPreferences, MappingJobSelection, ModelRouteTaskType, ProductSystem, ReasoningEffort, RequirementResolutionAction, RuntimeHealth, RuntimeKind, Session, SessionStatus, SettingsSnapshot, UserProfile } from '../../../../packages/domain/src';
 import { MODEL_ROUTE_TASKS } from '../../../../packages/domain/src/model-routing';
 import { requiresRequirementAdmission } from '../../../../packages/domain/src/jira-requirements';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
@@ -32,6 +32,8 @@ import { DiagnosticsPage } from './DiagnosticsPage';
 import { agentTasksToReveal } from './agent-task-state';
 import { useSessionAgentTasks } from './use-session-agent-tasks';
 import { PerformancePanel } from './PerformancePanel';
+import { ContextInspector } from './ContextInspector';
+import './context-inspector.css';
 import { RunRecoveryPanel } from './RunRecoveryPanel';
 import { latestRunningIndicator, runningIndicatorDetails } from './running-indicator';
 import { BrowserPanel } from './BrowserPanel';
@@ -189,7 +191,7 @@ export function App() {
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
   const [deliveryWorkbenchOpen, setDeliveryWorkbenchOpen] = useState(false);
-  const [deliveryWorkbenchLaunch, setDeliveryWorkbenchLaunch] = useState<{ projectId: string; issueId?: string } | null>(null);
+  const [deliveryWorkbenchLaunch, setDeliveryWorkbenchLaunch] = useState<{ projectId: string; issueId?: string; taskId?: string; milestoneId?: string } | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsLaunch, setDiagnosticsLaunch] = useState<{ projectId?: string; issueId?: string; caseId?: string } | null>(null);
   const [mappingLaunch, setMappingLaunch] = useState<{ sequence: number; selection: MappingJobSelection } | null>(null);
@@ -568,7 +570,7 @@ export function App() {
     }).finally(() => { if (alive) setBranchLoading(false); });
     return () => { alive = false; };
   }, [api, projectId, bindProjectId, session?.id, session?.projectId, session?.baseBranch, data?.projects]);
-  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind; modelRouteTaskType?: ModelRouteTaskType }, successNotice?: string) {
+  async function configure(patch: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; modelRouteTaskType?: ModelRouteTaskType }, successNotice?: string) {
     if (!session || running || busy) return;
     setBusy('configure'); setError(''); setNotice('');
     let updated: Session;
@@ -1261,6 +1263,8 @@ export function App() {
     diagnosticApi={api.diagnostics}
     initialProjectId={deliveryWorkbenchLaunch?.projectId}
     initialIssueId={deliveryWorkbenchLaunch?.issueId}
+    initialTaskId={deliveryWorkbenchLaunch?.taskId}
+    initialMilestoneId={deliveryWorkbenchLaunch?.milestoneId}
     onStartDiagnostic={async (projectId, issueId) => {
       const imported = issueId && api.diagnostics ? await api.diagnostics.importDeliveryIssue(projectId, issueId) : undefined;
       setDeliveryWorkbenchOpen(false);
@@ -1373,6 +1377,7 @@ export function App() {
               {claudeGrokSelection && <p className="grok-session-note">Claude Runtime 不支持 Grok 模型。请选择其他模型后再发送。</p>}
               <label>系统<select aria-label="会话适用系统" value={draftSystem} disabled={running || !!busy} onChange={e => { const system = e.target.value as ProductSystem; setDraftSystem(system); void configure({ system }); }}>{['通用', 'MES5', 'MES6', 'WMS', '前端'].map(item => <option key={item}>{item}</option>)}</select></label>
               <label>推理强度<select aria-label="推理强度" value={draftReasoning} disabled={running || !!busy} onChange={event => { const value = event.target.value as ReasoningEffort | ''; setDraftReasoning(value); void configure({ reasoningEffort: value || undefined }); }}>{([{ value: '', label: '模型默认' }, { value: 'none', label: '无' }, { value: 'minimal', label: '最低' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' }] as const).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              {sessionRuntimeKind === 'codex' && <label>任务协作<select aria-label="任务协作模式" value={session?.delegationMode ?? 'native'} disabled={running || !!busy} onChange={event => { const mode = event.target.value as AgentDelegationMode; void configure({ delegationMode: mode }, `已切换为${mode === 'native' ? ' Codex 原生 Multi-Agent' : mode === 'governed' ? ' 精工受控任务' : ' 单 Agent'}。`); }}><option value="native">Codex 原生 Multi-Agent</option><option value="governed">精工受控任务</option><option value="off">单 Agent</option></select></label>}
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
@@ -1412,7 +1417,15 @@ export function App() {
              <div className="git-panel-unified"><div className="git-session-changes-heading"><strong>本次会话代码变更</strong><span>{diffs.length} 个文件</span></div>{sessionProject && !projectBindingChanged ? <GitPanel key={`${sessionId}-${sessionProject.id}-${session?.workspacePath}-${session?.system}`} sessionId={sessionId} project={sessionProject} jiraUrl={session?.jiraIssue?.url} running={running} onChanged={async () => { await refresh(); await refreshDiff(sessionId); }} /> : !session && project ? <ProjectGitPanel key={`project-${project.id}`} project={project} disabled={running || !!busy} onChanged={async () => { await refresh(); }} /> : null}</div>
           </div>
           <div id="files-panel" className="inspector-panel" role="region" aria-labelledby="files-panel-tab" hidden={currentInspector !== 'files'}>{(project || sessionProject) ? <ProjectFilesPanel project={project || sessionProject!} sessionId={sessionProject ? sessionId : undefined} initialPath={filePreviewPath} onError={reason => setError(message(reason))} /> : <div className="inspector-empty"><strong>选择项目查看文件</strong></div>}</div>
-          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={currentInspector !== 'context'}><div className="context-content"><div className="context-label">当前项目</div><strong>{project?.name || '尚未选择'}</strong><code>{project?.path || '通过左侧 + 添加本地 Git 项目'}</code><div className="context-label">项目目录</div><code>{session?.workspacePath || '选择项目后直接使用项目目录'}</code><div className="context-label">适用系统</div><div className="context-value"><Icon name="shield" />{session?.system || '通用'}</div><p className="context-hint">只加载通用及当前系统资料。代码、构建、测试、网络和数据库操作遵循当前 Runtime 配置和本机安全策略。</p><div className="context-label">当前 Runtime</div><div className="context-value">{runtimeLabel(sessionRuntimeKind)}</div><div className="context-label">模型中转站 / 模型 / backend</div><div className="context-value">{configuredProvider?.name || '未选择'} · {configuredModel?.name || session?.model || '未选择'} · {configuredBackend}</div><code>{configuredProvider?.baseUrl || '尚未配置中转站'}</code><div className="context-label">已启用资料</div>{data?.settings?.documents.filter(item => item.enabled && (item.system === '通用' || item.system === (session?.system || '通用'))).map(item => <div className="context-document" key={item.id}><Icon name="file" /><span>{item.name}<small>{item.system} · {item.kind === 'dictionary' ? '数据字典' : '开发要求'}</small></span></div>)}<button className="text-button" onClick={() => openSettings('documents')} disabled={!data}>管理数据字典</button><button className="text-button" onClick={() => openSettings('requirements')} disabled={!data}>管理开发要求与规范</button><div className="context-label">本机环境</div><div className="environment-row"><span>精工Agent引擎</span><b>{engineVersion(data?.runtime.version) || '检查中'}</b></div><div className="environment-row"><span>Git</span><b>{data?.gitVersion || '未检测到'}</b></div><div className="context-label">本地数据目录</div><code>{data?.dataDirectory || '正在初始化'}</code></div></div>
+          <div id="context-panel" className="inspector-panel" role="region" aria-labelledby="context-panel-tab" hidden={currentInspector !== 'context'}>
+            {currentInspector === 'context' && layout.rightVisible && !browserOpen && !showSettings && (session && data
+              ? <ContextInspector key={JSON.stringify([session.id, session.projectId, session.workspaceId, session.workspacePath, sessionRuntimeKind])}
+                  api={api} session={session} project={sessionProject} running={running} runtimeName={runtimeLabel(sessionRuntimeKind)}
+                  provider={configuredProvider} reasoning={reasoningLabel(session.reasoningEffort)} backend={configuredBackend}
+                  documents={data.settings?.documents ?? []} dataDirectory={data.dataDirectory} gitVersion={data.gitVersion}
+                  engine={engineVersion(data.runtime.version)} onManage={openSettings} />
+              : <p className="inspector-empty">选择会话后查看上下文。</p>)}
+          </div>
 
         </aside>
       </div>

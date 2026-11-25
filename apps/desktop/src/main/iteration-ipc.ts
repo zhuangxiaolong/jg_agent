@@ -18,7 +18,7 @@ export async function assembleProjectContext(store: LocalStore, projectId: strin
     try {
       const document = await readDocumentTextFile(resource.localPath!, { maxCharacters: 80000, maxFileBytes: 8 * 1024 * 1024 });
       if (document.digest !== resource.sourceSha256) { resource.status = 'unavailable'; store.saveProjectResourceLink(resource); continue; }
-      resourceTexts[resource.id] = document.content.slice(0, 4000);
+      resourceTexts[resource.id] = document.content;
     } catch { resource.status = 'unavailable'; store.saveProjectResourceLink(resource); }
   }
   const facts = store.listProjectFacts(projectId);

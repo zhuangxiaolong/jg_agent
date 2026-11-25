@@ -62,7 +62,7 @@ export const modelRoutingSchema = z.object({
     runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp'])
   }).strict()).max(MODEL_ROUTE_TASKS.length)
 }).strict().refine(value => new Set(value.rules.map(rule => rule.taskType)).size === value.rules.length, '同一任务类型只能配置一条模型路由');
-export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional(), modelRouteTaskType: z.enum(['simple_question', 'code_change', 'architecture', 'long_context', 'code_review', 'document']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && Object.keys(value).length > 0 && (value.modelRouteTaskType === undefined || (value.providerId !== undefined && value.model !== undefined && value.runtimeKind !== undefined)), '会话配置无效');
+export const sessionOptionsSchema = z.object({ providerId: profileIdSchema.optional(), model: modelSchema.optional(), system: systemSchema.optional(), reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(), runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).optional(), delegationMode: z.enum(['native', 'governed', 'off']).optional(), modelRouteTaskType: z.enum(['simple_question', 'code_change', 'architecture', 'long_context', 'code_review', 'document']).optional() }).strict().refine(value => (value.providerId === undefined) === (value.model === undefined) && Object.keys(value).length > 0 && (value.modelRouteTaskType === undefined || (value.providerId !== undefined && value.model !== undefined && value.runtimeKind !== undefined)), '会话配置无效');
 const jiraUrlSchema = z.string().trim().min(1).max(2000).transform((value, context) => {
   try { return normalizeJiraUrl(value); }
   catch { context.addIssue({ code: 'custom', message: '请输入有效的 HTTP 或 HTTPS Jira 地址，不能包含账号或密码。' }); return z.NEVER; }
@@ -92,6 +92,7 @@ export const sessionCreateSchema = z.object({
   jiraProjectKey: jiraProjectScopeSchema,
   baseBranch: z.string().trim().min(1).max(255).optional(),
   runtimeKind: z.enum(['jinggong', 'codex', 'claude_agent_sdk', 'grok_build_acp']).default('claude_agent_sdk'),
+  delegationMode: z.enum(['native', 'governed', 'off']).optional(),
   pluginIds: z.array(pluginIdentifierSchema).max(100).optional(),
 }).strict()
   .refine(value => (!value.jiraIssueKey && !value.jiraProjectKey) || (!!value.projectId && !!value.jiraIssueKey), 'Jira 关联必须同时绑定项目和任务');

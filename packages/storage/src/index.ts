@@ -48,6 +48,8 @@ function safeRuntimeApproval(value: RuntimeApproval): RuntimeApproval {
 function normalizeSession(session: Session): Session {
   const value = { ...session } as Session & { mode?: unknown };
   delete value.mode;
+  if ((value.runtimeKind ?? 'codex') === 'codex' && !value.delegationMode) value.delegationMode = 'native';
+  if (value.runtimeKind !== 'codex') value.delegationMode = value.delegationMode === 'off' ? 'off' : undefined;
   if (value.titleSource !== 'content') value.title = value.title.replace(/ · (?:只读分析|代码开发|隔离开发)$/, ' · 会话');
   return value;
 }
@@ -1703,6 +1705,12 @@ export class LocalStore {
       value.runtimeExecutionRulesVersion = session.runtimeExecutionRulesVersion;
     }
     value.runtimeKind = nextRuntime;
+    const inheritedCodexMode = nextRuntime !== 'codex' && current?.runtimeKind === 'codex' && session.delegationMode === current.delegationMode;
+    const delegationMode = session.delegationMode === undefined || inheritedCodexMode
+      ? (nextRuntime === 'codex' ? current?.delegationMode ?? 'native' : nextRuntime === 'jinggong' ? 'governed' : 'off')
+      : session.delegationMode;
+    if (!['native', 'governed', 'off'].includes(delegationMode) || nextRuntime !== 'codex' && delegationMode === 'native') throw new Error('会话委派模式无效');
+    value.delegationMode = nextRuntime === 'codex' ? delegationMode : 'off';
     if (session.runtimeVersion !== undefined) value.runtimeVersion = session.runtimeVersion;
     if (session.grokBinding !== undefined) {
       if (typeof session.grokBinding !== 'string' || !/^[a-f0-9]{64}$/.test(session.grokBinding)) throw new Error('Grok 会话配置绑定无效');

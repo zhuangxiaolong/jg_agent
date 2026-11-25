@@ -3,6 +3,7 @@ import type { DesktopApi, Session } from '../../../../packages/domain/src';
 import type { ContextSourceType, PerformanceReport, PerformanceSettings, PerformanceStage } from '../../../../packages/performance/src/types';
 import type { TestPlan } from '../../../../packages/performance/src/test-policy';
 import { useTransientError } from './use-transient-error';
+import { contextSourceNames } from './context-source-names';
 import './performance.css';
 
 const stageNames: Record<PerformanceStage, string> = {
@@ -15,7 +16,6 @@ const stageNames: Record<PerformanceStage, string> = {
 };
 const statusNames: Record<string, string> = { running: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断', unavailable: '不可用' };
 const duration = (ms?: number) => ms === undefined ? '不可用' : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} 秒`;
-const contextSourceNames: Record<ContextSourceType, string> = { memory: '用户记忆', project_fact: '项目事实', project_decision: '项目决策', skill_metadata: 'Skill 元数据', skill_body: 'Skill 正文', dictionary: '数据字典', operation_manual: '产品操作手册', project_resource: '项目资源', workspace_code: '工作区代码', task_evidence: '任务证据' };
 
 export function PerformancePanel({ api, session }: { api: DesktopApi; session?: Session }) {
   const [report, setReport] = useState<PerformanceReport>();

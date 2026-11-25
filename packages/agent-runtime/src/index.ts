@@ -3,7 +3,7 @@ import { RuntimeApprovals } from './runtime-approvals';
 import { EventEmitter } from 'node:events';
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentEvent, ReasoningEffort, RuntimeAccess, RuntimeApproval, RuntimeHealth } from '../../domain/src/index';
+import type { AgentDelegationMode, AgentEvent, ReasoningEffort, RuntimeAccess, RuntimeApproval, RuntimeHealth } from '../../domain/src/index';
 import type { ManagedDocument } from '../../domain/src/index';
 import { DictionaryBroker, DICTIONARY_TOOLS } from '../../dictionary-context/src';
 import { PROJECT_READ_TOOLS, PROJECT_WRITE_TOOLS, ProjectReadBroker } from './project-read-broker';
@@ -98,6 +98,8 @@ export interface RuntimeOptions {
   requestDirectoryAccess?: () => Promise<Record<string, unknown>>;
   /** 仅对已通过插件管理器固化选择的 Codex Profile 开启官方插件能力。 */
   pluginsEnabled?: boolean;
+  /** Codex 子 Agent 委派模式。Jinggong/其它 Runtime 不使用 native 配置。 */
+  delegationMode?: AgentDelegationMode;
 }
 type RpcMessage = { id?: string | number; method?: string; params?: Record<string, any>; result?: any; error?: { code: number; message: string } };
 type Pending = { resolve: (result: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
@@ -110,14 +112,29 @@ function executionApproval() {
   return { approvalPolicy: 'on-request' as const, approvalsReviewer: 'user' as const };
 }
 
-export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolEnabled' | 'pluginsEnabled' | 'computer' | 'runtimeAccess'>): Record<string, unknown> {
+export function runtimeConfigOverrides(options: Pick<RuntimeOptions, 'shellToolEnabled' | 'pluginsEnabled' | 'computer' | 'runtimeAccess' | 'delegationMode'>): Record<string, unknown> {
+  const native = options.delegationMode === 'native';
   return {
     sandbox_mode: EXECUTION_SANDBOX, approval_policy: executionApproval().approvalPolicy, approvals_reviewer: 'user',
     'analytics.enabled': false, 'feedback.enabled': false,
     check_for_update_on_startup: false, web_search: 'live',
     'features.shell_tool': options.shellToolEnabled ?? true, 'features.code_mode': true,
-    'features.code_mode_host': true, 'features.multi_agent': false,
-    'features.multi_agent_v2': false, 'features.plugins': options.pluginsEnabled ?? false,
+    'features.code_mode_host': true, 'features.multi_agent': native,
+    'features.multi_agent_v2': native ? {
+      enabled: true,
+      max_concurrent_threads_per_session: 4,
+      min_wait_timeout_ms: 10_000,
+      default_wait_timeout_ms: 30_000,
+      max_wait_timeout_ms: 3_600_000,
+      tool_namespace: 'collaboration',
+      hide_spawn_agent_metadata: true,
+      expose_spawn_agent_model_overrides: false,
+      wait_agent_enabled: true,
+      non_code_mode_only: false,
+    } : false,
+    'agents.enabled': native,
+    ...(native ? { 'agents.max_concurrent_threads_per_session': 4 } : {}),
+    'features.plugins': options.pluginsEnabled ?? false,
     'features.hooks': false, 'features.apps': false,
     'features.browser_use': false, 'features.computer_use': !!options.computer,
     'features.in_app_browser': false, 'features.image_generation': false,

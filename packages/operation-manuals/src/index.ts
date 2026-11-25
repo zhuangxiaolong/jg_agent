@@ -221,14 +221,7 @@ export function isManualQuery(query: string): boolean {
   return /菜单|按钮|页面|功能入口|操作|怎么(?:操作|使用|配置|设置|处理|查询|查找)|如何|流程|步骤|前置条件|配置|权限|异常|报错|状态|是否支持|功能说明|报工|工单|扫码|库存|出库|入库|收货|领料|退料|盘点|上架|下架|拣货|发运|委外|手册|(?:^|[^a-z0-9])(?:SRM|JMOM|PDA)(?:$|[^a-z0-9])/i.test(query);
 }
 
-export function manualProductScope(override: 'auto' | ManualProductType | 'off' | undefined, detected?: string, query = ''): ManualProductType[] {
-  if (override === 'off') return [];
-  if (override && override !== 'auto') return [override, 'COMMON'];
-  const mentioned = (['MES5', 'MES6', 'WMS', 'SRM', 'JMOM', 'PDA'] as const).filter(system => new RegExp(`(?:^|[^a-z0-9])${system}(?:$|[^a-z0-9])`, 'i').test(query));
-  if (mentioned.length) return [...mentioned, 'COMMON'];
-  if (/通用(?:产品)?(?:操作)?手册|通用操作说明/.test(query)) return ['COMMON'];
-  return detected === 'MES5' || detected === 'MES6' || detected === 'WMS' ? [detected, 'COMMON'] : [];
-}
+export { manualProductScope } from './product-scope';
 
 export function hasManualVersionConflict(manuals: OperationManual[]): boolean {
   const uniqueManuals = [...new Map(manuals.map(manual => [manual.id, manual])).values()];

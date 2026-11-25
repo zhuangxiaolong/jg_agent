@@ -60,12 +60,29 @@ export interface DeliveryProjectBundle {
   meetings: DeliveryMeeting[]; documents: DeliveryDocument[]; reports: DeliveryReport[];
   activities: DeliveryActivity[]; health: DeliveryHealth; healthReasons: string[];
 }
+export interface DeliveryPortfolioItem {
+  project: DeliveryProject; health: DeliveryHealth; healthReasons: string[];
+  taskCount: number; completedTaskCount: number; cancelledTaskCount: number; progressPercent: number | null;
+  openIssueCount: number;
+}
+export interface DeliveryDashboardTask { project: DeliveryProject; task: DeliveryTask }
+export interface DeliveryDashboardIssue { project: DeliveryProject; issue: DeliveryIssue }
+export interface DeliveryDashboardMilestone { project: DeliveryProject; milestone: DeliveryMilestone }
+export interface DeliveryDashboardException {
+  project: DeliveryProject; entityType: 'task' | 'issue' | 'milestone'; entityId: string;
+  title: string; reason: string; owner?: string; dueDate?: string; priority?: DeliveryPriority;
+}
 export interface DeliveryOverview {
   activeProjects: number; overdueTasks: number; highPriorityOpenIssues: number;
   upcomingMilestones: number; overdueMilestones: number; incompleteTasks: number;
   totalProjects: number; archivedProjects: number;
   attentionProjects: Array<{ project: DeliveryProject; health: DeliveryHealth; reasons: string[] }>;
   recentActivities: DeliveryActivity[];
+  portfolio: DeliveryPortfolioItem[];
+  todos: DeliveryDashboardTask[];
+  priorityIssues: DeliveryDashboardIssue[];
+  milestoneItems: DeliveryDashboardMilestone[];
+  exceptions: DeliveryDashboardException[];
 }
 export interface DeliveryProjectInput extends Omit<DeliveryProject, 'id' | 'createdAt' | 'updatedAt' | 'archivedAt'> { id?: string }
 export interface DeliveryMilestoneInput extends Omit<DeliveryMilestone, 'id' | 'deliveryProjectId' | 'createdAt' | 'updatedAt'> { id?: string }

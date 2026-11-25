@@ -28,6 +28,7 @@ async function codexIdentity(options: RuntimeOptions, cwd: string, includeTurnCo
     home: normalizedPath(options.home), cwd: normalizedPath(cwd), baseUrl: options.baseUrl, model: options.model, apiKey: options.apiKey ?? null,
     reasoningEffort: options.reasoningEffort ?? null, expectedUserAgentPrefix: options.expectedUserAgentPrefix ?? null,
     runtimeAccess: options.runtimeAccess ?? 'full',
+    delegationMode: options.delegationMode ?? 'off',
     shellToolEnabled: options.shellToolEnabled ?? true, pluginsEnabled: options.pluginsEnabled ?? false, rpcTimeoutMs: options.rpcTimeoutMs ?? null,
     executionMode: options.executionMode ?? 'native', ...(includeTurnContext ? { executionRulesVersion: options.executionRulesVersion ?? null } : {}),
     ...(includeTurnContext ? { developerInstructions: options.developerInstructions ?? '', dictionaries, readAccess: undefined } : {}),

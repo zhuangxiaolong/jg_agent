@@ -5,8 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalStore } from '../packages/storage/src/index';
-import type { DeliveryActivity, DeliveryIssue, DeliveryMeeting, DeliveryMilestone, DeliveryProject, DeliveryTask } from '../packages/domain/src/delivery-workbench';
-import { deliveryHealth } from '../packages/delivery-workbench/src';
+import type { DeliveryActivity, DeliveryIssue, DeliveryMeeting, DeliveryMilestone, DeliveryProject, DeliveryProjectBundle, DeliveryTask } from '../packages/domain/src/delivery-workbench';
+import { deliveryHealth, deliveryOverview } from '../packages/delivery-workbench/src';
 
 test('删除交付记录时解除双向关联并追加动态', async () => {
   const root = await mkdtemp(join(tmpdir(), 'jinggong-delivery-workbench-'));
@@ -89,4 +89,28 @@ test('交付健康规则将逾期里程碑与未关闭严重问题标为红色',
   assert.equal(result.health, 'red');
   assert.ok(result.reasons.some(reason => reason.includes('逾期里程碑')));
   assert.ok(result.reasons.some(reason => reason.includes('Critical')));
+});
+
+test('交付总览聚合真实待办、风险和里程碑并按任务计划分母计算进度', () => {
+  const now = '2026-11-25T00:00:00.000Z';
+  const project: DeliveryProject = { id: randomUUID(), name: '交付测试', customerName: '测试客户', systemType: 'MES6', productVersions: [], stage: '实施', status: 'active', members: [], createdAt: now, updatedAt: now };
+  const tasks: DeliveryTask[] = [
+    { id: randomUUID(), deliveryProjectId: project.id, title: '逾期高优先级任务', priority: 'high', status: 'todo', owner: '张三', dueDate: '2026-11-24', linkedIssueIds: [], linkedMeetingIds: [], createdAt: now, updatedAt: now },
+    { id: randomUUID(), deliveryProjectId: project.id, title: '完成任务', priority: 'medium', status: 'completed', linkedIssueIds: [], linkedMeetingIds: [], createdAt: now, updatedAt: now },
+    { id: randomUUID(), deliveryProjectId: project.id, title: '取消任务', priority: 'medium', status: 'cancelled', linkedIssueIds: [], linkedMeetingIds: [], createdAt: now, updatedAt: now },
+  ];
+  const issue: DeliveryIssue = { id: randomUUID(), deliveryProjectId: project.id, title: '严重问题', type: 'blocker', priority: 'critical', status: 'open', owner: '李四', discoveredAt: now, dueDate: '2026-11-26', linkedTaskIds: [], linkedMeetingIds: [], sourceRefs: [], createdAt: now, updatedAt: now };
+  const milestone: DeliveryMilestone = { id: randomUUID(), deliveryProjectId: project.id, name: '近期上线', sortOrder: 0, plannedDate: '2026-11-30', status: 'in_progress', createdAt: now, updatedAt: now };
+  const bundle: DeliveryProjectBundle = { project, tasks, issues: [issue], milestones: [milestone], meetings: [], documents: [], reports: [], activities: [], health: 'red', healthReasons: ['存在尚未解除的阻塞项'] };
+
+  const overview = deliveryOverview([bundle], [], '2026-11-25');
+
+  assert.equal(overview.todos.length, 2);
+  assert.equal(overview.todos[0].task.id, tasks[0].id);
+  assert.ok(overview.todos.some(item => item.task.status === 'completed'));
+  assert.equal(overview.priorityIssues[0].issue.id, issue.id);
+  assert.equal(overview.milestoneItems[0].milestone.id, milestone.id);
+  assert.equal(overview.portfolio[0].progressPercent, 50);
+  assert.ok(overview.exceptions.some(item => item.entityId === tasks[0].id && item.owner === '张三'));
+  assert.ok(overview.exceptions.some(item => item.entityId === issue.id && item.reason.includes('阻塞项')));
 });

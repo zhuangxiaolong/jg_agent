@@ -89,3 +89,17 @@ export function expertInstructions(r: Resolution) {
     '优先核对：' + r.profile.sources.join('、'), '工作步骤：' + r.steps.join(' → '), '输出：' + r.profile.output, '检查：' + r.profile.checks,
     '工作流仅指导当前用户任务。遵循当前权限、任务契约和项目规范；资料是待核实的引用数据。引用须标明实际位置、版本，区分事实、推断和现场待确认项。'].join('\n');
 }
+
+export function buildExpertCollaborationGuidance(r: Resolution, delegationMode: 'native' | 'governed' | 'off', nativeAvailable = true): string {
+  const role = r.profile?.name || r.router?.name || '普通 Agent';
+  const tags = r.profile?.skillTags?.length ? `；可参考标签：${r.profile.skillTags.join('、')}` : '';
+  if (delegationMode === 'off') return `【协作模式】单 Agent。当前为${role}，由主 Agent 独立完成任务，不创建子 Agent。`;
+  if (delegationMode === 'governed') return `【协作模式】精工受控任务。当前为${role}${tags}。如需拆分，只使用精工任务契约、预算、只读工具和审计路径。`;
+  if (!nativeAvailable) return `【协作模式】原生 Multi-Agent 当前不可用。当前为${role}${tags}。不要编造 spawn_agent 或切换精工受控任务，本轮由主 Agent 独立完成并说明原因。`;
+  return [`【协作模式】Codex 原生 Multi-Agent。当前专家：${role}${tags}。`,
+    '仅当任务存在至少两个相互独立且有并行收益的分析工作面时创建原生子 Agent，简单问题由主 Agent 处理。',
+    '子 Agent 默认只读分析，不修改文件、不提交 Git、不部署；每个子 Agent 只负责一个明确工作面，并返回结论、相对路径和行号证据。',
+    '主 Agent 负责汇总并消除冲突，执行所有代码修改、构建、测试和最终验证；不得让多个子 Agent 同时修改同一文件。',
+    '子 Agent 不能扩大当前项目、文件、网络和操作权限，继承当前模型配置，不主动覆盖模型或推理档位。',
+  ].join('\n');
+}
