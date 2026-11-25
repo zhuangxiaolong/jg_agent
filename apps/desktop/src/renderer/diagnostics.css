@@ -415,3 +415,213 @@
 @media (prefers-reduced-motion: reduce) {
   .diagnostics-spinner { animation: none; }
 }
+
+.diagnostics-page {
+  color: var(--text, #dce8df);
+  background: var(--bg, var(--surface-0, #151817));
+  font-size: 12px;
+}
+
+.diagnostics-header,
+.diagnostics-rail {
+  background: var(--surface-0, #151817);
+}
+
+.diagnostics-header {
+  gap: 18px;
+  border-bottom-color: var(--line, #344138);
+}
+
+.diagnostics-brand { min-width: 230px; }
+.diagnostics-brand .diagnostics-icon-button { margin-right: 2px; }
+.diagnostics-mark,
+.diagnostics-assistant-mark { color: var(--accent, #a5dcc4); }
+.diagnostics-brand > div > span { color: var(--muted, #83958a); }
+.diagnostics-nav button { color: var(--text-secondary, #a9bbae); }
+.diagnostics-nav button.active { border-color: var(--accent, #a5dcc4); color: var(--text, #dce8df); }
+
+.diagnostics-primary,
+.diagnostics-secondary,
+.diagnostics-icon-button,
+.diagnostics-text-button {
+  border-color: var(--line, #344138);
+  border-radius: 5px;
+  color: var(--text-secondary, #a9bbae);
+}
+.diagnostics-primary { border-color: var(--accent-bg, #293e32); background: var(--accent-bg, #293e32); color: var(--accent, #a5dcc4); }
+.diagnostics-primary:hover:not(:disabled) { background: var(--surface-3, #2c3930); }
+.diagnostics-secondary { background: var(--surface-1, #191e1b); }
+.diagnostics-secondary:hover:not(:disabled),
+.diagnostics-case-row:hover { background: var(--surface-2, #222b25); }
+.diagnostics-text-button { color: var(--accent, #a5dcc4); }
+
+.diagnostics-feedback { border-color: var(--line, #344138); }
+.diagnostics-feedback.error { color: var(--danger, #d8a18d); background: var(--danger-bg, #3b2d26); }
+.diagnostics-feedback.success { color: var(--text-secondary, #a9bbae); background: var(--info-bg, #26392b); }
+
+.diagnostics-rail {
+  flex-basis: 310px;
+  min-width: 270px;
+  border-right-color: var(--line, #344138);
+}
+.diagnostics-rail-heading { min-height: 46px; }
+.diagnostics-search,
+.diagnostics-rail-filters input,
+.diagnostics-rail-filters select,
+.diagnostics-analysis-controls select,
+.diagnostics-step-feedback select,
+.diagnostics-inline-form select,
+.diagnostics-form-modal input,
+.diagnostics-form-modal select,
+.diagnostics-form-modal textarea,
+.diagnostics-resolution-form input,
+.diagnostics-resolution-form select,
+.diagnostics-resolution-form textarea,
+.diagnostics-review-form input,
+.diagnostics-review-form select,
+.diagnostics-knowledge-search input,
+.diagnostics-knowledge-search select {
+  border-color: var(--line, #344138);
+  border-radius: 5px;
+  background: var(--field, #172019);
+  color: var(--text, #dce8df);
+}
+.diagnostics-search { margin-inline: 12px; }
+.diagnostics-rail-filters { padding-inline: 12px; }
+.diagnostics-rail-filters input,
+.diagnostics-rail-filters select { height: 32px; font-size: 11px; }
+.diagnostics-case-row { border-radius: 5px; }
+.diagnostics-case-row.selected { border-color: var(--accent, #a5dcc4); background: var(--selection, var(--surface-2, #222b25)); }
+.diagnostics-case-row-main strong { color: var(--text, #dce8df); font-size: 12px; }
+.diagnostics-case-row-main span,
+.diagnostics-rail-footer { color: var(--muted, #83958a); }
+.diagnostics-rail-footer { border-top-color: var(--line, #344138); }
+.diagnostics-rail-footer strong { color: var(--text-secondary, #a9bbae); }
+
+.diagnostics-content { background: var(--surface-0, #151817); }
+.diagnostics-page-title h1,
+.diagnostics-detail-heading h1 { color: var(--text, #dce8df); }
+.diagnostics-page-title > div > span,
+.diagnostics-page-title > span,
+.diagnostics-breadcrumb { color: var(--muted, #83958a); }
+.diagnostics-metric,
+.diagnostics-section,
+.diagnostics-project-section,
+.diagnostics-step,
+.diagnostics-analysis-box,
+.diagnostics-assistant > section {
+  border-color: var(--line, #344138);
+  border-radius: 5px;
+  background: var(--surface-1, #191e1b);
+}
+.diagnostics-metric > span,
+.diagnostics-section > header span,
+.diagnostics-section-header span,
+.diagnostics-table button small,
+.diagnostics-project-section > header span { color: var(--muted, #83958a); }
+.diagnostics-metric > strong,
+.diagnostics-section > header strong,
+.diagnostics-section-header strong,
+.diagnostics-project-section > header strong { color: var(--text, #dce8df); }
+.diagnostics-section > header,
+.diagnostics-section-header,
+.diagnostics-project-section > header { border-bottom-color: var(--line, #344138); }
+.diagnostics-table button,
+.diagnostics-project-issues > button { border-bottom-color: var(--line, #344138); }
+
+.diagnostics-detail { width: 100%; max-width: 1860px; margin: 0 auto; }
+.diagnostics-detail-heading { align-items: flex-start; border-bottom-color: var(--line, #344138); }
+.diagnostics-detail-meta { align-items: center; color: var(--muted, #83958a); font-size: 10px; }
+.diagnostics-badge { border-color: var(--line, #344138); background: var(--surface-2, #222b25); color: var(--text-secondary, #a9bbae); }
+.diagnostics-section-tabs { border-bottom-color: var(--line, #344138); }
+.diagnostics-section-tabs button { min-height: 40px; color: var(--text-secondary, #a9bbae); font-size: 11px; }
+.diagnostics-section-tabs button.active { border-color: var(--accent, #a5dcc4); color: var(--text, #dce8df); }
+.diagnostics-detail-workspace {
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(285px, 330px);
+  align-items: start;
+  gap: 14px;
+}
+.diagnostics-detail-aside { display: flex; flex-direction: column; gap: 12px; }
+.diagnostics-detail-aside > section {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line, #344138);
+  border-radius: 5px;
+  background: var(--surface-1, #191e1b);
+}
+.diagnostics-detail-aside h3,
+.diagnostics-assistant h3 { margin: 0; padding: 11px 12px 8px; color: var(--text, #dce8df); font-size: 12px; font-weight: 550; }
+.diagnostics-detail-aside dl {
+  display: grid;
+  grid-template-columns: minmax(68px, .68fr) minmax(0, 1.32fr);
+  gap: 0 10px;
+  margin: 0;
+  padding: 0 12px 11px;
+}
+.diagnostics-detail-aside dt,
+.diagnostics-detail-aside dd { min-width: 0; margin: 0; padding: 5px 0; border-top: 1px solid var(--line, #344138); font-size: 10px; line-height: 1.5; }
+.diagnostics-detail-aside dt { color: var(--muted, #83958a); }
+.diagnostics-detail-aside dd { color: var(--text-secondary, #a9bbae); overflow-wrap: anywhere; }
+.diagnostics-detail-main { min-width: 0; }
+.diagnostics-description-grid { padding: 10px 12px 12px; }
+.diagnostics-fact { border-color: var(--line, #344138); background: var(--surface-0, #151817); }
+.diagnostics-fact > span,
+.diagnostics-fact > small,
+.diagnostics-step-detail small { color: var(--muted, #83958a); }
+.diagnostics-fact p,
+.diagnostics-preserve-text,
+.diagnostics-step > p { color: var(--text-secondary, #a9bbae); font-size: 11px; }
+.diagnostics-preserve-text { padding: 12px; }
+.diagnostics-assistant { position: sticky; top: 0; gap: 10px; }
+.diagnostics-assistant > header { border-color: var(--line, #344138); background: var(--surface-2, #222b25); }
+.diagnostics-assistant > header strong,
+.diagnostics-analysis-box > header strong { color: var(--text, #dce8df); font-size: 12px; }
+.diagnostics-assistant > header small,
+.diagnostics-analysis-box > header span { color: var(--muted, #83958a); font-size: 10px; }
+.diagnostics-assistant h3 { padding: 0 0 8px; }
+.diagnostics-assistant p,
+.diagnostics-assistant-source small { color: var(--muted, #83958a); font-size: 10px; }
+.diagnostics-assistant-source { border-top-color: var(--line, #344138); }
+.diagnostics-assistant-source strong { color: var(--text-secondary, #a9bbae); font-size: 10px; }
+
+.diagnostics-analysis-box { padding: 12px; }
+.diagnostics-analysis-box > header { margin-bottom: 10px; }
+.diagnostics-analysis-controls { gap: 9px; }
+.diagnostics-analysis-field { display: flex; min-width: 0; flex-direction: column; gap: 5px; color: var(--text-secondary, #a9bbae); font-size: 10px; }
+.diagnostics-analysis-controls select { min-height: 34px; padding: 0 9px; font-size: 11px; }
+.diagnostics-analysis-controls button { min-height: 34px; }
+.diagnostics-analysis-preview { border-top-color: var(--line, #344138); }
+.diagnostics-preview-meta { color: var(--text-secondary, #a9bbae); }
+.diagnostics-preview-sources details { border-color: var(--line, #344138); background: var(--surface-0, #151817); }
+.diagnostics-preview-sources summary,
+.diagnostics-preview-sources pre { color: var(--text-secondary, #a9bbae); }
+.diagnostics-analysis-running { color: var(--text-secondary, #a9bbae); }
+.diagnostics-spinner { border-color: var(--line, #344138); border-top-color: var(--accent, #a5dcc4); }
+.diagnostics-step { background: var(--surface-1, #191e1b); }
+.diagnostics-step-order { background: var(--accent-bg, #293e32); color: var(--accent, #a5dcc4); }
+.diagnostics-step-detail > div { background: var(--surface-0, #151817); }
+.diagnostics-missing { border-left-color: var(--warning, #d2ae69); background: var(--warning-bg, var(--surface-2, #222b25)); color: var(--text-secondary, #a9bbae); }
+
+@media (max-width: 1360px) {
+  .diagnostics-rail { flex-basis: 280px; min-width: 250px; }
+  .diagnostics-detail-workspace { grid-template-columns: minmax(215px, 240px) minmax(0, 1fr) minmax(260px, 290px); gap: 10px; }
+}
+
+@media (max-width: 1080px) {
+  .diagnostics-detail-workspace { grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr); }
+  .diagnostics-detail-aside { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(220px, .8fr); }
+  .diagnostics-detail-main { grid-column: 1; }
+  .diagnostics-assistant { display: flex; grid-column: 2; grid-row: 2; }
+}
+
+@media (max-width: 760px) {
+  .diagnostics-header { background: var(--surface-0, #151817); }
+  .diagnostics-rail { min-width: 0; }
+  .diagnostics-detail-workspace { grid-template-columns: minmax(0, 1fr); }
+  .diagnostics-detail-aside,
+  .diagnostics-detail-main,
+  .diagnostics-assistant { grid-column: 1; grid-row: auto; }
+  .diagnostics-detail-aside { grid-template-columns: minmax(0, 1fr); }
+  .diagnostics-assistant { position: static; }
+  .diagnostics-detail-aside dl { grid-template-columns: minmax(82px, .7fr) minmax(0, 1.3fr); }
+}
