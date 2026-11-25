@@ -148,6 +148,15 @@
 .delivery-stat > strong { color: var(--text, #e5e7e6); font-size: 19px; font-weight: 550; line-height: 1; }
 .delivery-stat.red > strong { color: #e3a18c; }
 .delivery-stat.yellow > strong { color: #e0c27f; }
+.delivery-usage-flow { margin-bottom: 22px; padding: 13px 15px; border: 1px solid var(--line, #2b302e); background: var(--surface-1, #1b201d); }
+.delivery-usage-flow > strong { color: var(--text, #e5e7e6); font-size: 11px; font-weight: 550; }
+.delivery-usage-flow ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 11px 0 0; padding: 0; list-style: none; }
+.delivery-usage-flow li { display: flex; min-width: 0; gap: 9px; padding: 0 12px; border-left: 1px solid var(--line, #2b302e); }
+.delivery-usage-flow li:first-child { padding-left: 0; border-left: 0; }
+.delivery-usage-flow li > span { flex: 0 0 auto; color: var(--accent, #a5dcc4); font-family: var(--font-mono, monospace); font-size: 10px; }
+.delivery-usage-flow li > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.delivery-usage-flow b { color: var(--text-secondary, #bac2bd); font-size: 10px; font-weight: 550; }
+.delivery-usage-flow small { color: var(--muted, #88918c); font-size: 9px; line-height: 1.55; }
 .delivery-overview-columns { align-items: flex-start; gap: 26px; }
 .delivery-overview-columns > .delivery-section { flex: 1; min-width: 0; }
 .delivery-section { min-width: 0; margin-bottom: 22px; }
@@ -284,6 +293,8 @@
   .delivery-project-rail { flex-basis: 240px; }
   .delivery-content { padding-right: 21px; padding-left: 21px; }
   .delivery-stat-grid { grid-template-columns: repeat(4, minmax(90px, 1fr)); }
+  .delivery-usage-flow ol { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
+  .delivery-usage-flow li:nth-child(3) { padding-left: 0; border-left: 0; }
 }
 
 @media (max-width: 760px) {
@@ -295,6 +306,9 @@
   .delivery-overview-columns { flex-direction: column; gap: 0; }
   .delivery-overview-columns > .delivery-section { width: 100%; }
   .delivery-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .delivery-usage-flow ol { grid-template-columns: minmax(0, 1fr); }
+  .delivery-usage-flow li,
+  .delivery-usage-flow li:nth-child(3) { padding: 0; border: 0; }
   .delivery-project-heading { flex-direction: column; }
   .delivery-project-actions { justify-content: flex-start; }
   .delivery-detail-grid { grid-template-columns: minmax(0, 1fr); }
