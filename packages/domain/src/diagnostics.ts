@@ -1,3 +1,5 @@
+import type { DeliveryIssue, DeliveryProject } from './delivery-workbench';
+
 export type DiagnosticProduct = 'MES5' | 'MES6' | 'WMS' | 'OTHER';
 export type DiagnosticPriority = 'critical' | 'high' | 'medium' | 'low';
 export type DiagnosticCaseStatus = 'new' | 'triaging' | 'awaiting_input' | 'diagnosing' | 'awaiting_customer' | 'awaiting_development' | 'pending_verification' | 'resolved' | 'closed' | 'reopened' | 'cancelled';
@@ -223,13 +225,16 @@ export interface DiagnosticOverview {
   knowledgeReview: number;
   projects: Array<{
     projectId: string;
+    project: DeliveryProject;
     total: number;
     open: number;
     criticalOrHigh: number;
     awaitingCustomer: number;
     awaitingDevelopment: number;
+    pendingVerification: number;
     unassigned: number;
     reopened: number;
+    lastUpdatedAt?: string;
     cases: DiagnosticCase[];
   }>;
 }
@@ -274,7 +279,7 @@ export interface DiagnosticCreateCaseInput {
   frequency?: string;
   impactScope?: string;
   environment?: string;
-  deliveryProjectId?: string;
+  deliveryProjectId: string;
   deliveryIssueId?: string;
   assigneeLabel?: string;
   reporterLabel?: string;
@@ -312,11 +317,11 @@ export interface DiagnosticApi {
   updateCase(id: string, patch: DiagnosticCasePatch): Promise<DiagnosticCase>;
   applyTriage(id: string, input: DiagnosticTriageConfirmation): Promise<DiagnosticCaseDetails>;
   transitionCase(id: string, status: DiagnosticCaseStatus, reason?: string): Promise<DiagnosticCase>;
-  previewAnalysis(id: string, task: DiagnosticRunKind, sessionId: string): Promise<DiagnosticAnalysisPreview>;
+  previewAnalysis(id: string, task: DiagnosticRunKind): Promise<DiagnosticAnalysisPreview>;
   selectEvidence(id: string): Promise<DiagnosticEvidence[]>;
   readEvidencePreview(id: string, evidenceId: string): Promise<string>;
   deleteEvidence(id: string, evidenceId: string): Promise<DiagnosticCaseDetails>;
-  runAnalysis(id: string, task: DiagnosticRunKind, sessionId: string, previewHash: string): Promise<DiagnosticCaseDetails>;
+  runAnalysis(id: string, task: DiagnosticRunKind, previewHash: string): Promise<DiagnosticCaseDetails>;
   cancelAnalysis(): Promise<void>;
   submitStepResult(id: string, stepId: string, input: { status: DiagnosticStepStatus; resultText?: string; resultBy?: string; evidenceIds?: string[]; reason?: string }): Promise<DiagnosticCaseDetails>;
   updateHypothesis(id: string, hypothesisId: string, input: { status: DiagnosticHypothesis['status']; confirmedBy?: string }): Promise<DiagnosticCaseDetails>;
@@ -328,8 +333,7 @@ export interface DiagnosticApi {
   searchKnowledgeCases(input: { product: DiagnosticProduct; query: string; deliveryProjectId?: string }): Promise<DiagnosticKnowledgeCase[]>;
   exportCase(id: string): Promise<string>;
   saveDraftFile(id: string, markdown: string): Promise<string | null>;
-  listSessions(): Promise<Array<{ id: string; title: string; runtimeKind?: string; model: string }>>;
-  listProjects(): Promise<Array<{ id: string; name: string; product: DiagnosticProduct; issues: Array<{ id: string; title: string }> }>>;
+  listProjects(): Promise<Array<DeliveryProject & { issues: DeliveryIssue[] }>>;
 }
 
 export function saveDiagnosticTriageProposal(item: DiagnosticCase, triage: DiagnosticTriage, status: DiagnosticCaseStatus, currentRunId: string, updatedAt: string): DiagnosticCase {

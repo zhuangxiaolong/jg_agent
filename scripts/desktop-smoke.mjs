@@ -98,20 +98,21 @@ try {
   await expect(page.locator('.delivery-record-row')).toHaveCount(0);
   await page.getByLabel('按任务状态筛选').selectOption('all');
   await page.getByLabel('仅逾期').uncheck();
-  await page.getByRole('button', { name: '返回研发工作台', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '研发任务工作台', exact: true })).toBeVisible();
   checks.push('Electron 交付工作台可创建待办任务、筛选项目与逾期任务，并通过多行录入一次保存多条任务');
-  await page.getByRole('button', { name: '现场问题诊断', exact: true }).click();
+  await page.getByRole('tab', { name: /问题与风险/ }).click();
+  await page.getByRole('button', { name: '新增问题或风险', exact: true }).click();
+  const deliveryIssueDialog = page.getByRole('dialog');
+  await deliveryIssueDialog.getByRole('textbox', { name: '标题' }).fill('桌面冒烟诊断档案');
+  await deliveryIssueDialog.getByRole('button', { name: '保存', exact: true }).click();
+  const deliveryIssueRow = page.locator('.delivery-record-row').filter({ hasText: '桌面冒烟诊断档案' });
+  await expect(deliveryIssueRow).toBeVisible();
+  await deliveryIssueRow.getByRole('button', { name: '发起现场诊断' }).click();
   await expect(page.locator('.diagnostics-header')).toContainText('现场问题诊断中心');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 1000));
-  await page.locator('.diagnostics-header-actions').getByRole('button', { name: '新建问题', exact: true }).click();
-  const diagnosticsDialog = page.getByRole('dialog', { name: '新建现场问题', exact: true });
-  await diagnosticsDialog.locator('[name="title"]').fill('桌面冒烟诊断档案');
-  await diagnosticsDialog.locator('[name="symptom"]').fill('桌面冒烟测试问题现象描述');
-  await diagnosticsDialog.getByRole('button', { name: '保存问题', exact: true }).click();
   await expect(page.locator('.diagnostics-detail-heading h1')).toHaveText('桌面冒烟诊断档案');
   await expect(page.locator('.diagnostics-brand').getByRole('button', { name: '返回研发工作台', exact: true })).toBeVisible();
   await expect(page.locator('.diagnostics-header-actions').getByRole('button', { name: '返回研发工作台', exact: true })).toHaveCount(0);
+  await expect(page.locator('.diagnostics-detail-aside')).toContainText('桌面冒烟交付项目');
   const diagnosticsColumns = await page.evaluate(() => Object.fromEntries(['.diagnostics-detail-aside', '.diagnostics-detail-main', '.diagnostics-assistant'].map(selector => {
     const { x, width } = document.querySelector(selector).getBoundingClientRect();
     return [selector, { x, width }];
@@ -119,9 +120,18 @@ try {
   assert.ok(diagnosticsColumns['.diagnostics-detail-aside'].x + diagnosticsColumns['.diagnostics-detail-aside'].width <= diagnosticsColumns['.diagnostics-detail-main'].x, '诊断档案信息栏不能与中央工作区重叠');
   assert.ok(diagnosticsColumns['.diagnostics-detail-main'].x + diagnosticsColumns['.diagnostics-detail-main'].width <= diagnosticsColumns['.diagnostics-assistant'].x, '中央工作区不能与诊断操作栏重叠');
   await page.screenshot({ path: 'test-results/diagnostics-workbench.png', fullPage: false });
+  await page.locator('.diagnostics-detail-heading').getByRole('button', { name: '项目问题台账', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '桌面冒烟交付项目', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /问题与风险/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.delivery-record-row.targeted')).toContainText('桌面冒烟诊断档案');
+  await page.locator('.delivery-project-actions').getByRole('button', { name: '现场诊断', exact: true }).click();
+  await page.locator('.diagnostics-header-actions').getByRole('button', { name: '新建问题', exact: true }).click();
+  const diagnosticsDialog = page.getByRole('dialog', { name: '新建现场问题', exact: true });
+  await expect(diagnosticsDialog.locator('[name="deliveryProjectId"] option:checked')).toContainText('桌面冒烟交付项目');
+  await diagnosticsDialog.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: '返回研发工作台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '研发任务工作台', exact: true })).toBeVisible();
-  checks.push('现场问题诊断中心创建档案后显示三栏详情，返回入口位于左上角且栏位无重叠');
+  checks.push('问题台账可直接发起现场诊断，诊断详情可定位返回原项目问题，项目详情新建诊断预填项目，三栏布局无重叠');
   await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('textbox', { name: '输入任务' }).waitFor();
@@ -599,12 +609,12 @@ try {
   await expect(page.getByLabel('更新地址', { exact: true })).toHaveValue('https://updates.example.invalid/agent/');
   checks.push('更新设置显示真实当前版本，编辑保存 HTTPS 更新地址后主进程读回正确');
   await expect(page.getByText(/开发运行模式不会检查在线更新|当前安装包未包含在线更新配置|在线更新已启用|等待检查|更新地址已保存/).first()).toBeVisible();
-  await page.getByRole('radio', { name: '手动更新', exact: true }).check();
+  await page.getByRole('radio', { name: '手动更新', exact: true }).click();
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).preferences.updateMode === 'manual');
   await expect(page.getByRole('radio', { name: '手动更新', exact: true })).toBeChecked();
   await expect(page.getByRole('radio', { name: '自动更新', exact: true })).toBeEnabled();
   assert.equal((await page.evaluate(() => window.jinggong.getSettings())).preferences.updateMode, 'manual');
-  await page.getByRole('radio', { name: '自动更新', exact: true }).check();
+  await page.getByRole('radio', { name: '自动更新', exact: true }).click();
   await page.waitForFunction(async () => (await window.jinggong.getSettings()).preferences.updateMode === 'automatic');
   await expect(page.getByRole('radio', { name: '自动更新', exact: true })).toBeChecked();
   await expect(page.getByRole('radio', { name: '自动更新', exact: true })).toBeEnabled();
@@ -724,6 +734,10 @@ try {
   assert.equal(second.models.length, 2);
   await page.evaluate(input => window.jinggong.configureSession(input.id, { providerId: input.providerId, model: 'test-model', system: 'MES5', reasoningEffort: 'high' }), { id: session.id, providerId: profile.id });
   await page.reload();
+  const sessionProjectGroup = page.getByRole('region', { name: '项目 样本项目 空格', exact: true });
+  const sessionProjectToggle = sessionProjectGroup.locator('.project-item');
+  if (await sessionProjectToggle.getAttribute('aria-expanded') !== 'true') await sessionProjectToggle.click();
+  await sessionProjectGroup.locator('.session-row').last().locator('button.session-item').click();
   await page.getByRole('button', { name: '打开当前会话设置', exact: true }).click();
   await page.getByLabel('推理强度', { exact: true }).selectOption('xhigh');
   await expect(page.locator('.session-reasoning-indicator')).toHaveText('推理 超高');
@@ -774,6 +788,11 @@ try {
   checks.push('MES5/MES6/WMS真实文件字典导入；JSON机器规则仍可按需检查；提交不再强制机器检查或文字复核');
   await app.close(); app = undefined;
   page = await launch();
+  const restartedSessionProjectGroup = page.getByRole('region', { name: '项目 样本项目 空格', exact: true });
+  const restartedSessionRow = restartedSessionProjectGroup.locator('.session-row').last();
+  if (!(await restartedSessionRow.isVisible())) await restartedSessionProjectGroup.locator('.project-item').click();
+  await expect(restartedSessionRow).toBeVisible();
+  await restartedSessionRow.locator('button.session-item').click();
   await page.getByRole('button', { name: 'Git', exact: true }).click();
   await page.getByRole('button', { name: '根据 Diff 生成提交说明', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#commit-message')?.value.length > 0);
@@ -840,6 +859,20 @@ try {
   }
   db.close();
   page = await launch();
+  if ((await page.evaluate(id => window.jinggong.bootstrap().then(state => state.projects.find(project => project.id === id)?.collapsed), session.projectId)) !== false) {
+    await page.getByRole('region', { name: '项目 样本项目 空格', exact: true }).locator('.project-item').click();
+  }
+  const cleanupProjectGroup = page.getByRole('region', { name: '项目 样本项目 空格', exact: true });
+  const moreSessions = cleanupProjectGroup.getByRole('button', { name: /还有 \d+ 个会话/ });
+  if (await moreSessions.count()) await moreSessions.click();
+  const originalSessionTitle = await page.evaluate(async id => {
+    const state = await window.jinggong.bootstrap();
+    const item = state.sessions.find(candidate => candidate.id === id);
+    return item?.alias ?? item?.title;
+  }, session.id);
+  const originalSessionRow = cleanupProjectGroup.locator('.session-row').filter({ hasText: originalSessionTitle }).last();
+  await expect(originalSessionRow).toBeVisible();
+  await originalSessionRow.locator('button.session-item').click();
   let deletionDialogs = 0, confirmDeletion = false;
   const handleDeletionDialog = async dialog => {
     deletionDialogs++;

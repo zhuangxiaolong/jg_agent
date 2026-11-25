@@ -916,8 +916,13 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
   if (!canReuse) await runtimes.closeSession(session.id);
   runs.assertCurrent(ticket);
   const readAccess = { mode: 'full' as const, directories: [] };
-  const pluginSnapshot = kind === 'codex' ? store.getSessionPluginSnapshot(session.id) : undefined;
-  const selectedPlugins = pluginSnapshot ?? undefined;
+  const pluginSnapshot = store.getSessionPluginSnapshot(session.id);
+  const selectedPlugins = kind === 'codex' && pluginSnapshot?.runtimeKind === 'codex' ? pluginSnapshot : undefined;
+  if (kind === 'jinggong') {
+    if (!pluginManager) throw new Error('Jinggong Skill 配置不可用');
+    await pluginManager.createJinggongSessionSnapshot(session.id, session.projectId);
+    runs.assertCurrent(ticket);
+  }
   const grokProvider = kind === 'grok_build_acp' ? grokSettings.profiles().find(item => item.id === session.providerId) : undefined;
   const grokModel = kind === 'grok_build_acp' ? grokProvider?.models.find(item => item.id === session.model) : undefined;
   let runtimeHome = path.join(dataRoot, 'runtime', 'homes', kind);
@@ -1480,13 +1485,15 @@ if (primaryInstance) app.whenReady().then(async () => {
   registerDiagnosticsIpc({ handle, store, dataRoot, settings,
     manuals: () => operationManualLibrary,
     manualEnabled: () => performanceService?.telemetry.getSettings().contextSources.operation_manual !== false,
-    session: sessionById,
-    credentials: session => {
-      const provider = settings.profiles().find(profile => profile.id === session.providerId) ?? (!session.providerId ? settings.profiles()[0] : undefined);
-      if (!provider || !provider.models.includes(session.model)) throw new Error('会话模型配置不可用');
+    runtime: () => {
+      const runtimeKind = store.getRuntimeKind();
+      if (runtimeKind !== 'codex' && runtimeKind !== 'jinggong') throw new Error('全局 Runtime 暂不支持现场诊断，请切换为 Codex 或精工 Runtime');
+      const provider = settings.profiles()[0];
+      const model = provider?.models[0];
+      if (!provider || !model) throw new Error('请先配置现场诊断可用的默认模型');
       const apiKey = settings.credential(provider.id).read(provider.baseUrl);
       if (!apiKey) throw new Error('请先配置当前模型凭据');
-      return { provider: provider.id, baseUrl: provider.baseUrl, apiKey };
+      return { runtimeKind, model, baseUrl: provider.baseUrl, apiKey };
     },
     secrets: () => settings.memorySecrets(),
     selectEvidence: async () => {

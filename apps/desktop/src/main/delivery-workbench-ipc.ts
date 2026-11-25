@@ -197,7 +197,11 @@ export function registerDeliveryWorkbenchIpc(options: IpcOptions): void {
       if ((input.status === 'resolved' || input.status === 'closed') && !input.resolution?.trim()) throw new Error('已解决或已关闭的问题必须填写解决说明');
       return saveRecord<DeliveryIssue>('delivery_issues', projectId, input, 'issue', '问题/风险');
     });
-    handle('delivery-workbench:issue-delete', (projectValue: unknown, idValue: unknown) => deleteRecord('delivery_issues', 'issue', idSchema.parse(projectValue), idSchema.parse(idValue), '问题/风险'));
+    handle('delivery-workbench:issue-delete', (projectValue: unknown, idValue: unknown) => {
+      const projectId = idSchema.parse(projectValue), issueId = idSchema.parse(idValue);
+      if (store.findDiagnosticCaseByDeliveryIssue(projectId, issueId)) throw new Error('该问题已关联现场诊断，请先在诊断档案中解除关联');
+      return deleteRecord('delivery_issues', 'issue', projectId, issueId, '问题/风险');
+    });
     handle('delivery-workbench:meeting-save', (projectValue: unknown, value: unknown) => {
       const projectId = idSchema.parse(projectValue); const input = meetingInputSchema.parse(value) as DeliveryMeetingInput;
       if (input.linkedMilestoneId && !ensureSameProject('delivery_milestones', projectId, input.linkedMilestoneId)) throw new Error('里程碑不存在或不属于当前交付项目');

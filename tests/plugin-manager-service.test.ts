@@ -76,6 +76,26 @@ test('Jinggong Skill 快照按需加载正文与引用资源并记录最小事�
   }
 });
 
+test('切换到 Jinggong Runtime 时替换其他 Runtime 的会话插件快照', async () => {
+  const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-runtime-snapshot-'));
+  const store = await LocalStore.open(join(root, 'agent.db'));
+  try {
+    const service = new PluginManagerService({ store, dataRoot: join(root, 'data'), executable: process.execPath, environment: home => ({ ...process.env, CODEX_HOME: home }) });
+    const session: Session = { id: 'runtime-switch', title: 'Runtime 切换', workspacePath: root, status: 'idle', createdAt: new Date().toISOString(), model: 'test-model', runtimeKind: 'codex' };
+    store.saveSession(session);
+    const codexSnapshot = await service.updateSessionPluginSelection({ sessionId: session.id, profileId: `session-${session.id}`, pluginIds: [], skillIds: [] });
+    assert.equal(codexSnapshot.runtimeKind, 'codex');
+
+    const jinggongSnapshot = await service.createJinggongSessionSnapshot(session.id);
+
+    assert.equal(jinggongSnapshot.runtimeKind, 'jinggong');
+    assert.equal(store.getSessionPluginSnapshot(session.id)?.runtimeKind, 'jinggong');
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('PluginManagerService 默认扫描并导入 Codex 缓存插件', async () => {
   const root = await mkdtemp(join(process.env.TEMP ?? process.env.TMP ?? '.', 'jinggong-plugin-service-codex-'));
   const store = await LocalStore.open(join(root, 'agent.db'));

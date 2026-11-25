@@ -34,7 +34,7 @@ export function ExpertSession({ session, running, latestExpert, open }: {session
   let summaryMode: string;
   if (latestExpert && selection.profileId === 'auto') summaryMode = running ? '自动路由 · 本轮专家' : '自动路由 · 最近回复';
   else if (latestExpert) summaryMode = `配置 ${configuredName} · ${running ? '本轮' : '最近回复'}`;
-  else summaryMode = selection.profileId === 'auto' ? '自动路由 · 按任务分配' : selection.profileId === 'off' ? '专家已关闭' : '会话固定';
+  else summaryMode = selection.profileId === 'auto' ? '按任务分配' : selection.profileId === 'off' ? '专家已关闭' : '会话固定';
   return <details className="expert-session"><summary>{displayedExpert && <ExpertAvatar id={displayedExpert.id} size={20}/>}
     <span>{summaryName}</span><small className="expert-session-mode">{summaryMode}</small></summary>
     <section><label>专家角色<select value={selection.profileId} disabled={running || busy} onChange={e=>void select({...selection,profileId:e.target.value})}><option value="auto">自动路由</option><option value="off">普通 Agent</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>

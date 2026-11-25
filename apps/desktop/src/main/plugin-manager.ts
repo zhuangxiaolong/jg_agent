@@ -471,7 +471,8 @@ export class PluginManagerService {
   }
   async createJinggongSessionSnapshot(sessionId: string, projectId?: string): Promise<SessionPluginSnapshot> {
     const existing = this.store.getSessionPluginSnapshot(sessionId);
-    if (existing) return existing;
+    if (existing?.runtimeKind === 'jinggong') return existing;
+    if (existing) this.store.deleteSessionPluginSnapshot(sessionId);
     const scopes = new Map(this.store.listSkillScopes().map(scope => [scope.skillId, scope]));
     const pluginsById = new Map(this.store.listPlugins().map(plugin => [plugin.id, plugin]));
     const selected = this.store.listPluginSkills().flatMap(skill => {
