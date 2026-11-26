@@ -1,6 +1,10 @@
 # 精工 Agent
 
-精工 Agent 是面向 MES5、MES6、WMS、前端等项目的 Windows 桌面研发工具。当前仓库版本为 0.9.8，应用源码位于 `apps/desktop/`，核心模块位于 `packages/`。
+精工 Agent 是面向 MES5、MES6、WMS、前端等项目的 Windows 桌面研发工具。应用源码位于 `apps/desktop/`，核心模块位于 `packages/`。
+
+## 当前开发版
+
+- 移除交付工作台。可从侧栏「现场问题诊断」直接选择产品系统登记问题。历史诊断档案仍可查看原先关联的项目和工单。
 
 ## 0.9.8 更新
 

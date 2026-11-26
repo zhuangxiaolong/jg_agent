@@ -4,7 +4,6 @@ export * from './grok';
 export * from './iteration-07';
 export * from './iteration-governance';
 export * from './delivery';
-export * from './delivery-workbench';
 export * from './diagnostics';
 export * from './skill-intelligence';
 export * from './learning';
@@ -406,7 +405,6 @@ export interface DesktopApi {
   expertCollaboration?: import('./expert-collaboration').ExpertCollaborationApi;
   learningEngine?: LearningEngineApi;
   delivery?: DeliveryApi;
-  deliveryWorkbench?: import('./delivery-workbench').DeliveryWorkbenchApi;
   diagnostics?: import('./diagnostics').DiagnosticApi;
   impactReview?: ImpactReviewApi;
   iteration?: IterationApi;

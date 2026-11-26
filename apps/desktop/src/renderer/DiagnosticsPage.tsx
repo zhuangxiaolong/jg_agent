@@ -3,7 +3,7 @@ import type { DiagnosticAnalysisPreview, DiagnosticApi, DiagnosticCase, Diagnost
 import { Icon } from './ui';
 import './diagnostics.css';
 
-type View = 'overview' | 'cases' | 'projects' | 'knowledge';
+type View = 'overview' | 'cases' | 'knowledge';
 const statusLabels: Record<DiagnosticCaseStatus, string> = { new: '新建', triaging: '分诊中', awaiting_input: '待补充信息', diagnosing: '排查中', awaiting_customer: '等待客户', awaiting_development: '等待开发', pending_verification: '待验证', resolved: '已解决', closed: '已关闭', reopened: '已重开', cancelled: '已取消' };
 const productLabels: Record<DiagnosticProduct, string> = { MES5: 'MES5', MES6: 'MES6', WMS: 'WMS', OTHER: '其他系统' };
 const priorityLabels: Record<DiagnosticPriority, string> = { critical: '严重', high: '高', medium: '中', low: '低' };
@@ -22,11 +22,10 @@ const dateLabel = (value: string) => new Date(value).toLocaleString();
 const byteLabel = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MiB` : `${Math.max(1, Math.round(value / 1024))} KiB`;
 const errorText = (reason: unknown) => reason instanceof Error ? reason.message : '操作失败，请重试';
 
-export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialProjectId, initialIssueId, initialCaseId }: { api: DiagnosticApi; onClose: () => void; onOpenDeliveryProject?: (projectId: string, issueId?: string) => void; initialProjectId?: string; initialIssueId?: string; initialCaseId?: string }) {
-  const [view, setView] = useState<View>(initialProjectId ? 'cases' : 'overview');
+export function DiagnosticsPage({ api, onClose }: { api: DiagnosticApi; onClose: () => void }) {
+  const [view, setView] = useState<View>('overview');
   const [overview, setOverview] = useState<Awaited<ReturnType<DiagnosticApi['overview']>> | null>(null);
   const [cases, setCases] = useState<DiagnosticCase[]>([]);
-  const [projects, setProjects] = useState<Awaited<ReturnType<DiagnosticApi['listProjects']>>>([]);
   const [details, setDetails] = useState<DiagnosticCaseDetails | null>(null);
   const [selectedId, setSelectedId] = useState('');
   const selectedIdRef = useRef('');
@@ -45,10 +44,8 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
   const [moduleFilter, setModuleFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [reporterFilter, setReporterFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState(initialProjectId ?? '');
   const [sortBy, setSortBy] = useState<'updated' | 'priority'>('updated');
   const [createOpen, setCreateOpen] = useState(false);
-  const [createProjectId, setCreateProjectId] = useState(initialProjectId ?? '');
   const [editOpen, setEditOpen] = useState(false);
   const [triageConfirmOpen, setTriageConfirmOpen] = useState(false);
   const [section, setSection] = useState<'summary' | 'steps' | 'evidence' | 'root' | 'handoff' | 'timeline'>('summary');
@@ -59,31 +56,27 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
   const [knowledgeResults, setKnowledgeResults] = useState<DiagnosticKnowledgeCase[]>([]);
   const caseListInput = () => ({ query: query.trim() || undefined, status: statusFilter, product: productFilter, priority: priorityFilter, issueCategory: categoryFilter,
     module: moduleFilter.trim() || undefined, assigneeLabel: assigneeFilter.trim() || undefined, reporterLabel: reporterFilter.trim() || undefined,
-    deliveryProjectId: projectFilter || undefined, sortBy, limit: 100 });
+    sortBy, limit: 100 });
 
   async function loadList() {
     const request = ++listSequence.current;
     try {
-      const [nextOverview, nextCases, nextProjects] = await Promise.all([
+      const [nextOverview, nextCases] = await Promise.all([
         api.overview(), api.listCases(caseListInput()),
-        api.listProjects(),
       ]);
       if (request !== listSequence.current) return;
-      setOverview(nextOverview); setCases(nextCases); setProjects(nextProjects);
+      setOverview(nextOverview); setCases(nextCases);
     } catch (reason) { setError(errorText(reason)); }
     finally { if (request === listSequence.current) setLoading(false); }
   }
 
-  useEffect(() => { void loadList(); }, [query, statusFilter, productFilter, priorityFilter, categoryFilter, moduleFilter, assigneeFilter, reporterFilter, projectFilter, sortBy]);
+  useEffect(() => { void loadList(); }, [query, statusFilter, productFilter, priorityFilter, categoryFilter, moduleFilter, assigneeFilter, reporterFilter, sortBy]);
   useEffect(() => {
     if (!selectedId) { setDetails(null); setEditOpen(false); return; }
     const request = ++detailSequence.current;
     void api.getCase(selectedId).then(next => { if (request === detailSequence.current && selectedIdRef.current === selectedId) setDetails(next); })
       .catch(reason => { if (request === detailSequence.current) setError(errorText(reason)); });
   }, [selectedId]);
-  useEffect(() => {
-    if (initialCaseId) selectCase(initialCaseId);
-  }, [initialCaseId]);
 
   async function reload(selected = selectedId) {
     const [nextOverview, nextCases] = await Promise.all([
@@ -104,43 +97,28 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
     selectedIdRef.current = id; setSelectedId(id); setPreview(null); setEvidencePreview(null); setTriageConfirmOpen(false); setError(''); setNotice(''); setView('cases'); setSection('summary');
   }
 
-  function openCreate(projectId = initialProjectId ?? '') {
-    setCreateProjectId(projectId);
+  function openCreate() {
     setCreateOpen(true);
   }
 
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget), deliveryProjectId = optionalValue(data, 'deliveryProjectId');
-    if (!deliveryProjectId) { setError('新建现场问题必须关联交付项目'); return; }
-    const linkedProject = projects.find(project => project.id === deliveryProjectId);
-    if (!linkedProject || linkedProject.status === 'archived') { setError('请选择未归档的交付项目'); return; }
+    const data = new FormData(event.currentTarget);
     const occurredAt = optionalValue(data, 'occurredAt');
     const input = {
       title: String(data.get('title') ?? '').trim(), symptom: String(data.get('symptom') ?? '').trim(),
       expectedResult: optionalValue(data, 'expectedResult'), actualResult: optionalValue(data, 'actualResult'), reproduceSteps: optionalValue(data, 'reproduceSteps'),
-      product: linkedProject.systemType, productVersion: optionalValue(data, 'productVersion'), module: optionalValue(data, 'module'),
+      product: String(data.get('product')) as DiagnosticProduct, productVersion: optionalValue(data, 'productVersion'), module: optionalValue(data, 'module'),
       businessProcess: optionalValue(data, 'businessProcess'), issueCategory: String(data.get('issueCategory') ?? 'unknown') as DiagnosticCategory,
       priority: String(data.get('priority') ?? 'medium') as DiagnosticPriority, occurredAt: occurredAt ? new Date(occurredAt).toISOString() : undefined,
       frequency: optionalValue(data, 'frequency'), impactScope: optionalValue(data, 'impactScope'), environment: optionalValue(data, 'environment'),
-      deliveryProjectId, deliveryIssueId: optionalValue(data, 'deliveryIssueId'), assigneeLabel: optionalValue(data, 'assigneeLabel'), reporterLabel: optionalValue(data, 'reporterLabel'),
+      assigneeLabel: optionalValue(data, 'assigneeLabel'), reporterLabel: optionalValue(data, 'reporterLabel'),
     };
     setBusy(true); setError('');
     try {
       const created = await api.createCase(input);
       setCreateOpen(false); selectedIdRef.current = created.id; setSelectedId(created.id); setView('cases');
       await reload(created.id); setNotice(`已创建 ${created.code}`);
-    } catch (reason) { setError(errorText(reason)); }
-    finally { setBusy(false); }
-  }
-
-  async function importDeliveryIssue(projectId: string, issueId: string) {
-    setBusy(true); setError(''); setNotice('');
-    try {
-      const result = await api.importDeliveryIssue(projectId, issueId);
-      setCreateOpen(false); selectCase(result.item.id);
-      await reload(result.item.id);
-      setNotice(result.created ? `已从交付工单导入 ${result.item.code}` : `该交付工单已关联 ${result.item.code}`);
     } catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
   }
@@ -154,7 +132,7 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
       productVersion: optionalValue(data, 'productVersion'), module: optionalValue(data, 'module'), businessProcess: optionalValue(data, 'businessProcess'),
       issueCategory: String(data.get('issueCategory') ?? details.case.issueCategory) as DiagnosticCategory, priority: String(data.get('priority') ?? details.case.priority) as DiagnosticPriority,
       occurredAt: occurredAt ? new Date(occurredAt).toISOString() : undefined, frequency: optionalValue(data, 'frequency'), impactScope: optionalValue(data, 'impactScope'), environment: optionalValue(data, 'environment'),
-      deliveryProjectId: optionalValue(data, 'deliveryProjectId') ?? null, deliveryIssueId: optionalValue(data, 'deliveryIssueId') ?? null, assigneeLabel: optionalValue(data, 'assigneeLabel'), reporterLabel: optionalValue(data, 'reporterLabel'),
+      assigneeLabel: optionalValue(data, 'assigneeLabel'), reporterLabel: optionalValue(data, 'reporterLabel'),
     };
     await perform(() => api.updateCase(details.case.id, patch), '问题信息已保存');
     setEditOpen(false);
@@ -214,13 +192,12 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
     setBusy(true); setError('');
     try {
       const product = details?.case.product ?? (productFilter === 'all' ? 'MES6' : productFilter);
-      setKnowledgeResults(await api.searchKnowledgeCases({ product, query: term, deliveryProjectId: projectFilter || details?.case.deliveryProjectId }));
+      setKnowledgeResults(await api.searchKnowledgeCases({ product, query: term, deliveryProjectId: details?.case.deliveryProjectId }));
     } catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
   }
 
   const activeCases = cases.filter(item => !['closed', 'cancelled'].includes(item.status));
-  const projectFor = (id?: string) => projects.find(project => project.id === id)?.name ?? '';
 
   return <main className="diagnostics-page">
     <header className="diagnostics-header">
@@ -228,7 +205,6 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
       <nav className="diagnostics-nav" aria-label="诊断中心视图">
         <button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>总览</button>
         <button className={view === 'cases' ? 'active' : ''} onClick={() => setView('cases')}>问题档案 <span>{cases.length}</span></button>
-        <button className={view === 'projects' ? 'active' : ''} onClick={() => setView('projects')}>项目视图</button>
         <button className={view === 'knowledge' ? 'active' : ''} onClick={() => { setView('knowledge'); setSelectedId(''); selectedIdRef.current = ''; }}>案例库</button>
       </nav>
       <div className="diagnostics-header-actions"><button className="diagnostics-primary" onClick={() => openCreate()}><Icon name="plus" />新建问题</button><button className="diagnostics-icon-button" onClick={() => void loadList()} title="刷新数据" aria-label="刷新数据"><Icon name="refresh" /></button></div>
@@ -247,31 +223,29 @@ export function DiagnosticsPage({ api, onClose, onOpenDeliveryProject, initialPr
           <input aria-label="按模块筛选" value={moduleFilter} onChange={event => setModuleFilter(event.target.value)} placeholder="模块" />
           <input aria-label="按负责人筛选" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)} placeholder="负责人" />
           <input aria-label="按创建人筛选" value={reporterFilter} onChange={event => setReporterFilter(event.target.value)} placeholder="创建人" />
-          <select aria-label="按交付项目筛选" value={projectFilter} onChange={event => setProjectFilter(event.target.value)}><option value="">全部项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
         </div>
         <div className="diagnostics-rail-list">
           {loading && <div className="diagnostics-empty">正在读取问题档案…</div>}
           {!loading && !cases.length && <div className="diagnostics-empty">暂无符合条件的问题</div>}
           {cases.map(item => <button key={item.id} className={`diagnostics-case-row ${selectedId === item.id ? 'selected' : ''}`} onClick={() => selectCase(item.id)}>
-            <span className={`priority-mark ${item.priority}`} /><span className="diagnostics-case-row-main"><strong>{item.title}</strong><span>{item.code} · {productLabels[item.product]}{item.module ? ` · ${item.module}` : ''}</span><span>{projectFor(item.deliveryProjectId) || statusLabels[item.status]}</span></span><span className={`status-dot ${item.status}`} title={statusLabels[item.status]} />
+            <span className={`priority-mark ${item.priority}`} /><span className="diagnostics-case-row-main"><strong>{item.title}</strong><span>{item.code} · {productLabels[item.product]}{item.module ? ` · ${item.module}` : ''}</span><span>{statusLabels[item.status]}</span></span><span className={`status-dot ${item.status}`} title={statusLabels[item.status]} />
           </button>)}
         </div>
         <div className="diagnostics-rail-footer"><span>未关闭</span><strong>{overview?.open ?? 0}</strong><span>严重 / 高</span><strong>{overview?.criticalOrHigh ?? 0}</strong></div>
       </aside>
       <section className="diagnostics-content">
         {view === 'overview' && <Overview overview={overview} cases={activeCases} onSelect={selectCase} onCreate={() => openCreate()} />}
-        {view === 'projects' && <ProjectOverview overview={overview} onSelect={selectCase} onCreate={openCreate} onOpenProject={onOpenDeliveryProject} />}
         {view === 'cases' && (details ? <CaseDetail
           api={api} details={details} section={section} setSection={setSection} busy={busy} analyzing={analyzing} preview={preview}
           analysisTask={analysisTask} setAnalysisTask={setAnalysisTask}
           requestAnalysisPreview={requestAnalysisPreview} runAnalysis={runAnalysis} setPreview={setPreview} perform={perform} reload={reload}
           onEdit={() => setEditOpen(true)} onConfirmTriage={() => setTriageConfirmOpen(true)} onTransition={transition} onEvidencePreview={(value) => setEvidencePreview(value)}
-          onOpenDeliveryProject={onOpenDeliveryProject} setError={setError} setNotice={setNotice} /> : <div className="diagnostics-empty-panel"><Icon name="file" /><strong>选择一个问题查看诊断记录</strong><button className="diagnostics-primary" onClick={() => openCreate()}><Icon name="plus" />新建问题</button></div>)}
+          setError={setError} setNotice={setNotice} /> : <div className="diagnostics-empty-panel"><Icon name="file" /><strong>选择一个问题查看诊断记录</strong><button className="diagnostics-primary" onClick={() => openCreate()}><Icon name="plus" />新建问题</button></div>)}
         {view === 'knowledge' && <section className="diagnostics-knowledge-view"><div className="diagnostics-page-title"><div><span>案例库</span><h1>已审核知识案例</h1></div><span>{knowledgeResults.length} 条结果</span></div><form className="diagnostics-knowledge-search" onSubmit={searchKnowledge}><input value={knowledgeQuery} onChange={event => setKnowledgeQuery(event.target.value)} placeholder="输入症状、模块、错误码或根因" /><select aria-label="案例产品" value={productFilter === 'all' ? 'MES6' : productFilter} onChange={event => setProductFilter(event.target.value as DiagnosticProduct)}>{Object.entries(productLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className="diagnostics-primary" disabled={busy || !knowledgeQuery.trim()}><Icon name="search" />检索</button></form>{knowledgeResults.length ? <div className="diagnostics-knowledge-results">{knowledgeResults.map(item => <KnowledgeCard key={item.id} item={item} />)}</div> : <div className="diagnostics-empty-panel"><Icon name="search" /><strong>输入关键词检索已审核案例</strong></div>}</section>}
       </section>
     </div>
-    {createOpen && <CreateDialog projects={projects} initialProjectId={createProjectId} initialIssueId={initialIssueId} busy={busy} onClose={() => setCreateOpen(false)} onSubmit={createCase} onImportIssue={importDeliveryIssue} />}
-    {editOpen && details && <EditDialog item={details.case} projects={projects} busy={busy} onClose={() => setEditOpen(false)} onSubmit={saveEdit} />}
+    {createOpen && <CreateDialog busy={busy} onClose={() => setCreateOpen(false)} onSubmit={createCase} />}
+    {editOpen && details && <EditDialog item={details.case} busy={busy} onClose={() => setEditOpen(false)} onSubmit={saveEdit} />}
     {triageConfirmOpen && details?.case.triage && <TriageConfirmDialog item={details.case} busy={busy} onClose={() => setTriageConfirmOpen(false)} onSubmit={confirmTriage} />}
     {evidencePreview && <div className="diagnostics-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEvidencePreview(null); }}><section className="diagnostics-modal diagnostics-preview-modal" role="dialog" aria-modal="true" aria-labelledby="diagnostics-evidence-preview-title"><header><h2 id="diagnostics-evidence-preview-title">脱敏文本预览 · {evidencePreview.name}</h2><button className="diagnostics-icon-button" onClick={() => setEvidencePreview(null)} aria-label="关闭"><Icon name="close" /></button></header><pre>{evidencePreview.content}</pre></section></div>}
   </main>;
@@ -281,36 +255,10 @@ function Overview({ overview, cases, onSelect, onCreate }: { overview: Awaited<R
   return <div className="diagnostics-overview">
     <div className="diagnostics-page-title"><div><span>现场问题诊断</span><h1>诊断总览</h1></div><button className="diagnostics-primary" onClick={onCreate}><Icon name="plus" />新建问题</button></div>
     <div className="diagnostics-metrics"><Metric label="全部问题" value={overview?.total ?? 0} tone="neutral" /><Metric label="未关闭" value={overview?.open ?? 0} tone="green" /><Metric label="严重 / 高优先级" value={overview?.criticalOrHigh ?? 0} tone="red" /><Metric label="等待客户" value={overview?.awaitingCustomer ?? 0} tone="amber" /><Metric label="等待开发" value={overview?.awaitingDevelopment ?? 0} tone="blue" /><Metric label="待验证" value={overview?.pendingVerification ?? 0} tone="violet" /></div>
-    <section className="diagnostics-usage-flow" aria-label="现场问题诊断使用流程"><strong>使用流程</strong><ol><li><span>01</span><div><b>登记问题</b><small>新建问题，或从交付项目导入并关联项目</small></div></li><li><span>02</span><div><b>补充现场信息</b><small>完善现象、复现步骤、预期与实际结果，并整理证据</small></div></li><li><span>03</span><div><b>分析并核验</b><small>查看发送预览后运行分析，按建议补充验证结果</small></div></li><li><span>04</span><div><b>记录结论</b><small>更新处理状态，审核可复用的问题案例</small></div></li></ol></section>
+    <section className="diagnostics-usage-flow" aria-label="现场问题诊断使用流程"><strong>使用流程</strong><ol><li><span>01</span><div><b>登记问题</b><small>选择产品系统，描述现场问题和影响范围</small></div></li><li><span>02</span><div><b>补充现场信息</b><small>完善现象、复现步骤、预期与实际结果，并整理证据</small></div></li><li><span>03</span><div><b>分析并核验</b><small>查看发送预览后运行分析，按建议补充验证结果</small></div></li><li><span>04</span><div><b>记录结论</b><small>更新处理状态，审核可复用的问题案例</small></div></li></ol></section>
     <div className="diagnostics-overview-columns"><section className="diagnostics-section"><header><div><strong>最近处理</strong><span>按最后更新时间</span></div><button className="diagnostics-text-button" onClick={() => cases[0] && onSelect(cases[0].id)}>打开问题列表</button></header>{overview?.recent.length ? <CaseTable items={overview.recent} onSelect={onSelect} /> : <EmptyInline text="暂无记录" />}</section><section className="diagnostics-section"><header><div><strong>最近关闭</strong><span>可整理为复用案例</span></div></header>{overview?.recentClosed.length ? <CaseTable items={overview.recentClosed} onSelect={onSelect} /> : <EmptyInline text="暂无已关闭问题" />}</section></div>
     <div className="diagnostics-overview-bottom"><span>待审核案例</span><strong>{overview?.knowledgeReview ?? 0}</strong><span>当前筛选下问题</span><strong>{cases.length}</strong></div>
   </div>;
-}
-
-function ProjectOverview({ overview, onSelect, onCreate, onOpenProject }: { overview: Awaited<ReturnType<DiagnosticApi['overview']>> | null; onSelect: (id: string) => void; onCreate: (projectId?: string) => void; onOpenProject?: (projectId: string, issueId?: string) => void }) {
-  const summaries = overview?.projects ?? [];
-  return <section className="diagnostics-project-overview">
-    <div className="diagnostics-page-title"><div><span>交付项目</span><h1>项目问题进度</h1></div><span>{summaries.length} 个项目</span></div>
-    {!summaries.length && <div className="diagnostics-empty-panel"><Icon name="folder" /><strong>暂无交付项目</strong></div>}
-    {summaries.map(summary => {
-      const project = summary.project;
-      return <section className="diagnostics-project-section" key={summary.projectId}>
-        <header><div><strong>{project.name}</strong><span>{project.code || '未设置项目编号'} · {project.customerName} · {project.systemType} · {project.stage}{project.status === 'archived' ? ' · 已归档' : ''}</span><small>项目经理 {project.projectManager || '未分配'} · 产品版本 {project.productVersions.join('、') || '未记录'}</small></div><div className="diagnostics-project-metrics"><span>问题总数 <b>{summary.total}</b></span><span>未关闭 <b>{summary.open}</b></span><span>严重 / 高 <b>{summary.criticalOrHigh}</b></span><span>等待客户 <b>{summary.awaitingCustomer}</b></span><span>等待开发 <b>{summary.awaitingDevelopment}</b></span><span>待验证 <b>{summary.pendingVerification}</b></span></div><div className="diagnostics-project-actions">{summary.lastUpdatedAt && <small>最近诊断更新 {dateLabel(summary.lastUpdatedAt)}</small>}{onOpenProject && <button className="diagnostics-secondary" onClick={() => onOpenProject(project.id)}><Icon name="box" />打开交付项目</button>}<button className="diagnostics-primary" disabled={project.status === 'archived'} onClick={() => onCreate(project.id)}><Icon name="plus" />新建诊断</button></div></header>
-        {!summary.cases.length ? <EmptyInline text="该项目尚无诊断档案" /> : <div className="diagnostics-project-issues">{summary.cases.map(item => <button key={item.id} onClick={() => onSelect(item.id)}><span className={`priority-mark ${item.priority}`} /><span className="diagnostics-project-issue-main"><strong>{item.title}</strong><small>{item.code} · {priorityLabels[item.priority]} · {statusLabels[item.status]}</small></span><span className="diagnostics-project-owner">{item.assigneeLabel || '未分配'}</span><span className="diagnostics-project-wait">{item.status === 'awaiting_customer' || item.status === 'awaiting_development' ? waitLabel(item.statusChangedAt) : `更新 ${dateLabel(item.updatedAt)}`}</span></button>)}</div>}
-      </section>;
-    })}
-  </section>;
-}
-
-function waitLabel(since?: string): string {
-  if (!since) return '等待时长未知';
-  const elapsed = Math.max(0, Date.now() - new Date(since).getTime());
-  const days = Math.floor(elapsed / 86_400_000);
-  return days ? `已等待 ${days} 天` : `已等待 ${Math.floor(elapsed / 3_600_000)} 小时`;
-}
-
-function issueTypeLabel(value: string): string {
-  return ({ issue: '问题', blocker: '阻塞', risk: '风险', question: '待确认', change: '变更' } as Record<string, string>)[value] ?? value;
 }
 
 function deliveryIssueStatusLabel(value: string): string {
@@ -325,12 +273,11 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
 function EmptyInline({ text }: { text: string }) { return <div className="diagnostics-empty-inline">{text}</div>; }
 function CaseTable({ items, onSelect }: { items: DiagnosticCase[]; onSelect: (id: string) => void }) { return <div className="diagnostics-table">{items.map(item => <button key={item.id} onClick={() => onSelect(item.id)}><span className={`priority-mark ${item.priority}`} /><span><strong>{item.title}</strong><small>{item.code} · {productLabels[item.product]} · {statusLabels[item.status]}</small></span><small>{dateLabel(item.updatedAt)}</small></button>)}</div>; }
 
-function CaseDetail({ api, details, section, setSection, busy, analyzing, preview, analysisTask, setAnalysisTask, requestAnalysisPreview, runAnalysis, setPreview, perform, reload, onEdit, onConfirmTriage, onTransition, onEvidencePreview, onOpenDeliveryProject, setError, setNotice }: {
+function CaseDetail({ api, details, section, setSection, busy, analyzing, preview, analysisTask, setAnalysisTask, requestAnalysisPreview, runAnalysis, setPreview, perform, reload, onEdit, onConfirmTriage, onTransition, onEvidencePreview, setError, setNotice }: {
   api: DiagnosticApi; details: DiagnosticCaseDetails; section: 'summary' | 'steps' | 'evidence' | 'root' | 'handoff' | 'timeline'; setSection: (value: 'summary' | 'steps' | 'evidence' | 'root' | 'handoff' | 'timeline') => void;
   busy: boolean; analyzing: boolean; preview: DiagnosticAnalysisPreview | null; analysisTask: DiagnosticRunKind; setAnalysisTask: (value: DiagnosticRunKind) => void;
   requestAnalysisPreview: (task?: DiagnosticRunKind) => Promise<void>; runAnalysis: () => Promise<void>; setPreview: (value: DiagnosticAnalysisPreview | null) => void;
   perform: (action: () => Promise<unknown>, message?: string, refresh?: boolean) => Promise<void>; reload: (selected?: string) => Promise<void>; onEdit: () => void; onConfirmTriage: () => void; onTransition: (status: DiagnosticCaseStatus) => Promise<void>;
-  onOpenDeliveryProject?: (projectId: string, issueId?: string) => void;
   onEvidencePreview: (value: { name: string; content: string }) => void; setError: (value: string) => void; setNotice: (value: string) => void;
 }) {
   const item = details.case;
@@ -338,9 +285,7 @@ function CaseDetail({ api, details, section, setSection, busy, analyzing, previe
   const resolution = details.resolutions[0];
   const evidence = details.evidence.filter(file => file.status !== 'deleted');
   const currentKnowledge = details.knowledgeCases[0];
-  const [projectIssues, setProjectIssues] = useState<Awaited<ReturnType<DiagnosticApi['listProjects']>>>([]);
 
-  useEffect(() => { void api.listProjects().then(setProjectIssues).catch(() => setProjectIssues([])); }, [api]);
 
   async function analyzeAfterFeedback() {
     const result = await api.previewAnalysis(item.id, 'replan');
@@ -382,16 +327,15 @@ function CaseDetail({ api, details, section, setSection, busy, analyzing, previe
     if (result.case.id !== item.id) setError('案例草稿与问题档案不匹配');
   }
 
-    const project = projectIssues.find(value => value.id === item.deliveryProjectId);
-  const linkedIssue = project?.issues.find(issue => issue.id === item.deliveryIssueId);
+  const { legacyProject: project, legacyIssue: linkedIssue } = details;
   return <div className="diagnostics-detail">
-    <header className="diagnostics-detail-heading"><div><div className="diagnostics-breadcrumb">问题档案 <Icon name="chevron" /> {item.code}</div><h1>{item.title}</h1><div className="diagnostics-detail-meta"><span className={`diagnostics-badge status ${item.status}`}>{statusLabels[item.status]}</span><span className={`diagnostics-badge priority ${item.priority}`}>{priorityLabels[item.priority]}</span><span>{productLabels[item.product]} {item.productVersion || ''}</span>{item.module && <span>{item.module}</span>}<span>更新于 {dateLabel(item.updatedAt)}</span></div></div><div className="diagnostics-detail-actions"><select aria-label="问题状态" value="" disabled={busy || analyzing} onChange={event => { if (event.target.value) void onTransition(event.target.value as DiagnosticCaseStatus); }}><option value="">状态流转…</option>{allowedTransitions[item.status].map(status => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>{project && onOpenDeliveryProject && <button className="diagnostics-secondary" onClick={() => onOpenDeliveryProject(item.deliveryProjectId!, item.deliveryIssueId)} title={`打开交付项目“${project.name}”的问题台账`}><Icon name="box" />项目问题台账</button>}<button className="diagnostics-secondary" onClick={onEdit} disabled={busy || analyzing}><Icon name="edit" />编辑问题</button></div></header>
+    <header className="diagnostics-detail-heading"><div><div className="diagnostics-breadcrumb">问题档案 <Icon name="chevron" /> {item.code}</div><h1>{item.title}</h1><div className="diagnostics-detail-meta"><span className={`diagnostics-badge status ${item.status}`}>{statusLabels[item.status]}</span><span className={`diagnostics-badge priority ${item.priority}`}>{priorityLabels[item.priority]}</span><span>{productLabels[item.product]} {item.productVersion || ''}</span>{item.module && <span>{item.module}</span>}<span>更新于 {dateLabel(item.updatedAt)}</span></div></div><div className="diagnostics-detail-actions"><select aria-label="问题状态" value="" disabled={busy || analyzing} onChange={event => { if (event.target.value) void onTransition(event.target.value as DiagnosticCaseStatus); }}><option value="">状态流转…</option>{allowedTransitions[item.status].map(status => <option key={status} value={status}>{statusLabels[status]}</option>)}</select><button className="diagnostics-secondary" onClick={onEdit} disabled={busy || analyzing}><Icon name="edit" />编辑问题</button></div></header>
     <nav className="diagnostics-section-tabs" aria-label="问题详情分类">{[['summary', '概况'], ['steps', `排查步骤 ${currentSteps.length || ''}`], ['evidence', `现场证据 ${evidence.length || ''}`], ['root', '根因与验证'], ['handoff', '开发升级与案例'], ['timeline', '操作时间线']].map(([value, label]) => <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value as typeof section)}>{label}</button>)}</nav>
-    <div className="diagnostics-detail-workspace"><aside className="diagnostics-detail-aside"><section><h3>问题信息</h3><dl><dt>问题编号</dt><dd>{item.code}</dd><dt>产品系统</dt><dd>{productLabels[item.product]} {item.productVersion || '版本未填写'}</dd><dt>业务模块</dt><dd>{item.module || '未分类'}</dd><dt>业务环节</dt><dd>{item.businessProcess || '未填写'}</dd><dt>问题类型</dt><dd>{categoryLabels[item.issueCategory]}</dd><dt>负责人</dt><dd>{item.assigneeLabel || '未分配'}</dd><dt>创建人</dt><dd>{item.reporterLabel || '未填写'}</dd></dl></section>{project ? <section><h3>关联交付项目</h3><dl><dt>项目名称</dt><dd>{project.name}</dd><dt>项目编号</dt><dd>{project.code || '未设置'}</dd><dt>客户</dt><dd>{project.customerName}</dd><dt>系统与版本</dt><dd>{project.systemType} · {project.productVersions.join('、') || '未记录'}</dd><dt>阶段</dt><dd>{project.stage}</dd><dt>项目状态</dt><dd>{deliveryProjectStatusLabel(project.status)}</dd><dt>项目经理</dt><dd>{project.projectManager || '未分配'}</dd><dt>交付问题</dt><dd>{linkedIssue ? `${linkedIssue.title} · ${deliveryIssueStatusLabel(linkedIssue.status)}` : item.deliveryIssueId ? '原交付问题已不存在' : '未关联具体交付问题'}</dd></dl><button className="diagnostics-secondary" onClick={() => onOpenDeliveryProject?.(project.id, item.deliveryIssueId)}><Icon name="box" />定位交付项目与问题</button></section> : <section><h3>关联交付项目</h3><p>{item.deliveryProjectId ? '原交付项目已删除，档案关联标识仍予保留。' : '历史档案未关联交付项目。可编辑档案补充归属。'}</p></section>}<section><h3>处理流程</h3><div className="diagnostics-run-list">{details.runs.slice(0, 5).map(run => <div key={run.id}><span className={`run-state ${run.status}`} /><span><strong>{runTaskLabels[run.kind]}</strong><small>{run.model || run.runtimeKind || 'Runtime 未知'} · {dateLabel(run.startedAt)}</small></span></div>)}{!details.runs.length && <small>暂无分析记录</small>}</div></section></aside>
+    <div className="diagnostics-detail-workspace"><aside className="diagnostics-detail-aside"><section><h3>问题信息</h3><dl><dt>问题编号</dt><dd>{item.code}</dd><dt>产品系统</dt><dd>{productLabels[item.product]} {item.productVersion || '版本未填写'}</dd><dt>业务模块</dt><dd>{item.module || '未分类'}</dd><dt>业务环节</dt><dd>{item.businessProcess || '未填写'}</dd><dt>问题类型</dt><dd>{categoryLabels[item.issueCategory]}</dd><dt>负责人</dt><dd>{item.assigneeLabel || '未分配'}</dd><dt>创建人</dt><dd>{item.reporterLabel || '未填写'}</dd></dl></section>{project ? <section><h3>历史项目</h3><dl><dt>项目名称</dt><dd>{project.name}</dd><dt>项目编号</dt><dd>{project.code || '未设置'}</dd><dt>客户</dt><dd>{project.customerName}</dd><dt>系统与版本</dt><dd>{project.systemType} · {project.productVersions.join('、') || '未记录'}</dd><dt>阶段</dt><dd>{project.stage}</dd><dt>项目状态</dt><dd>{deliveryProjectStatusLabel(project.status)}</dd><dt>项目经理</dt><dd>{project.projectManager || '未分配'}</dd><dt>交付问题</dt><dd>{linkedIssue ? `${linkedIssue.title} · ${deliveryIssueStatusLabel(linkedIssue.status)}` : item.deliveryIssueId ? '原交付问题已不存在' : '未关联具体交付问题'}</dd></dl></section> : item.deliveryProjectId ? <section><h3>历史项目</h3><p>原项目资料不可用。</p></section> : null}<section><h3>处理流程</h3><div className="diagnostics-run-list">{details.runs.slice(0, 5).map(run => <div key={run.id}><span className={`run-state ${run.status}`} /><span><strong>{runTaskLabels[run.kind]}</strong><small>{run.model || run.runtimeKind || 'Runtime 未知'} · {dateLabel(run.startedAt)}</small></span></div>)}{!details.runs.length && <small>暂无分析记录</small>}</div></section></aside>
       <section className="diagnostics-detail-main">
         {section === 'summary' && <div className="diagnostics-section-stack"><section className="diagnostics-section"><header><div><strong>问题现象</strong><span>现场提交信息</span></div></header><p className="diagnostics-preserve-text">{item.symptom}</p><div className="diagnostics-description-grid"><div><small>期望结果</small><p>{item.expectedResult || '未填写'}</p></div><div><small>实际结果</small><p>{item.actualResult || '未填写'}</p></div><div><small>复现步骤</small><p>{item.reproduceSteps || '未填写'}</p></div><div><small>影响范围</small><p>{item.impactScope || '未填写'}</p></div></div></section>
           {item.triage && <section className="diagnostics-section"><header><div><strong>AI 分诊结果</strong><span>草稿 · 与档案字段分开保存</span></div><button className="diagnostics-secondary" disabled={busy || analyzing} onClick={onConfirmTriage}>核对并应用字段</button></header><p>{item.triage.summary}</p><div className="diagnostics-chip-row"><span>{item.triage.product === 'unknown' ? '产品待确认' : productLabels[item.triage.product]}</span><span>{categoryLabels[item.triage.issueCategory]}</span><span>{item.triage.module || '模块待确认'}</span><span>{item.triage.prioritySuggestion === 'unknown' ? '优先级待确认' : priorityLabels[item.triage.prioritySuggestion]}</span></div>{item.triage.knownFacts.map((fact, index) => <p className="diagnostics-fact" key={index}><Icon name="check" />{fact.text}</p>)}{item.triage.missingInformation.map((missing, index) => <div className="diagnostics-missing" key={index}><strong>待补充 · {missing.question}</strong><span>{missing.whyItMatters}</span></div>)}{item.triage.hypotheses.map((hypothesis, index) => <p className="diagnostics-hypothesis-note" key={index}>假设 · {hypothesis.title}（{hypothesis.confidence}）</p>)}</section>}
-          <section className="diagnostics-section"><header><div><strong>相似案例</strong><span>按产品系统和当前项目范围检索</span></div></header><RelatedKnowledge api={api} item={item} cases={details.knowledgeCases} busy={busy} onUse={setNotice} onError={setError} /></section>
+          <section className="diagnostics-section"><header><div><strong>相似案例</strong><span>按产品系统检索可见案例</span></div></header><RelatedKnowledge api={api} item={item} cases={details.knowledgeCases} busy={busy} onUse={setNotice} onError={setError} /></section>
         </div>}
         {section === 'steps' && <div className="diagnostics-section-stack"><div className="diagnostics-section-header"><div><strong>排查计划 · 修订 {item.planRevision || 0}</strong><span>当前计划按步骤记录现场结果</span></div><button className="diagnostics-primary" disabled={busy || analyzing} onClick={() => void analyzeAfterFeedback()}><Icon name="refresh" />调整计划</button></div>{!currentSteps.length ? <div className="diagnostics-empty-panel"><Icon name="file" /><strong>尚无排查步骤</strong><span>运行“生成排查计划”后，当前问题的检查步骤会显示在这里。</span><button className="diagnostics-primary" disabled={busy || analyzing} onClick={() => { setAnalysisTask('plan'); void requestAnalysisPreview('plan'); }}><Icon name="plus" />生成排查计划</button></div> : currentSteps.map(step => <form className="diagnostics-step" key={step.id} onSubmit={event => void submitStep(event, step)}><header><span className="diagnostics-step-order">{step.order}</span><div><strong>{step.title}</strong><span>{stepStatusLabels[step.status]} · {step.safetyLevel === 'read_only_ui' ? '只读页面' : step.safetyLevel === 'read_only_evidence' ? '只读证据' : '授权人员手动检查'}</span></div></header><p>{step.purpose}</p><div className="diagnostics-step-detail"><div><small>检查说明</small><p>{step.instructions}</p></div><div><small>前置条件</small><p>{step.preconditions.join('；') || '无'}</p></div><div><small>正常表现</small><p>{step.expectedNormal}</p></div><div><small>异常信号</small><p>{step.abnormalSignals.join('；') || '未提供'}</p></div><div><small>需要记录</small><p>{step.requestedEvidence.join('；') || '现场观察结果'}</p></div></div><div className="diagnostics-source-line">来源：{step.sourceRefs.map(id => details.runs.find(run => run.id === step.runId)?.sourceRefs.find(source => source.sourceId === id)?.sourceName ?? id).join('；') || '未引用内部资料'}</div><div className="diagnostics-step-feedback"><select name="status" aria-label="现场反馈状态" defaultValue={step.status === 'pending' ? 'in_progress' : step.status}>{Object.entries(stepStatusLabels).filter(([value]) => value !== 'pending').map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input name="resultBy" defaultValue={step.resultBy} placeholder="工程师姓名" /><input name="resultText" defaultValue={step.resultText} placeholder="实际观察或检查结果" /><input name="reason" defaultValue={step.blockedReason || step.notApplicableReason} placeholder="阻塞 / 不适用原因（如适用）" /><div className="diagnostics-evidence-checks">{evidence.map(file => <label key={file.id}><input type="checkbox" name="evidenceIds" value={file.id} defaultChecked={step.evidenceIds.includes(file.id)} />{file.originalName}</label>)}</div><button className="diagnostics-secondary" disabled={busy}>保存现场反馈</button></div>{step.nextBranches.length > 0 && <div className="diagnostics-branches"><small>下一步分支</small>{step.nextBranches.map((branch, index) => <p key={index}><strong>{branch.when}</strong><span>{branch.nextAction}</span></p>)}</div>}</form>)}</div>}
         {section === 'evidence' && <div className="diagnostics-section-stack"><section className="diagnostics-section"><header><div><strong>现场证据</strong><span>附件原件在本机受管存储，模型只读取脱敏文本副本</span></div><button className="diagnostics-primary" disabled={busy || analyzing || ['closed', 'cancelled'].includes(item.status)} onClick={() => void selectEvidence()}><Icon name="plus" />选择附件</button></header><p className="diagnostics-limit-note">支持 PNG、JPG、JPEG、WEBP、TXT、LOG、MD、JSON、XML、CSV、PDF、DOCX、XLSX。单文件最大 20 MiB，每次最多 10 个文件，单问题总量最大 100 MiB。图片保留为附件，目前不进行图像识别。</p>{evidence.length ? <div className="diagnostics-evidence-list">{evidence.map(file => <article key={file.id}><span className={`evidence-type ${file.kind}`}>{file.extension.slice(1).toUpperCase()}</span><div className="diagnostics-evidence-main"><strong>{file.originalName}</strong><span>{byteLabel(file.size)} · SHA-256 {file.sha256.slice(0, 16)}… · {dateLabel(file.createdAt)}</span><small>{file.parseSummary || '等待解析'}{file.redactionSummary ? ` · ${file.redactionSummary}` : ''}</small></div><span className={`evidence-state ${file.status}`}>{file.status === 'redacted' ? '已脱敏' : file.status === 'stored' ? '仅附件' : '解析失败'}</span>{file.redactedStorageKey && <button className="diagnostics-secondary" onClick={() => void showEvidencePreview(file)}>脱敏预览</button>}<button className="diagnostics-icon-button danger" title="删除证据" aria-label={`删除 ${file.originalName}`} disabled={busy || analyzing} onClick={() => { if (window.confirm(`删除证据“${file.originalName}”？`)) void perform(() => api.deleteEvidence(item.id, file.id), '证据已删除'); }}><Icon name="close" /></button></article>)}</div> : <EmptyInline text="尚未添加现场证据" />}</section></div>}
@@ -433,30 +377,22 @@ function RelatedKnowledge({ api, item, cases, busy, onUse, onError }: { api: Dia
   return <div className="diagnostics-related-knowledge">{results.map(record => <KnowledgeCard item={record} key={record.id} />)}{cases.filter(record => record.status !== 'approved').map(record => <KnowledgeCard item={record} key={record.id} />)}{!results.length && !cases.length && <EmptyInline text={busy ? '正在检索…' : '未找到适用的已审核案例'} />}{results.length > 0 && <button className="diagnostics-text-button" onClick={() => onUse(`找到 ${results.length} 条已审核案例`)}>已审核案例仅供参考，仍需核对版本和现场条件</button>}</div>;
 }
 
-function KnowledgeCard({ item }: { item: DiagnosticKnowledgeCase }) { return <article className="diagnostics-knowledge-card"><header><strong>{item.title}</strong><span>{productLabels[item.product]}{item.productVersionRange ? ` · ${item.productVersionRange}` : ''}</span></header><p>{item.symptom}</p><dl><dt>根因</dt><dd>{item.rootCause}</dd><dt>处理</dt><dd>{item.resolution}</dd><dt>验证</dt><dd>{item.verification}</dd></dl><small>{item.status === 'approved' ? '已审核共享案例' : item.status === 'pending_review' ? '待审核，仅项目内可见' : '项目内案例'}</small></article>; }
+function KnowledgeCard({ item }: { item: DiagnosticKnowledgeCase }) { return <article className="diagnostics-knowledge-card"><header><strong>{item.title}</strong><span>{productLabels[item.product]}{item.productVersionRange ? ` · ${item.productVersionRange}` : ''}</span></header><p>{item.symptom}</p><dl><dt>根因</dt><dd>{item.rootCause}</dd><dt>处理</dt><dd>{item.resolution}</dd><dt>验证</dt><dd>{item.verification}</dd></dl><small>{item.status === 'approved' ? (item.sharedAcrossProjects ? '已审核 · 已共享' : '已审核 · 限原范围') : item.status === 'pending_review' ? '待审核' : item.status === 'rejected' ? '已退回' : '档案草稿'}</small></article>; }
 
 function KnowledgeReviewCard({ api, item, knowledge, busy, perform }: { api: DiagnosticApi; item: DiagnosticCase; knowledge: DiagnosticKnowledgeCase; busy: boolean; perform: (action: () => Promise<unknown>, message?: string, refresh?: boolean) => Promise<void> }) {
   const [shared, setShared] = useState(false);
-  return <article className="diagnostics-knowledge-draft"><KnowledgeCard item={knowledge} /><p>脱敏内容哈希：{knowledge.anonymizedContentHash}</p>{knowledge.status === 'draft' && <form onSubmit={event => { event.preventDefault(); if (shared && !window.confirm('确认申请将此脱敏案例共享到其他项目？提交后仍需人工审核。')) return; void perform(() => api.submitKnowledgeCase(item.id, knowledge.id, { sharedAcrossProjects: shared }), '脱敏案例已提交审核'); }}><label className="diagnostics-check-label"><input type="checkbox" checked={shared} onChange={event => setShared(event.target.checked)} />允许脱敏后作为跨项目案例</label><button className="diagnostics-primary" disabled={busy}>提交审核</button></form>}{knowledge.status === 'pending_review' && <form className="diagnostics-review-form" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); void perform(() => api.reviewKnowledgeCase(item.id, knowledge.id, { status: String(data.get('status')) as 'approved' | 'rejected', reviewerLabel: String(data.get('reviewerLabel') ?? '').trim(), reviewNote: String(data.get('reviewNote') ?? '').trim() }), '案例审核记录已保存'); }}><label>审核结果<select name="status"><option value="approved">批准</option><option value="rejected">退回</option></select></label><label>审核人<input name="reviewerLabel" required /></label><label>审核意见<input name="reviewNote" required /></label><button className="diagnostics-secondary" disabled={busy}>保存审核结果</button></form>}</article>;
+  return <article className="diagnostics-knowledge-draft"><KnowledgeCard item={knowledge} /><p>脱敏内容哈希：{knowledge.anonymizedContentHash}</p>{knowledge.status === 'draft' && <form onSubmit={event => { event.preventDefault(); if (shared && !window.confirm('确认申请将此脱敏案例共享到案例库？提交后仍需人工审核。')) return; void perform(() => api.submitKnowledgeCase(item.id, knowledge.id, { sharedAcrossProjects: shared }), '脱敏案例已提交审核'); }}><label className="diagnostics-check-label"><input type="checkbox" checked={shared} onChange={event => setShared(event.target.checked)} />允许其他诊断档案检索此脱敏案例</label><button className="diagnostics-primary" disabled={busy}>提交审核</button></form>}{knowledge.status === 'pending_review' && <form className="diagnostics-review-form" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); void perform(() => api.reviewKnowledgeCase(item.id, knowledge.id, { status: String(data.get('status')) as 'approved' | 'rejected', reviewerLabel: String(data.get('reviewerLabel') ?? '').trim(), reviewNote: String(data.get('reviewNote') ?? '').trim() }), '案例审核记录已保存'); }}><label>审核结果<select name="status"><option value="approved">批准</option><option value="rejected">退回</option></select></label><label>审核人<input name="reviewerLabel" required /></label><label>审核意见<input name="reviewNote" required /></label><button className="diagnostics-secondary" disabled={busy}>保存审核结果</button></form>}</article>;
 }
 
-function CreateDialog({ projects, initialProjectId, initialIssueId, busy, onClose, onSubmit, onImportIssue }: { projects: Awaited<ReturnType<DiagnosticApi['listProjects']>>; initialProjectId?: string; initialIssueId?: string; busy: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onImportIssue: (projectId: string, issueId: string) => Promise<void> }) {
-  const [projectId, setProjectId] = useState(initialProjectId ?? '');
-  const [issueId, setIssueId] = useState(initialIssueId ?? '');
-  const [projectQuery, setProjectQuery] = useState('');
-  const selectedProject = projects.find(project => project.id === projectId && project.status !== 'archived');
-  const matchingProjects = projects.filter(project => project.status !== 'archived' && `${project.code} ${project.name} ${project.customerName}`.toLocaleLowerCase().includes(projectQuery.trim().toLocaleLowerCase()));
-  const projectOptions = selectedProject && !matchingProjects.some(project => project.id === selectedProject.id) ? [selectedProject, ...matchingProjects] : matchingProjects;
-  const selectedIssue = selectedProject?.issues.find(issue => issue.id === issueId);
+function CreateDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return <div className="diagnostics-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <form className="diagnostics-modal diagnostics-form-modal" role="dialog" aria-modal="true" aria-labelledby="diagnostics-create-title" onSubmit={onSubmit}>
       <header><div><span>诊断档案</span><h2 id="diagnostics-create-title">新建现场问题</h2></div><button type="button" className="diagnostics-icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
       <div className="diagnostics-modal-body">
-        <label>交付项目 <em>必选</em><input value={projectQuery} onChange={event => setProjectQuery(event.target.value)} placeholder="按项目编号、项目名称或客户搜索" aria-label="搜索交付项目" /><select name="deliveryProjectId" value={projectId} required onChange={event => { setProjectId(event.target.value); setIssueId(''); }}><option value="">选择交付项目</option>{projectOptions.map(project => <option key={project.id} value={project.id}>{[project.code, project.name, project.customerName, project.systemType, project.stage].filter(Boolean).join(' · ')}</option>)}</select>{selectedProject && <small>{selectedProject.projectManager || '未分配项目经理'} · {selectedProject.productVersions.join('、') || '未记录产品版本'}</small>}</label>
         <label>问题标题 <em>必填</em><input name="title" required maxLength={200} /></label>
         <label>问题现象 <em>必填，至少 10 字</em><textarea name="symptom" required minLength={10} maxLength={20000} rows={5} placeholder="请描述发生场景、操作条件、期望结果和实际结果。" /></label>
         <div className="diagnostics-form-grid">
-          <label>产品系统<input value={selectedProject ? productLabels[selectedProject.systemType] : ''} readOnly aria-label="项目产品系统" /></label>
+          <label>产品系统<select name="product" required defaultValue=""><option value="" disabled>选择产品系统</option>{Object.entries(productLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>优先级<select name="priority" defaultValue="medium">{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>产品版本<input name="productVersion" /></label><label>业务模块<input name="module" /></label><label>业务环节<input name="businessProcess" /></label>
           <label>问题类型<select name="issueCategory" defaultValue="unknown">{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -465,8 +401,6 @@ function CreateDialog({ projects, initialProjectId, initialIssueId, busy, onClos
           <label>复现步骤<textarea name="reproduceSteps" rows={3} /></label><label>影响范围<textarea name="impactScope" rows={3} /></label>
           <label>环境信息<textarea name="environment" rows={2} placeholder="请勿填写密码或访问令牌" /></label>
           <label>负责人<input name="assigneeLabel" /></label><label>创建人<input name="reporterLabel" /></label>
-          {selectedProject && <label>关联交付问题<select name="deliveryIssueId" value={issueId} onChange={event => setIssueId(event.target.value)}><option value="">不关联具体问题</option>{selectedProject.issues.map(issue => <option key={issue.id} value={issue.id}>{issue.title} · {issueTypeLabel(issue.type)} · {priorityLabels[issue.priority]} · {deliveryIssueStatusLabel(issue.status)}</option>)}</select></label>}
-          {selectedProject && selectedIssue && <button type="button" className="diagnostics-secondary diagnostics-import-issue" disabled={busy} onClick={() => void onImportIssue(projectId, selectedIssue.id)}><Icon name="download" />从交付问题台账导入</button>}
         </div>
       </div>
       <footer><button type="button" className="diagnostics-secondary" onClick={onClose}>取消</button><button className="diagnostics-primary" disabled={busy}>保存问题</button></footer>
@@ -506,10 +440,7 @@ function TriageConfirmDialog({ item, busy, onClose, onSubmit }: { item: Diagnost
   </div>;
 }
 
-function EditDialog({ item, projects, busy, onClose, onSubmit }: { item: DiagnosticCase; projects: Awaited<ReturnType<DiagnosticApi['listProjects']>>; busy: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  const [projectId, setProjectId] = useState(item.deliveryProjectId ?? '');
-  const [issueId, setIssueId] = useState(item.deliveryIssueId ?? '');
-  const selectedProject = projects.find(project => project.id === projectId);
+function EditDialog({ item, busy, onClose, onSubmit }: { item: DiagnosticCase; busy: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const occurredAt = item.occurredAt ? new Date(item.occurredAt) : undefined;
   const occurredAtValue = occurredAt && !Number.isNaN(occurredAt.valueOf())
     ? new Date(occurredAt.valueOf() - occurredAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
@@ -521,7 +452,7 @@ function EditDialog({ item, projects, busy, onClose, onSubmit }: { item: Diagnos
         <label>问题标题<input name="title" required maxLength={200} defaultValue={item.title} /></label>
         <label>问题现象<textarea name="symptom" required minLength={10} maxLength={20000} rows={5} defaultValue={item.symptom} /></label>
         <div className="diagnostics-form-grid">
-          <label>产品系统<select name="product" defaultValue={item.product} disabled={!!selectedProject}>{Object.entries(productLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>产品系统<select name="product" defaultValue={item.product}>{Object.entries(productLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>优先级<select name="priority" defaultValue={item.priority}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>产品版本<input name="productVersion" defaultValue={item.productVersion} /></label><label>业务模块<input name="module" defaultValue={item.module} /></label>
           <label>业务环节<input name="businessProcess" defaultValue={item.businessProcess} /></label>
@@ -529,8 +460,6 @@ function EditDialog({ item, projects, busy, onClose, onSubmit }: { item: Diagnos
           <label>发生时间<input name="occurredAt" type="datetime-local" defaultValue={occurredAtValue} /></label>
           <label>发生频率<input name="frequency" defaultValue={item.frequency} /></label><label>负责人<input name="assigneeLabel" defaultValue={item.assigneeLabel} /></label>
           <label>创建人<input name="reporterLabel" defaultValue={item.reporterLabel} /></label>
-          <label>交付项目<select name="deliveryProjectId" value={projectId} onChange={event => { setProjectId(event.target.value); setIssueId(''); }}><option value="">不关联项目</option>{projects.map(project => <option key={project.id} value={project.id} disabled={project.status === 'archived' && project.id !== item.deliveryProjectId}>{project.name} · {project.customerName}{project.status === 'archived' ? ' · 已归档' : ''}</option>)}</select></label>
-          {selectedProject && <label>交付问题<select name="deliveryIssueId" value={issueId} onChange={event => setIssueId(event.target.value)}><option value="">不关联具体问题</option>{selectedProject.issues.map(issue => <option key={issue.id} value={issue.id}>{issue.title} · {issueTypeLabel(issue.type)} · {priorityLabels[issue.priority]} · {deliveryIssueStatusLabel(issue.status)}</option>)}</select></label>}
           <label>影响范围<textarea name="impactScope" rows={2} defaultValue={item.impactScope} /></label><label>环境信息<textarea name="environment" rows={2} defaultValue={item.environment} /></label>
           <label>期望结果<textarea name="expectedResult" rows={2} defaultValue={item.expectedResult} /></label><label>实际结果<textarea name="actualResult" rows={2} defaultValue={item.actualResult} /></label>
           <label>复现步骤<textarea name="reproduceSteps" rows={3} defaultValue={item.reproduceSteps} /></label>

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyDiagnosticTriage, saveDiagnosticTriageProposal, type DiagnosticCase, type DiagnosticTriage } from '../packages/domain/src/diagnostics';
-import type { DeliveryProject } from '../packages/domain/src/delivery-workbench';
 import { LocalStore } from '../packages/storage/src/index';
 
 test('诊断档案支持负责人、创建人筛选、严重程度排序和交付工单反查', async () => {
@@ -14,10 +14,6 @@ test('诊断档案支持负责人、创建人筛选、严重程度排序和交�
   const projectId = randomUUID();
   const issueId = randomUUID();
   const now = '2026-11-24T00:00:00.000Z';
-  const project: DeliveryProject = {
-    id: projectId, name: '诊断测试项目', customerName: '测试客户', systemType: 'MES6', productVersions: [],
-    stage: '实施', status: 'active', members: [], createdAt: now, updatedAt: now,
-  };
   const makeCase = (input: Pick<DiagnosticCase, 'priority' | 'assigneeLabel' | 'reporterLabel' | 'updatedAt'> & Partial<Pick<DiagnosticCase, 'deliveryIssueId' | 'issueCategory'>>): DiagnosticCase => ({
     id: randomUUID(), code: `ZD-${randomUUID().slice(0, 8)}`, title: '过站校验异常', symptom: '工单过站时出现了与预期不一致的校验结果。',
     product: 'MES6', module: 'ProductionManagement', issueCategory: 'defect', status: 'new', planRevision: 0,
@@ -30,7 +26,10 @@ test('诊断档案支持负责人、创建人筛选、严重程度排序和交�
   ];
 
   try {
-    store.saveDeliveryProject(project);
+    const db = new DatabaseSync(join(root, 'agent.db'));
+    try {
+      db.prepare('INSERT INTO delivery_projects(id, status, updated_at, value) VALUES (?, ?, ?, ?)').run(projectId, 'archived', now, JSON.stringify({ id: projectId }));
+    } finally { db.close(); }
     store.saveDiagnosticBundle({ cases: records });
 
     assert.deepEqual(store.queryDiagnosticCases({ assigneeLabel: '张工', reporterLabel: '李工', deliveryProjectId: projectId }).map(item => item.id), [records[0].id]);

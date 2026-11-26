@@ -1,5 +1,3 @@
-import type { DeliveryIssue, DeliveryProject } from './delivery-workbench';
-
 export type DiagnosticProduct = 'MES5' | 'MES6' | 'WMS' | 'OTHER';
 export type DiagnosticPriority = 'critical' | 'high' | 'medium' | 'low';
 export type DiagnosticCaseStatus = 'new' | 'triaging' | 'awaiting_input' | 'diagnosing' | 'awaiting_customer' | 'awaiting_development' | 'pending_verification' | 'resolved' | 'closed' | 'reopened' | 'cancelled';
@@ -202,8 +200,30 @@ export interface DiagnosticEvent {
   createdAt: string;
 }
 
+/** 旧版诊断档案引用的交付资料，只用于回看和诊断取证。 */
+export interface DiagnosticLegacyProject {
+  id: string;
+  code?: string;
+  name: string;
+  customerName: string;
+  systemType: DiagnosticProduct;
+  productVersions: string[];
+  stage: string;
+  status: string;
+  projectManager?: string;
+}
+
+export interface DiagnosticLegacyIssue {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+}
+
 export interface DiagnosticCaseDetails {
   case: DiagnosticCase;
+  legacyProject?: DiagnosticLegacyProject;
+  legacyIssue?: DiagnosticLegacyIssue;
   runs: DiagnosticRun[];
   steps: DiagnosticStep[];
   evidence: DiagnosticEvidence[];
@@ -223,20 +243,6 @@ export interface DiagnosticOverview {
   recent: DiagnosticCase[];
   recentClosed: DiagnosticCase[];
   knowledgeReview: number;
-  projects: Array<{
-    projectId: string;
-    project: DeliveryProject;
-    total: number;
-    open: number;
-    criticalOrHigh: number;
-    awaitingCustomer: number;
-    awaitingDevelopment: number;
-    pendingVerification: number;
-    unassigned: number;
-    reopened: number;
-    lastUpdatedAt?: string;
-    cases: DiagnosticCase[];
-  }>;
 }
 
 export interface DiagnosticAnalysisPreview {
@@ -279,8 +285,6 @@ export interface DiagnosticCreateCaseInput {
   frequency?: string;
   impactScope?: string;
   environment?: string;
-  deliveryProjectId: string;
-  deliveryIssueId?: string;
   assigneeLabel?: string;
   reporterLabel?: string;
 }
@@ -301,8 +305,6 @@ export interface DiagnosticCasePatch {
   frequency?: string;
   impactScope?: string;
   environment?: string;
-  deliveryProjectId?: string | null;
-  deliveryIssueId?: string | null;
   assigneeLabel?: string;
   reporterLabel?: string;
   resolutionSummary?: string;
@@ -313,7 +315,6 @@ export interface DiagnosticApi {
   listCases(input: DiagnosticListInput): Promise<DiagnosticCase[]>;
   getCase(id: string): Promise<DiagnosticCaseDetails>;
   createCase(input: DiagnosticCreateCaseInput): Promise<DiagnosticCase>;
-  importDeliveryIssue(projectId: string, issueId: string): Promise<{ item: DiagnosticCase; created: boolean }>;
   updateCase(id: string, patch: DiagnosticCasePatch): Promise<DiagnosticCase>;
   applyTriage(id: string, input: DiagnosticTriageConfirmation): Promise<DiagnosticCaseDetails>;
   transitionCase(id: string, status: DiagnosticCaseStatus, reason?: string): Promise<DiagnosticCase>;
@@ -333,7 +334,6 @@ export interface DiagnosticApi {
   searchKnowledgeCases(input: { product: DiagnosticProduct; query: string; deliveryProjectId?: string }): Promise<DiagnosticKnowledgeCase[]>;
   exportCase(id: string): Promise<string>;
   saveDraftFile(id: string, markdown: string): Promise<string | null>;
-  listProjects(): Promise<Array<DeliveryProject & { issues: DeliveryIssue[] }>>;
 }
 
 export function saveDiagnosticTriageProposal(item: DiagnosticCase, triage: DiagnosticTriage, status: DiagnosticCaseStatus, currentRunId: string, updatedAt: string): DiagnosticCase {

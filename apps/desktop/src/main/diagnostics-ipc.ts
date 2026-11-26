@@ -4,14 +4,13 @@ import { copyFile, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 
 import path from 'node:path';
 import { z } from 'zod';
 import { createCodexRuntimeAdapter, createJinggongRuntimeAdapter, type RuntimeOptions } from '../../../../packages/agent-runtime/src';
-import type { DiagnosticAnalysisPreview, DiagnosticCase, DiagnosticCaseDetails, DiagnosticCasePatch, DiagnosticCreateCaseInput, DiagnosticEvidence, DiagnosticEvent, DiagnosticHypothesis, DiagnosticKnowledgeCase, DiagnosticListInput, DiagnosticProduct, DiagnosticResolution, DiagnosticRun, DiagnosticRunKind, DiagnosticSourceRef, DiagnosticStep, DiagnosticTriageConfirmation } from '../../../../packages/domain/src';
+import type { DiagnosticAnalysisPreview, DiagnosticCase, DiagnosticCaseDetails, DiagnosticCasePatch, DiagnosticCreateCaseInput, DiagnosticEvidence, DiagnosticEvent, DiagnosticHypothesis, DiagnosticKnowledgeCase, DiagnosticResolution, DiagnosticRun, DiagnosticRunKind, DiagnosticSourceRef, DiagnosticStep, DiagnosticTriageConfirmation } from '../../../../packages/domain/src';
 import { canCloseDiagnosticResolution, canTransitionDiagnosticCase, applyDiagnosticTriage, saveDiagnosticTriageProposal } from '../../../../packages/domain/src/diagnostics';
 import { readDocumentTextFile } from '../../../../packages/knowledge/src';
 import { scanMemoryText } from '../../../../packages/memory-engine/src';
 import { LocalStore } from '../../../../packages/storage/src';
 import type { SettingsService } from './settings';
 import type { OperationManualLibrary } from './operation-manual-library';
-import type { DeliveryIssue } from '../../../../packages/domain/src/delivery-workbench';
 
 const UUID = z.string().uuid();
 const shortText = z.string().trim().min(1).max(5000);
@@ -26,11 +25,10 @@ const createInput = z.object({
   actualResult: optionalText, reproduceSteps: z.string().trim().max(8000).optional(), product, productVersion: z.string().trim().max(80).optional(),
   module: z.string().trim().max(120).optional(), businessProcess: z.string().trim().max(120).optional(), issueCategory: category.optional(),
   priority, occurredAt: z.string().datetime({ offset: true }).optional(), frequency: z.string().trim().max(160).optional(),
-  impactScope: z.string().trim().max(1000).optional(), environment: z.string().trim().max(1000).optional(), deliveryProjectId: UUID,
-  deliveryIssueId: UUID.optional(), assigneeLabel: z.string().trim().max(80).optional(), reporterLabel: z.string().trim().max(80).optional(),
+  impactScope: z.string().trim().max(1000).optional(), environment: z.string().trim().max(1000).optional(),
+  assigneeLabel: z.string().trim().max(80).optional(), reporterLabel: z.string().trim().max(80).optional(),
 }).strict();
 const patchInput = createInput.partial().extend({
-  deliveryProjectId: UUID.nullable().optional(), deliveryIssueId: UUID.nullable().optional(),
   resolutionSummary: z.string().trim().max(4000).optional(),
 }).strict();
 const triageConfirmationInput = z.object({
@@ -217,19 +215,15 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
     if (!result) throw new Error('诊断档案不存在');
     return result;
   };
-  const details = (id: string): DiagnosticCaseDetails => ({
-    case: requireCase(id), runs: store.listDiagnosticRuns(id), steps: store.listDiagnosticSteps(id), evidence: store.listDiagnosticEvidence(id),
-    hypotheses: store.listDiagnosticHypotheses(id), resolutions: store.listDiagnosticResolutions(id), events: store.listDiagnosticEvents(id), knowledgeCases: store.listDiagnosticKnowledgeCases(id),
-  });
-  const requireProject = (projectId: string) => {
-    const project = store.getDeliveryProject(projectId);
-    if (!project || project.status === 'archived') throw new Error('关联的交付项目不存在或已归档');
-    return project;
-  };
-  const validateIssue = (projectId?: string, issueId?: string) => {
-    if (!issueId) return;
-    if (!projectId) throw new Error('关联交付工单必须同时选择交付项目');
-    if (!store.listDeliveryRecords<{ id: string }>('delivery_issues', projectId).some(item => item.id === issueId)) throw new Error('交付工单不属于所选项目');
+  const details = (id: string): DiagnosticCaseDetails => {
+    const item = requireCase(id);
+    return {
+      case: item,
+      legacyProject: item.deliveryProjectId ? store.getDiagnosticLegacyProject(item.deliveryProjectId) : undefined,
+      legacyIssue: item.deliveryProjectId && item.deliveryIssueId ? store.getDiagnosticLegacyIssue(item.deliveryProjectId, item.deliveryIssueId) : undefined,
+      runs: store.listDiagnosticRuns(id), steps: store.listDiagnosticSteps(id), evidence: store.listDiagnosticEvidence(id),
+      hypotheses: store.listDiagnosticHypotheses(id), resolutions: store.listDiagnosticResolutions(id), events: store.listDiagnosticEvents(id), knowledgeCases: store.listDiagnosticKnowledgeCases(id),
+    };
   };
   const recordCase = (item: DiagnosticCase, eventType: string, summary: string) => {
     store.saveDiagnosticBundle({ cases: [item], events: [event(item.id, eventType, summary)] });
@@ -326,14 +320,12 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
         .filter(hit => ['ready', 'partial'].includes(hit.manual.status) && (!item.productVersion || !hit.manual.productVersion || hit.manual.productVersion === item.productVersion));
       for (const hit of hits.slice(0, 4)) add('manual', `${hit.manual.id}:${hit.chunk.id}`, hit.citation, hit.chunk.content, hit.citation, hit.manual.productVersion ?? hit.manual.manualVersion);
     }
-    if (item.deliveryProjectId) {
-      const project = store.getDeliveryProject(item.deliveryProjectId);
-      if (!project) throw new Error('关联的交付项目不存在');
+    const project = item.deliveryProjectId ? store.getDiagnosticLegacyProject(item.deliveryProjectId) : undefined;
+    if (project) {
       const confirmed = store.listProjectKnowledge(project.id).filter(record => record.confirmed).slice(0, 8);
       for (const record of confirmed) add('project_document', record.id, `项目已确认资料 · ${record.title}`, record.content);
-      const issueRecords = store.listDeliveryRecords<{ id: string; title: string; description?: string; status: string }>('delivery_issues', project.id);
-      const linked = issueRecords.filter(record => record.id === item.deliveryIssueId).slice(0, 1);
-      for (const issue of linked) add('project_document', issue.id, `交付工单 · ${issue.title}`, `${issue.title}\n${issue.description ?? ''}\n状态：${issue.status}`);
+      const issue = item.deliveryIssueId ? store.getDiagnosticLegacyIssue(project.id, item.deliveryIssueId) : undefined;
+      if (issue) add('project_document', issue.id, `交付工单 · ${issue.title}`, `${issue.title}\n${issue.description ?? ''}\n状态：${issue.status}`);
       const projectSummary = [`交付项目：${project.name}`, `产品：${project.systemType}`, `版本：${project.productVersions.join('、')}`, `阶段：${project.stage}`, `状态：${project.status}`].join('\n');
       add('project_document', `project:${project.id}`, '交付项目摘要', projectSummary);
     }
@@ -384,13 +376,6 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
 
   handle('diagnostics:overview', () => {
     const cases = store.listDiagnosticCases();
-    const projectCases = new Map<string, DiagnosticCase[]>();
-    for (const item of cases) {
-      if (!item.deliveryProjectId) continue;
-      const grouped = projectCases.get(item.deliveryProjectId) ?? [];
-      grouped.push(item);
-      projectCases.set(item.deliveryProjectId, grouped);
-    }
     return { total: cases.length, open: cases.filter(item => !['closed', 'cancelled'].includes(item.status)).length,
       criticalOrHigh: cases.filter(item => ['critical', 'high'].includes(item.priority) && !['closed', 'cancelled'].includes(item.status)).length,
       awaitingCustomer: cases.filter(item => item.status === 'awaiting_customer').length,
@@ -398,85 +383,28 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
       pendingVerification: cases.filter(item => item.status === 'pending_verification').length,
       recent: cases.slice(0, 8), recentClosed: cases.filter(item => item.status === 'closed').slice(0, 8),
       knowledgeReview: store.countDiagnosticKnowledgeReview(),
-      projects: store.listDeliveryProjects(true).map(project => {
-        const items = projectCases.get(project.id) ?? [];
-        return { projectId: project.id, project, total: items.length,
-        open: items.filter(item => !['closed', 'cancelled'].includes(item.status)).length,
-        criticalOrHigh: items.filter(item => ['critical', 'high'].includes(item.priority) && !['closed', 'cancelled'].includes(item.status)).length,
-        awaitingCustomer: items.filter(item => item.status === 'awaiting_customer').length,
-        awaitingDevelopment: items.filter(item => item.status === 'awaiting_development').length,
-        pendingVerification: items.filter(item => item.status === 'pending_verification').length,
-        unassigned: items.filter(item => !item.assigneeLabel?.trim() && !['closed', 'cancelled'].includes(item.status)).length,
-        reopened: items.filter(item => item.status === 'reopened').length,
-        lastUpdatedAt: items.map(item => item.updatedAt).sort().at(-1),
-        cases: items,
-      }; }),
     };
   });
   handle('diagnostics:list', (value: unknown) => store.queryDiagnosticCases(listInput.parse(value)));
   handle('diagnostics:get', (value: unknown) => details(UUID.parse(value)));
   handle('diagnostics:create', (value: unknown) => {
     const input = createInput.parse(value) as DiagnosticCreateCaseInput;
-    const project = requireProject(input.deliveryProjectId);
-    validateIssue(input.deliveryProjectId, input.deliveryIssueId);
-    if (input.deliveryIssueId && store.findDiagnosticCaseByDeliveryIssue(input.deliveryProjectId, input.deliveryIssueId)) {
-      throw new Error('该交付工单已关联诊断档案，请直接打开现有档案');
-    }
     const timestamp = now(), id = randomUUID();
-    const item: DiagnosticCase = { ...input, product: project.systemType, id, code: `ZD-${timestamp.slice(2, 10).replace(/-/g, '')}-${id.slice(0, 6).toUpperCase()}`,
+    const item: DiagnosticCase = { ...input, id, code: `ZD-${timestamp.slice(2, 10).replace(/-/g, '')}-${id.slice(0, 6).toUpperCase()}`,
       issueCategory: input.issueCategory ?? 'unknown', status: 'new', planRevision: 0, createdAt: timestamp, updatedAt: timestamp, statusChangedAt: timestamp };
     store.saveDiagnosticBundle({ cases: [item], events: [event(id, 'case.created', '创建诊断档案')] });
     return item;
   });
-  handle('diagnostics:import-issue', (projectValue: unknown, issueValue: unknown) => {
-    const projectId = UUID.parse(projectValue), issueId = UUID.parse(issueValue), project = requireProject(projectId);
-    const existing = store.findDiagnosticCaseByDeliveryIssue(projectId, issueId);
-    if (existing) return { item: existing, created: false };
-    const issue = store.listDeliveryRecords<DeliveryIssue>('delivery_issues', projectId).find(record => record.id === issueId);
-    if (!issue) throw new Error('交付工单不属于所选项目');
-    const description = issue.description?.trim() ?? '';
-    const symptom = (description.length >= 10 ? description : `交付问题描述待补充。${description}`).slice(0, 20000);
-    const discoveredAt = new Date(issue.discoveredAt);
-    const timestamp = now(), id = randomUUID();
-    const item: DiagnosticCase = {
-      id, code: `ZD-${timestamp.slice(2, 10).replace(/-/g, '')}-${id.slice(0, 6).toUpperCase()}`,
-      title: issue.title.slice(0, 200), symptom, product: project.systemType, productVersion: project.productVersions[0], priority: issue.priority,
-      issueCategory: 'unknown', status: 'new', planRevision: 0, deliveryProjectId: projectId, deliveryIssueId: issueId,
-      assigneeLabel: issue.owner, ...(Number.isNaN(discoveredAt.valueOf()) ? {} : { occurredAt: discoveredAt.toISOString() }),
-      createdAt: timestamp, updatedAt: timestamp, statusChangedAt: timestamp,
-    };
-    store.saveDiagnosticBundle({ cases: [item], events: [event(id, 'case.imported', '从交付项目问题台账导入诊断档案')] });
-    return { item, created: true };
-  });
   handle('diagnostics:update', (idValue: unknown, patchValue: unknown) => {
     const item = requireCase(idValue); ensureEditable(item); const patch = patchInput.parse(patchValue) as DiagnosticCasePatch;
-    const projectChanged = Object.hasOwn(patch, 'deliveryProjectId') && patch.deliveryProjectId !== item.deliveryProjectId;
-    const projectId = patch.deliveryProjectId === null ? undefined : patch.deliveryProjectId ?? item.deliveryProjectId;
-    const issueId = patch.deliveryIssueId === null || patch.deliveryProjectId === null || (projectChanged && !Object.hasOwn(patch, 'deliveryIssueId'))
-      ? undefined
-      : patch.deliveryIssueId ?? item.deliveryIssueId;
-    if (projectId) {
-      const project = projectId === item.deliveryProjectId ? store.getDeliveryProject(projectId) : requireProject(projectId);
-      if (!project) throw new Error('关联的交付项目不存在');
-    }
-    if (projectChanged || Object.hasOwn(patch, 'deliveryIssueId')) validateIssue(projectId, issueId);
-    const project = projectId ? store.getDeliveryProject(projectId) : undefined;
-    if (projectId && !project) throw new Error('关联的交付项目不存在');
-    if (projectId && projectChanged && project?.status === 'archived') throw new Error('新关联的交付项目不能已归档');
-    if (projectId && issueId) {
-      const linkedCase = store.findDiagnosticCaseByDeliveryIssue(projectId, issueId);
-      if (linkedCase && linkedCase.id !== item.id) throw new Error('该交付工单已关联其他诊断档案');
-    }
-    const updated = { ...item, ...patch, ...(project ? { product: project.systemType } : {}), deliveryProjectId: projectId, deliveryIssueId: issueId, updatedAt: now() };
+    const updated = { ...item, ...patch, updatedAt: now() };
     recordCase(updated, 'case.updated', '更新诊断档案信息');
     return updated;
   });
   handle('diagnostics:apply-triage', (idValue: unknown, inputValue: unknown) => {
     const item = requireCase(idValue); ensureEditable(item);
     const confirmation = triageConfirmationInput.parse(inputValue) as DiagnosticTriageConfirmation;
-    const project = item.deliveryProjectId ? store.getDeliveryProject(item.deliveryProjectId) : undefined;
     const updated = applyDiagnosticTriage(item, confirmation, now());
-    if (project) updated.product = project.systemType;
     recordCase(updated, 'case.triage.confirmed', '人工确认并应用分诊字段');
     return details(item.id);
   });
@@ -484,9 +412,6 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
     const item = requireCase(idValue), status = caseStatus.parse(statusValue), reason = reasonValue === undefined ? undefined : z.string().trim().max(1000).parse(reasonValue);
     return setStatus(item, status, reason);
   });
-  handle('diagnostics:projects', () => store.listDeliveryProjects(true).map(project => ({
-    ...project, issues: store.listDeliveryRecords<DeliveryIssue>('delivery_issues', project.id),
-  })));
   handle('diagnostics:preview-analysis', async (idValue: unknown, taskValue: unknown) => (await buildPreview(idValue, taskValue)).preview);
   handle('diagnostics:analysis-cancel', () => { active?.controller.abort(); void active?.adapter?.close(); });
   handle('diagnostics:analysis', async (idValue: unknown, taskValue: unknown, previewHashValue: unknown) => {
@@ -700,7 +625,7 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
     const evidence = store.listDiagnosticEvidence(item.id).filter(record => record.status !== 'deleted');
     return [
       `# [${item.product}/${safe(item.module)}] ${safe(item.title)}`, '', '## 基础信息',
-      `- 产品/版本：${item.product} ${safe(item.productVersion)}`, `- 客户/项目：${item.deliveryProjectId ? safe(options.store.getDeliveryProject(item.deliveryProjectId)?.name) : '未关联'}`,
+      `- 产品/版本：${item.product} ${safe(item.productVersion)}`, `- 客户/项目：${item.deliveryProjectId ? safe(options.store.getDiagnosticLegacyProject(item.deliveryProjectId)?.name) : '未关联'}`,
       `- 环境：${safe(item.environment)}`, `- 优先级：${item.priority}`, `- 诊断编号：${item.code}`, '', '## 问题现象',
       `- 实际结果：${safe(item.actualResult)}`, `- 期望结果：${safe(item.expectedResult)}`, `- 发生频率：${safe(item.frequency)}`, `- 影响范围：${safe(item.impactScope)}`,
       '', '## 复现条件与步骤', safe(item.reproduceSteps), '', '## 已排查项', '| 检查项 | 结果 | 证据 |', '| --- | --- | --- |',
@@ -736,7 +661,7 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
     if (!resolution) throw new Error('尚未保存解决方案，不能沉淀案例');
     const anonymize = (value: string) => {
       let text = checkedText(value, 5000);
-      const project = item.deliveryProjectId ? store.getDeliveryProject(item.deliveryProjectId) : undefined;
+      const project = item.deliveryProjectId ? store.getDiagnosticLegacyProject(item.deliveryProjectId) : undefined;
       for (const [candidate, replacement] of [[project?.customerName, '[客户]'], [project?.name, '[项目]'], [item.assigneeLabel, '[人员]'], [item.reporterLabel, '[人员]']] as const) {
         if (candidate && candidate.trim().length >= 3) text = text.split(candidate).join(replacement);
       }
@@ -775,7 +700,6 @@ export function registerDiagnosticsIpc(options: IpcOptions): void {
   });
   handle('diagnostics:knowledge-search', (value: unknown) => {
     const input = knowledgeSearchInput.parse(value);
-    if (input.deliveryProjectId) requireProject(input.deliveryProjectId);
     const query = `${input.query}`;
     return store.searchDiagnosticKnowledgeCases(input.product, false, input.deliveryProjectId)
       .filter(record => record.sharedAcrossProjects || (!!input.deliveryProjectId && store.getDiagnosticCase(record.sourceCaseId)?.deliveryProjectId === input.deliveryProjectId))

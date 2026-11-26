@@ -1,5 +1,5 @@
 import './logging';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, shell, type IpcMainInvokeEvent, type Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, Notification, shell, type IpcMainInvokeEvent, type Tray } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,7 @@ import type { ClaudeRuntimeOptions } from '../../../../packages/agent-runtime/sr
 import { RUNTIME_EXECUTION_RULES_VERSION } from '../../../../packages/agent-runtime/src/execution-instructions';
 import { AuthorizedDirectoryBroker } from '../../../../packages/agent-runtime/src/authorized-directory-broker';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
-import { assertAgentRunTransition, MODEL_ROUTE_TASKS, type AgentDelegationMode, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
+import { assertAgentRunTransition, type AgentDelegationMode, type AgentEvent, type AgentOrchestrationAvailability, type AgentRunEvent, type AgentRunRecord, type AgentTaskEvent, type ConversationAttachment, type JiraIssue, type RequirementAdmission, type RequirementResolutionAction, type RuntimeAccess, type RuntimeKind, type Session, type UpdateMode, type UpdateStatus, type VerificationRunSummary } from '../../../../packages/domain/src';
 import { isGrokModel } from '../../../../packages/domain/src/runtime-compatibility';
 import { JiraConnector } from '../../../../packages/jira-connector/src';
 import { importDocumentFile, readDocumentTextFile, SUPPORTED_DOCUMENT_TEXT_EXTENSIONS } from '../../../../packages/knowledge/src';
@@ -84,7 +84,6 @@ import { registerTaskGovernanceIpc } from './task-governance-ipc';
 import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
 import { registerImpactAnalysisIpc } from './impact-analysis-ipc';
 import { registerDeliveryIpc } from './delivery-ipc';
-import { registerDeliveryWorkbenchIpc } from './delivery-workbench-ipc';
 import { registerDiagnosticsIpc } from './diagnostics-ipc';
 import { KnowledgeEngine } from './knowledge-engine';
 
@@ -93,6 +92,18 @@ let browsers: BrowserManager;
 let computer: ComputerManager;
 const jiraTestImages = new JiraTestImages();
 let jiraFlowBusy = false;
+// 会话请求使用 Chromium 网络栈，跟随 Windows 系统代理。
+const fetchForSession: typeof fetch = async (input, init) => {
+  const url = input instanceof URL ? input.href : input;
+  try {
+    return await net.fetch(url, { ...init, credentials: 'omit', cache: 'no-store' });
+  } catch (error) {
+    if (init?.signal?.aborted) throw error;
+    const code = error instanceof Error ? error.message.match(/net::(ERR_[A-Z_]+)/)?.[1] : undefined;
+    throw new Error(`无法连接到 ${new URL(typeof url === 'string' ? url : url.url).hostname}${code ? `（${code}）` : ''}，请检查网络或系统代理。`, { cause: error });
+  }
+};
+
 const dataRoot = process.env.JINGGONG_TEST_DATA ?? path.join(process.env.LOCALAPPDATA ?? app.getPath('appData'), 'JinggongAgent');
 const cliArgumentIndex = process.argv.findIndex(value => value === '--cli');
 const cliMode = cliArgumentIndex >= 0;
@@ -846,13 +857,6 @@ async function checkRuntime(kind: RuntimeKind = store.getRuntimeKind()) {
   return runtimePrewarm.check(kind);
 }
 
-function modelRouteAuditText(session: Session): string | undefined {
-  if (!session.modelRouteTaskType) return undefined;
-  const taskName = MODEL_ROUTE_TASKS.find(item => item.id === session.modelRouteTaskType)?.name ?? session.modelRouteTaskType;
-  const runtimeName: Record<RuntimeKind, string> = { jinggong: 'Jinggong Runtime', codex: 'Codex Runtime', claude_agent_sdk: 'Claude Runtime', grok_build_acp: 'Grok Runtime' };
-  return `模型路由记录：${taskName} 使用 ${runtimeName[session.runtimeKind ?? 'codex']}，中转站 ${session.providerId ?? '未知'}，模型 ${session.model}。置信度较低，缺少任务类型细分的历史基准。`;
-}
-
 function cliConfigArgs(profile: { baseUrl: string; models: string[] }, runtimeAccess: RuntimeAccess): string[] {
   const model = profile.models[0];
   if (!model) throw new Error('模型配置中没有可用模型');
@@ -1489,12 +1493,6 @@ if (primaryInstance) app.whenReady().then(async () => {
     selectFile: async (title, extensions) => { const result = await dialog.showOpenDialog(window, { title, properties: ['openFile'], filters: [{ name: '项目文件', extensions }] }); return result.canceled ? undefined : result.filePaths[0]; },
     selectSave: async (name, extensions) => { const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: '导出文件', extensions }] }); return result.canceled ? undefined : result.filePath; },
     reveal: file => shell.showItemInFolder(file),
-  });
-  registerDeliveryWorkbenchIpc({ handle, store, dataRoot,
-    selectFile: async (title, extensions) => { const result = await dialog.showOpenDialog(window, { title, properties: ['openFile'], filters: [{ name: '项目资料', extensions }] }); return result.canceled ? undefined : result.filePaths[0]; },
-    selectSave: async (name, extensions) => { const result = await dialog.showSaveDialog(window, { defaultPath: name, filters: [{ name: 'Markdown', extensions }] }); return result.canceled ? undefined : result.filePath; },
-    openPath: file => shell.openPath(file),
-    revealPath: file => shell.showItemInFolder(file),
   });
   registerDiagnosticsIpc({ handle, store, dataRoot, settings,
     manuals: () => operationManualLibrary,
@@ -2247,7 +2245,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       const imageInputs = await Promise.all(attachments.filter(item => item.kind === 'image').map(item => conversationImageDataUrl(session.id, item.id, true)));
       const messages = [...history, { role: 'user' as const, text: prompt, ...(imageInputs.length ? { images: imageInputs } : {}) }];
       const output = await streamQuickChat({
-        baseUrl: baseUrl!, apiKey, model: session.model, backend, messages, signal: controller.signal, onDelta: publishDelta,
+        baseUrl: baseUrl!, apiKey, model: session.model, backend, messages, signal: controller.signal, onDelta: publishDelta, fetcher: fetchForSession,
       });
       if (bufferedDelta) {
         const safe = settings.redact(bufferedDelta);
@@ -2293,7 +2291,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     quickChatControllers.set(session.id, controller);
 
     try {
-      const output = await lookupWeatherForecast({ query, signal: controller.signal });
+      const output = await lookupWeatherForecast({ query, signal: controller.signal, fetcher: fetchForSession });
       emit(session.id, 'message', settings.redact(output));
       emit(session.id, 'status', 'completed');
       if (queuedTurnId) followups.markDispatched(session.id, queuedTurnId);
@@ -2354,8 +2352,6 @@ if (primaryInstance) app.whenReady().then(async () => {
         const submission = trackSessionSteer(session.id, (async () => {
           if (await adapter.steerTurn!(session.runtimeThreadId!, parsed.prompt, session.workspacePath)) {
             emit(session.id, 'user', parsed.prompt, `steered-turn:${session.id}:${active.startedAt}`);
-            const routeAudit = modelRouteAuditText(session);
-            if (routeAudit) emit(session.id, 'message', routeAudit);
             if (!runs.isCurrent(active) || active.cancelled || terminalOutcomes.has(session.id)) {
               emit(session.id, 'status', '补充任务已发送，但当前任务已停止，执行情况未确认。');
               throw new Error('Runtime 已接收补充，但当前任务已停止；执行情况未确认，原文已保留，请核对后再决定是否重发');
@@ -2466,8 +2462,6 @@ if (primaryInstance) app.whenReady().then(async () => {
       runs.assertCurrent(ticket);
       recordAgentRun(ticket, 'turn_started', '已提交当前用户任务到 Runtime', 'running');
       await agent.sendTurn(session.runtimeThreadId, runtimePrompt, session.workspacePath, imagePaths);
-      const routeAudit = modelRouteAuditText(session);
-      if (routeAudit) emit(session.id, 'message', routeAudit);
       if (queuedTurnId) followups.markDispatched(session.id, queuedTurnId);
       if (attachments.length) for (const attachment of attachments) pendingConversationAttachments.get(session.id)?.delete(attachment.id);
       return { queued: false };

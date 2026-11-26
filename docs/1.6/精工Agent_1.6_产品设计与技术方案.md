@@ -5,6 +5,8 @@
 基线：本地 develop/desktop-poc 分支，提交 092af6b；对照 docs/1.5 产品方案  
 配套原型：精工Agent_1.6_双中心可交互原型.html
 
+> 2026-11-26 范围调整：取消交付工作台及其经营、工时和容量功能，保留现场问题诊断。新问题直接选择产品系统建档，旧档案保留历史项目和工单来源。下文的交付方案与双中心原型留作历史记录。
+
 ## 1. 结论
 
 1.6 不重建两个模块的底层。项目交付继续以 DeliveryProject 为唯一主数据，现场诊断继续以 DiagnosticCase、DiagnosticRun、DiagnosticStep、DiagnosticEvidence、DiagnosticHypothesis、DiagnosticResolution 和 DiagnosticKnowledgeCase 为独立业务记录。两个中心共享项目 ID、项目资料、知识检索、专家定义和 Runtime 配置，不读取聊天历史作为项目或诊断事实。

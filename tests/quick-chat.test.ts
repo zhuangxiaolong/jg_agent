@@ -41,12 +41,17 @@ test('quick chat sends a Responses request and consumes CRLF SSE across chunk bo
   const deltas: string[] = [];
   const output = await streamQuickChat({
     baseUrl: 'https://relay.example/v1', apiKey: 'secret', model: 'model-a', backend: 'responses',
-    messages: [{ role: 'user', text: '你好' }], signal: new AbortController().signal,
+    messages: [{ role: 'user', text: '你好' }, { role: 'assistant', text: '你好呀' }, { role: 'user', text: '继续' }], signal: new AbortController().signal,
     onDelta: text => deltas.push(text), fetcher,
   });
 
   assert.equal(requestedUrl, 'https://relay.example/v1/responses');
   assert.equal(requestedBody?.model, 'model-a');
+  assert.deepEqual(requestedBody?.input, [
+    { role: 'user', content: [{ type: 'input_text', text: '你好' }] },
+    { role: 'assistant', content: [{ type: 'output_text', text: '你好呀' }] },
+    { role: 'user', content: [{ type: 'input_text', text: '继续' }] },
+  ]);
   assert.equal(requestedBody?.stream, true);
   assert.equal(output, '你好');
   assert.deepEqual(deltas, ['你好']);

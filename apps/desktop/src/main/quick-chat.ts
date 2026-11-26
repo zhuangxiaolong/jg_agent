@@ -130,7 +130,7 @@ function requestBody(request: QuickChatRequest): Record<string, unknown> {
     stream: true,
     instructions: SYSTEM_INSTRUCTIONS,
     input: request.messages.map(message => ({ role: message.role, content: [
-      { type: 'input_text', text: message.text },
+      { type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.text },
       ...(message.role === 'user' ? (message.images ?? []).map(image => ({ type: 'input_image', image_url: image })) : []),
     ] })),
   };
