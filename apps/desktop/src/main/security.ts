@@ -85,9 +85,11 @@ export const wecomTargetSchema = z.object({
 export const jiraIssueKeySchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,99}-[1-9]\d{0,11}$/);
 export const jiraProjectScopeSchema = z.union([z.literal('*'), z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/)]).optional();
 export const sessionCreateSchema = z.object({
+  workMode: z.enum(['delivery', 'development']).default('development'),
   alias: sessionAliasSchema.optional(),
   workspaceId: idSchema.optional(),
   projectId: projectIdSchema.optional(),
+  deliveryProjectId: idSchema.optional(),
   jiraIssueKey: jiraIssueKeySchema.optional(),
   jiraProjectKey: jiraProjectScopeSchema,
   baseBranch: z.string().trim().min(1).max(255).optional(),
@@ -95,7 +97,10 @@ export const sessionCreateSchema = z.object({
   delegationMode: z.enum(['native', 'governed', 'off']).optional(),
   pluginIds: z.array(pluginIdentifierSchema).max(100).optional(),
 }).strict()
-  .refine(value => (!value.jiraIssueKey && !value.jiraProjectKey) || (!!value.projectId && !!value.jiraIssueKey), 'Jira 关联必须同时绑定项目和任务');
+  .refine(value => (!value.jiraIssueKey && !value.jiraProjectKey) || (!!value.projectId && !!value.jiraIssueKey), 'Jira 关联必须同时绑定项目和任务')
+  .refine(value => value.workMode === 'delivery'
+    ? !value.projectId && !value.workspaceId && !value.jiraIssueKey && !value.jiraProjectKey && !value.baseBranch && !value.pluginIds
+    : !value.deliveryProjectId, '会话项目绑定与工作模式不匹配');
 export const jiraSearchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), startAt: z.number().int().min(0).max(1000000).optional(), onlyMine: z.boolean().optional(), scope: z.enum(['daily', 'recent']).optional(), projectKey: jiraProjectScopeSchema, priorityFirst: z.boolean().optional() }).strict();
 export const requirementInputSchema = z.object({ id: idSchema.optional(), title: z.string().trim().min(1).max(160).refine(value => !/[\r\n\x00]/.test(value), '标题不能包含换行'), content: z.string().min(1).max(80000).refine(value => !!value.trim(), '请输入开发要求正文'), system: systemSchema }).strict();
 export const documentImportSchema = z.object({ kind: z.enum(['dictionary', 'requirement']), system: systemSchema }).strict();

@@ -40,7 +40,7 @@ test('校验或数据库写入失败不改会话及上次模型默认值', async
     const before = store.getSessionModelDefaults();
     assert.throws(() => store.saveSession({ ...session, model: 'invalid model' }, { rememberModelDefaults: true }), /默认模型配置无效/);
     assert.throws(() => store.saveSession({ ...session, projectId: 'not-registered', model: 'model-b', reasoningEffort: 'low' }, { rememberModelDefaults: true }), /FOREIGN KEY/);
-    assert.deepEqual(store.getSession(session.id), session);
+    assert.deepEqual(store.getSession(session.id), { ...session, workMode: 'development', delegationMode: 'off' });
     assert.deepEqual(store.getSessionModelDefaults(), before);
     store.close(); store = await LocalStore.open(filename);
     assert.deepEqual(store.getSessionModelDefaults(), before);
@@ -59,6 +59,6 @@ test('旧库不推断未保存偏好，损坏的模型默认值保守忽略', as
     await writeFile(filename, database.export()); database.close();
     store = await LocalStore.open(filename);
     assert.equal(store.getSessionModelDefaults(), undefined);
-    assert.deepEqual(store.getSession(session.id), session);
+    assert.deepEqual(store.getSession(session.id), { ...session, workMode: 'development', delegationMode: 'off' });
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });

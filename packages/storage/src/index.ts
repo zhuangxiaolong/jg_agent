@@ -5,7 +5,7 @@ import type { LearningCandidate, LearningFeedback } from '../../domain/src/learn
 import { constants, copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, ModelRoutingPolicy, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob, DiagnosticCase, DiagnosticRun, DiagnosticStep, DiagnosticEvidence, DiagnosticHypothesis, DiagnosticResolution, DiagnosticKnowledgeCase, DiagnosticEvent, DiagnosticListInput, DiagnosticLegacyProject, DiagnosticLegacyIssue } from '../../domain/src/index';
+import type { AgentEvent, AgentTask, AgentTaskEvent, AgentRunCheckpoint, AgentRunEvent, AgentRunRecord, AgentRunStatus, ClaudeRuntimeSettings, DeliveryTaskProject, JiraAttachment, JiraIssue, JiraSavedQuery, JiraSearchInput, JiraSearchPage, JiraSettings, LayoutPreferences, ManagedDocument, Memory, MemorySettings, ModelRoutingPolicy, PluginAuditAction, PluginAuditRecord, PluginMcpConfigRedacted, PluginMcpHealthStatus, PluginMcpServerRecord, PluginRecord, PluginSkillRecord, PluginSourceType, PluginStatus, PluginTrustStatus, PluginVersionRecord, Preferences, Project, ProviderProfile, ProviderSettings, RequirementsSync, RuntimeAccess, RuntimeApproval, RuntimeCapabilityCertification, RuntimeKind, RuntimePluginBindingRecord, RuntimePluginInstallState, Session, SessionPluginSnapshot, ProjectWorkspaceContext, ProjectResourceLink, ProjectFact, ProjectDecision, ProjectContextSnapshot, MappingJob, MappingRuleSet, MappingRun, MappingValidationIssue, TaskPlan, TaskPlanStep, TaskCheckpoint, ImpactReport, ReviewRun, ReviewFinding, DeliveryPackageRecord, JiraWritebackRecord, SkillScopeRecord, SkillUsageEvent, KnowledgeSource, KnowledgeDocument, KnowledgeChunk, CodeIndexSymbol, KnowledgeRelation, ProjectKnowledgeItem, KnowledgeIndexJob, DiagnosticCase, DiagnosticRun, DiagnosticStep, DiagnosticEvidence, DiagnosticHypothesis, DiagnosticResolution, DiagnosticKnowledgeCase, DiagnosticEvent, DiagnosticListInput, DiagnosticLegacyProject, DiagnosticLegacyIssue } from '../../domain/src/index';
 import type { WeComDeliveryRecord, WeComDeliveryStatus } from '../../wecom-notification/src/desktop-service';
 import { assertDocumentTextSize } from '../../knowledge/src/limits';
 import { contentTitledSession } from '../../domain/src/session-title';
@@ -17,7 +17,7 @@ import type { ExpertCollaborationPlan } from '../../domain/src/expert-collaborat
 import { builtinProfiles } from '../../expert-engine/src';
 import { benchmarkCases } from '../../expert-engine/src/cases';
 
-const SCHEMA_VERSION = 25;
+const SCHEMA_VERSION = 26;
 const EMPTY_TASK_EVENT_HASH = '0'.repeat(64);
 export const LEGACY_PROVIDER_ID = 'legacy-default';
 /** 审批事件可用于本地历史展示；完整工具参数只留在当前进程，不写入 SQLite。 */
@@ -45,6 +45,7 @@ function safeRuntimeApproval(value: RuntimeApproval): RuntimeApproval {
 function normalizeSession(session: Session): Session {
   const value = { ...session } as Session & { mode?: unknown };
   delete value.mode;
+  value.workMode ??= 'development';
   if ((value.runtimeKind ?? 'codex') === 'codex' && !value.delegationMode) value.delegationMode = 'native';
   if (value.runtimeKind !== 'codex') value.delegationMode = value.delegationMode === 'off' ? 'off' : undefined;
   if (value.titleSource !== 'content') value.title = value.title.replace(/ · (?:只读分析|代码开发|隔离开发)$/, ' · 会话');
@@ -812,6 +813,12 @@ export class LocalStore {
           PRAGMA user_version = 25;
         `);
       });
+      if (version < 26) store.transaction(() => {
+        store.db.exec(`
+          CREATE TABLE IF NOT EXISTS work_delivery_projects (id TEXT PRIMARY KEY, name TEXT COLLATE NOCASE UNIQUE NOT NULL, value TEXT NOT NULL);
+          PRAGMA user_version = 26;
+        `);
+      });
       if (options.recoverUnfinished !== false) {
         const activeExperts = store.rows<ExpertRun>("SELECT value FROM expert_runs WHERE json_extract(value,'$.status') = 'running'");
         const activeEvals = store.rows<ExpertComparison>("SELECT value FROM expert_eval_runs WHERE json_extract(value,'$.baseline.status') IN ('running','pending') OR json_extract(value,'$.expert.status') IN ('running','pending')");
@@ -1078,6 +1085,29 @@ export class LocalStore {
   listKnowledgeIndexJobs(sourceId?: string): KnowledgeIndexJob[] { return sourceId ? this.rows('SELECT value FROM knowledge_index_jobs WHERE source_id=? ORDER BY updated_at DESC', [sourceId]) : this.rows('SELECT value FROM knowledge_index_jobs ORDER BY updated_at DESC'); }
 
   listProjects(): Project[] { return this.rows<Project>('SELECT value FROM projects ORDER BY rowid'); }
+
+  listDeliveryTaskProjects(): DeliveryTaskProject[] { return this.rows<DeliveryTaskProject>('SELECT value FROM work_delivery_projects ORDER BY rowid'); }
+
+  createDeliveryTaskProject(name: string): DeliveryTaskProject {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 100 || /[\x00-\x1f\x7f]/.test(name)) throw new Error('交付项目名称必须为1至100字，且不能包含控制字符');
+    const project: DeliveryTaskProject = { id: randomUUID(), name: name.trim(), collapsed: false };
+    try {
+      this.transaction(() => this.db.run('INSERT INTO work_delivery_projects(id, name, value) VALUES (?, ?, ?)', [project.id, project.name, JSON.stringify(project)]));
+    } catch (error) {
+      if (String(error).includes('UNIQUE constraint failed')) throw new Error('交付项目名称已存在');
+      throw error;
+    }
+    return project;
+  }
+
+  setDeliveryTaskProjectCollapsed(id: string, collapsed: boolean): DeliveryTaskProject {
+    const current = this.listDeliveryTaskProjects().find(item => item.id === id);
+    if (!current) throw new Error('交付项目不存在');
+    if (typeof collapsed !== 'boolean') throw new Error('项目收放状态无效');
+    const next = { ...current, collapsed };
+    this.transaction(() => this.db.run('UPDATE work_delivery_projects SET value = ? WHERE id = ?', [JSON.stringify(next), id]));
+    return next;
+  }
 
   saveProject(project: Project): void {
     const value: Project = { id: project.id, name: project.name, path: project.path, branch: project.branch };
@@ -1561,9 +1591,15 @@ export class LocalStore {
   saveSession(session: Session, options: { rememberModelDefaults?: boolean } = {}): void {
     const current = this.getSession(session.id);
     if (current && current.projectId !== session.projectId && this.listAgentTasks(session.id).length) throw new Error('会话已有子 Agent 任务，不能更改项目绑定');
+    const workMode = session.workMode ?? current?.workMode ?? 'development';
+    if (workMode !== 'development' && workMode !== 'delivery') throw new Error('会话工作模式无效');
+    if (current && workMode !== (current.workMode ?? 'development')) throw new Error('会话工作模式创建后不能变更');
+    if (workMode === 'delivery' && session.projectId) throw new Error('交付会话不能绑定 Git 项目');
+    if (workMode === 'development' && session.deliveryProjectId) throw new Error('开发会话不能绑定交付项目');
+    if (session.deliveryProjectId && !this.listDeliveryTaskProjects().some(project => project.id === session.deliveryProjectId)) throw new Error('会话关联的交付项目不存在');
     const nextRuntime = session.runtimeKind ?? current?.runtimeKind ?? 'codex';
     if (nextRuntime !== 'jinggong' && nextRuntime !== 'codex' && nextRuntime !== 'claude_agent_sdk' && nextRuntime !== 'grok_build_acp') throw new Error('会话 Runtime 类型无效');
-    const value: Session = { id: session.id, projectId: session.projectId, title: normalizeSession(session).title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
+    const value: Session = { id: session.id, workMode, projectId: session.projectId, deliveryProjectId: session.deliveryProjectId, title: normalizeSession(session).title, workspacePath: session.workspacePath, branch: session.branch, status: session.status, createdAt: session.createdAt, model: session.model };
     if (session.titleSource === 'content') value.titleSource = session.titleSource;
     if (session.workspaceId !== undefined) {
       if (!this.getWorkspace(session.workspaceId)) throw new Error('会话关联的工作区不存在');

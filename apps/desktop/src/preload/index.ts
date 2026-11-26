@@ -121,7 +121,7 @@ const api: DesktopApi = {
     updateSessionPluginSelection: input => invoke('plugin:session-selection', input),
     syncCodexProfile: profileId => invoke('plugin:sync', profileId),
   },
-  bootstrap: () => invoke('app:bootstrap'),
+  bootstrap: mode => invoke('app:bootstrap', mode),
   iteration: {
     selectProjectResource: id => invoke('iteration:project-resource-select',id),
     exportProjectConfig: id => invoke('iteration:project-config-export',id),
@@ -176,6 +176,8 @@ const api: DesktopApi = {
   renameProject: (id, name) => invoke('project:rename', id, name),
   setProjectCollapsed: (id, collapsed) => invoke('project:collapse', id, collapsed),
   deleteProject: id => invoke('project:delete', id),
+  createDeliveryProject: name => invoke('delivery-project:create', name),
+  setDeliveryProjectCollapsed: (id, collapsed) => invoke('delivery-project:collapse', id, collapsed),
   createSession: (input, jiraIssueKey, jiraProjectKey, baseBranch) => invoke('session:create', typeof input === 'string'
     ? { projectId: input, jiraIssueKey, jiraProjectKey, baseBranch }
     : input),
@@ -245,7 +247,8 @@ const api: DesktopApi = {
   getFileDiff: (id, file) => invoke('session:file-diff', id, file),
   configureSession: (id, input) => invoke('session:configure', id, input),
   bindSessionProject: (id, projectId, baseBranch) => invoke('session:bind-project', id, { projectId, baseBranch }),
-  getSettings: () => invoke('settings:get'),
+  bindSessionDeliveryProject: (id, projectId) => invoke('session:bind-delivery-project', id, projectId),
+  getSettings: mode => invoke('settings:get', mode),
   setRuntimeAccess: mode => invoke('settings:runtime-access', mode),
   savePreferences: input => invoke('settings:preferences', input),
   checkRuntime: kind => invoke('runtime:check', kind),

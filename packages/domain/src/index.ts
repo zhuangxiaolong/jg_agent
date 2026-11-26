@@ -22,7 +22,9 @@ import type { TaskEngineeringApi } from './task-api';
 import type { LearningEngineApi } from './learning';
 import type { TaskAcceptanceRecord, TaskAcceptanceStatus, TaskDependencyCondition, TaskExecutionStatus, TaskVerificationStatus } from './engineering';
 export type SessionStatus = 'idle' | 'running' | 'waiting-approval' | 'completed' | 'failed' | 'interrupted';
+export type WorkMode = 'delivery' | 'development';
 export interface Project { id: string; name: string; path: string; branch: string; collapsed?: boolean }
+export interface DeliveryTaskProject { id: string; name: string; collapsed?: boolean }
 export type WorkspaceRepositoryRole = 'frontend' | 'backend' | 'common' | 'service' | 'test' | 'deployment' | 'docs' | 'other';
 export type WorkspaceAccess = 'read' | 'write';
 export interface DesktopWorkspaceRepository { id: string; alias: string; name: string; rootPath: string; role: WorkspaceRepositoryRole; primary: boolean; access: WorkspaceAccess; description?: string; defaultBranch?: string; currentBranch?: string; remoteUrl?: string; status?: 'clean' | 'dirty' | 'conflicted' | 'unavailable' }
@@ -153,7 +155,7 @@ export interface RequirementAcceptanceCriterion { id: string; criterionKey: stri
 export interface RequirementSnapshot { id: string; issueKey: string; jiraUpdated?: string; contentHash: string; fetchedAt: string; issue: JiraIssue }
 export interface RequirementAnalysis { taskType: RequirementTaskType; projectGeneration: ProductSystem | 'unknown'; summary: string; items: RequirementCheckItem[]; acceptanceCriteria: RequirementAcceptanceCriterion[] }
 export interface RequirementAdmission { id: string; status: RequirementAdmissionStatus; implementationAllowed: boolean; projectGeneration: ProductSystem | 'unknown'; taskType: RequirementTaskType; snapshotHash: string; templateVersion: string; ruleVersion: string; checkedAt: string; items: RequirementCheckItem[]; resolutions: RequirementResolution[]; acceptanceCriteria: RequirementAcceptanceCriterion[]; stageBlockers: RequirementBlockingStage[] }
-export interface Session { id: string; workspaceId?: string; projectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; modelRouteTaskType?: ModelRouteTaskType; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; manualKnowledgeScope?: 'auto' | 'MES5' | 'MES6' | 'WMS' | 'SRM' | 'JMOM' | 'PDA' | 'off'; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
+export interface Session { id: string; workMode?: WorkMode; workspaceId?: string; projectId?: string; deliveryProjectId?: string; title: string; titleSource?: 'content'; alias?: string; reasoningEffort?: ReasoningEffort; workspacePath: string; branch?: string; baseBranch?: string; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; runtimeVersion?: string; runtimeThreadId?: string; runtimeNativeSessionId?: string; grokBinding?: string; runtimeCapabilitiesVersion?: number; runtimeExecutionRulesVersion?: number; modelRouteTaskType?: ModelRouteTaskType; status: SessionStatus; createdAt: string; model: string; providerId?: string; system?: ProductSystem; manualKnowledgeScope?: 'auto' | 'MES5' | 'MES6' | 'WMS' | 'SRM' | 'JMOM' | 'PDA' | 'off'; jiraIssue?: JiraIssue; jiraProjectKey?: string; requirementAdmission?: RequirementAdmission; requirementAdmissionHistory?: RequirementAdmission[]; unreadCompletionId?: string; imported?: boolean; readAccess?: SessionReadAccess }
 export interface IpcErrorInfo { error: string; code?: string; details?: unknown; retryable?: boolean; suggestedAction?: string }
 export type IpcResult<T> = { ok: true; value: T } | ({ ok: false } & IpcErrorInfo);
 export interface AgentEvent { id: string; sessionId: string; type: 'user' | 'delta' | 'message' | 'tool' | 'status' | 'error' | 'approval'; text: string; createdAt: string; requestId?: number | string; approval?: RuntimeApproval; activity?: { kind: 'command_output' | 'turn_diff_updated'; itemId?: string }; expert?: { id: string; name: string }; attachments?: ConversationAttachment[] }
@@ -339,7 +341,7 @@ export interface VerificationRunSummary {
 export interface VerificationRunDetail { summary: VerificationRunSummary; markdown: string; artifacts: string[] }
 export interface VerificationRunEvent { runId: string; sessionId: string; state: 'started' | 'completed'; status?: VerificationStatus; processStatus?: VerificationProcessStatus; exitCode?: number | null }
 export interface RuntimeHealth { available: boolean; version: string; compatible: boolean; detail: string; kind?: RuntimeKind; warmingUp?: boolean; capabilitiesVersion?: number; upstreamCommit?: string; buildNumber?: string; sandbox?: 'verified' | 'unverified' }
-export interface Bootstrap { projects: Project[]; sessions: Session[]; activeSessionIds?: string[]; provider: ProviderSettings; runtime: RuntimeHealth; runtimes?: Partial<Record<RuntimeKind, RuntimeHealth>>; dataDirectory: string; gitVersion: string; settings: SettingsSnapshot; layout: LayoutPreferences; closeToTray: boolean }
+export interface Bootstrap { mode?: WorkMode; projects: Project[]; deliveryProjects?: DeliveryTaskProject[]; sessions: Session[]; activeSessionIds?: string[]; provider: ProviderSettings; runtime: RuntimeHealth; runtimes?: Partial<Record<RuntimeKind, RuntimeHealth>>; dataDirectory: string; gitVersion: string; settings: SettingsSnapshot; layout: LayoutPreferences; closeToTray: boolean }
 export interface IterationApi {
   getProjectContext(projectId: string): Promise<{ workspace?: ProjectWorkspaceContext; resources: ProjectResourceLink[]; facts: ProjectFact[]; decisions: ProjectDecision[] }>;
   saveProjectContext(projectId: string, input: Omit<ProjectWorkspaceContext, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ProjectWorkspaceContext>;
@@ -431,7 +433,7 @@ export interface DesktopApi {
   };
   /** Plugin Manager IPC 能力，当前构建未接入时保持未定义。 */
   pluginManager?: PluginManagerApi;
-  bootstrap(): Promise<Bootstrap>;
+  bootstrap(mode?: WorkMode): Promise<Bootstrap>;
   listWorkspaces(): Promise<DesktopWorkspace[]>;
   createWorkspace(input: { name: string; description?: string; system?: string; instructions?: string; alias?: string; role?: WorkspaceRepositoryRole; access?: WorkspaceAccess }): Promise<DesktopWorkspace | null>;
   addWorkspaceRepository(id: string, input: { alias?: string; role?: WorkspaceRepositoryRole; access?: WorkspaceAccess; description?: string }): Promise<DesktopWorkspace | null>;
@@ -445,7 +447,10 @@ export interface DesktopApi {
   renameProject(id: string, name: string): Promise<Project>;
   setProjectCollapsed(id: string, collapsed: boolean): Promise<Project>;
   deleteProject(id: string): Promise<void>;
-  createSession(input: { workspaceId?: string; projectId?: string; jiraIssueKey?: string; jiraProjectKey?: string; baseBranch?: string; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; pluginIds?: string[]; alias?: string } | string, jiraIssueKey?: string, jiraProjectKey?: string, baseBranch?: string): Promise<Session>;
+  createDeliveryProject(name: string): Promise<DeliveryTaskProject>;
+  setDeliveryProjectCollapsed(id: string, collapsed: boolean): Promise<DeliveryTaskProject>;
+  bindSessionDeliveryProject(id: string, deliveryProjectId: string): Promise<Session>;
+  createSession(input: { workMode?: WorkMode; workspaceId?: string; projectId?: string; deliveryProjectId?: string; jiraIssueKey?: string; jiraProjectKey?: string; baseBranch?: string; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; pluginIds?: string[]; alias?: string } | string, jiraIssueKey?: string, jiraProjectKey?: string, baseBranch?: string): Promise<Session>;
   listProjectBranches(projectId: string): Promise<string[]>;
   switchSessionBranch(sessionId: string, baseBranch: string): Promise<Session>;
   renameSession(id: string, alias: string): Promise<Session>;
@@ -480,7 +485,7 @@ export interface DesktopApi {
   readProjectFile(target: string | { projectId: string }, file: string): Promise<ProjectFilePreview>;
   configureSession(sessionId: string, input: { providerId?: string; model?: string; system?: ProductSystem; reasoningEffort?: ReasoningEffort; runtimeKind?: RuntimeKind; delegationMode?: AgentDelegationMode; modelRouteTaskType?: ModelRouteTaskType }): Promise<Session>;
   bindSessionProject(sessionId: string, projectId: string, baseBranch?: string): Promise<Session>;
-  getSettings(): Promise<SettingsSnapshot>;
+  getSettings(mode?: WorkMode): Promise<SettingsSnapshot>;
   checkRuntime(kind: RuntimeKind): Promise<RuntimeHealth>;
   onRuntimeHealthChanged?(listener: (health: RuntimeHealth & { kind: RuntimeKind }) => void): () => void;
   saveRuntimeKind(kind: RuntimeKind): Promise<RuntimeKind>;

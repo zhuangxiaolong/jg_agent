@@ -57,7 +57,7 @@ const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const maximumEvidenceBytes = 20 * 1024 * 1024;
 const maximumCaseEvidenceBytes = 100 * 1024 * 1024;
 const maximumEvidenceBatch = 10;
-const PROMPT_VERSION = 'diagnostics-1.1.0';
+const PROMPT_VERSION = 'diagnostics-1.2.0';
 
 const triageOutput = z.object({ schemaVersion: z.literal(1), summary: z.string().trim().min(1).max(5000), product: product.or(z.literal('unknown')),
   productVersion: z.string().trim().max(80).optional(), impactScopeSuggestion: z.string().trim().max(1000).optional(),
@@ -68,20 +68,20 @@ const triageOutput = z.object({ schemaVersion: z.literal(1), summary: z.string()
   hypotheses: z.array(z.object({ title: z.string().trim().min(1).max(300), category: z.string().trim().min(1).max(100), confidence: z.enum(['high', 'medium', 'low']),
     supportingRefs: z.array(z.string().min(1).max(200)).max(8), contradictingRefs: z.array(z.string().min(1).max(200)).max(8), nextVerification: z.string().trim().min(1).max(1000) }).strict()).max(8),
   immediateSafetyNote: z.string().trim().max(1000).optional(),
-}).strict();
+});
 const planOutput = z.object({ schemaVersion: z.literal(1), summary: z.string().trim().min(1).max(5000),
   steps: z.array(z.object({ title: z.string().trim().min(1).max(240), purpose: z.string().trim().min(1).max(1000), hypothesis: z.string().trim().max(500).optional(),
     instructions: z.string().trim().min(1).max(3000), preconditions: z.array(z.string().trim().min(1).max(500)).max(10), expectedNormal: z.string().trim().min(1).max(1000),
     abnormalSignals: z.array(z.string().trim().min(1).max(500)).max(10), requestedEvidence: z.array(z.string().trim().min(1).max(300)).max(10),
     safetyLevel: z.enum(['read_only_ui', 'read_only_evidence', 'manual_customer_action']), sourceRefs: z.array(z.string().min(1).max(200)).max(8),
-    nextBranches: z.array(z.object({ when: z.string().trim().min(1).max(500), nextAction: z.string().trim().min(1).max(800) }).strict()).max(6),
-  }).strict()).min(3).max(8), stopConditions: z.array(z.string().trim().min(1).max(500)).max(10), escalationCriteria: z.array(z.string().trim().min(1).max(500)).max(10),
-}).strict();
+    nextBranches: z.array(z.object({ when: z.string().trim().min(1).max(500), nextAction: z.string().trim().min(1).max(800) })).max(6),
+  })).min(3).max(8), stopConditions: z.array(z.string().trim().min(1).max(500)).max(10), escalationCriteria: z.array(z.string().trim().min(1).max(500)).max(10),
+});
 const rootCauseOutput = z.object({ schemaVersion: z.literal(1), summary: z.string().trim().min(1).max(5000),
   hypotheses: z.array(z.object({ title: z.string().trim().min(1).max(300), category: z.string().trim().min(1).max(100), confidence: z.enum(['high', 'medium', 'low']),
     supportingRefs: z.array(z.string().min(1).max(200)).max(8), contradictingRefs: z.array(z.string().min(1).max(200)).max(8), nextVerification: z.string().trim().min(1).max(1000),
-  }).strict()).min(1).max(8),
-}).strict();
+  })).min(1).max(8),
+});
 
 type DiagnosticOutputKind = 'triage' | 'plan' | 'root_cause';
 type JsonRecord = Record<string, unknown>;
@@ -138,7 +138,7 @@ function normalizePrioritySuggestion(value: unknown): 'critical' | 'high' | 'med
 
 function normalizeLegacyHypothesis(value: unknown): unknown {
   const item = asRecord(value);
-  if (!item || (!Object.hasOwn(item, 'hypothesis') && !Object.hasOwn(item, 'basis') && !Object.hasOwn(item, 'status'))) return value;
+  if (!item) return value;
   const title = asText(item.title) ?? asText(item.hypothesis);
   const basis = asText(item.basis);
   return {
@@ -151,40 +151,91 @@ function normalizeLegacyHypothesis(value: unknown): unknown {
   };
 }
 
+function normalizeDiagnosticPlanStep(value: unknown): unknown {
+  const item = asRecord(value);
+  if (!item) return value;
+  return {
+    ...item,
+    title: asText(item.title) ?? asText(item.name),
+    purpose: asText(item.purpose) ?? asText(item.goal) ?? '核对当前问题的相关现象',
+    instructions: asText(item.instructions) ?? asText(item.action) ?? asText(item.description),
+    expectedNormal: asText(item.expectedNormal) ?? asText(item.expectedResult) ?? '记录实际观察结果并由工程师确认',
+    preconditions: asStringList(item.preconditions),
+    abnormalSignals: asStringList(item.abnormalSignals),
+    requestedEvidence: asStringList(item.requestedEvidence),
+    sourceRefs: asStringList(item.sourceRefs ?? item.supportingRefs),
+    nextBranches: Array.isArray(item.nextBranches) ? item.nextBranches : [],
+  };
+}
+
 export function normalizeDiagnosticOutput(value: unknown, kind: DiagnosticOutputKind): unknown {
   const unwrapped = unwrapDiagnosticOutput(value);
-  if (kind === 'plan') return unwrapped;
   const root = asRecord(unwrapped);
   if (!root) return unwrapped;
   const normalized: JsonRecord = { ...root };
   if (normalized.schemaVersion === undefined || normalized.schemaVersion === '1') normalized.schemaVersion = 1;
   if (normalized.summary === undefined) normalized.summary = '根据当前资料生成待现场核对的诊断建议';
+  if (normalized.summary === null || normalized.summary === '') normalized.summary = '根据当前资料生成待现场核对的诊断建议';
   if (kind === 'triage') {
     normalized.product = normalizeProduct(normalized.product);
     normalized.prioritySuggestion = normalizePrioritySuggestion(normalized.prioritySuggestion);
     if (normalized.module === undefined) normalized.module = 'unknown';
     if (normalized.businessProcess === undefined) normalized.businessProcess = 'unknown';
     if (normalized.issueCategory === undefined) normalized.issueCategory = 'unknown';
-    if (Array.isArray(normalized.knownFacts)) {
-      normalized.knownFacts = normalized.knownFacts.map(item => {
+    normalized.knownFacts = Array.isArray(normalized.knownFacts)
+      ? normalized.knownFacts.map(item => {
+        if (typeof item === 'string') return { text: item.trim(), sourceRefs: [] };
         const record = asRecord(item);
-        if (!record || (!Object.hasOwn(record, 'fact') && !Object.hasOwn(record, 'sourceId'))) return item;
-        return { text: asText(record.text) ?? asText(record.fact), sourceRefs: asStringList(record.sourceRefs ?? record.sourceId) };
-      });
-    }
-    if (Array.isArray(normalized.missingInformation)) {
-      normalized.missingInformation = normalized.missingInformation.map(item => {
+        if (!record) return item;
+        return { text: asText(record.text) ?? asText(record.fact), sourceRefs: asStringList(record.sourceRefs ?? record.sourceId ?? record.refs) };
+      })
+      : [];
+    normalized.missingInformation = Array.isArray(normalized.missingInformation)
+      ? normalized.missingInformation.map(item => {
         if (typeof item === 'string') return { question: item.trim(), whyItMatters: '需要现场补充以便继续判断', priority: 'medium' };
         const record = asRecord(item);
-        if (record && !Object.hasOwn(record, 'whyItMatters')) return { question: asText(record.question), whyItMatters: '需要现场补充以便继续判断', priority: 'medium' };
-        return item;
-      });
-    }
-    if (Array.isArray(normalized.hypotheses)) normalized.hypotheses = normalized.hypotheses.map(normalizeLegacyHypothesis);
+        if (!record) return item;
+        return { question: asText(record.question) ?? asText(record.item), whyItMatters: asText(record.whyItMatters) ?? '需要现场补充以便继续判断', priority: normalizePrioritySuggestion(record.priority) === 'high' ? 'high' : normalizePrioritySuggestion(record.priority) === 'low' ? 'low' : 'medium' };
+      })
+      : [];
+    normalized.hypotheses = Array.isArray(normalized.hypotheses) ? normalized.hypotheses.map(normalizeLegacyHypothesis) : [];
+  } else if (kind === 'plan') {
+    normalized.steps = Array.isArray(normalized.steps) ? normalized.steps.map(normalizeDiagnosticPlanStep) : normalized.steps;
+    normalized.stopConditions = asStringList(normalized.stopConditions);
+    normalized.escalationCriteria = asStringList(normalized.escalationCriteria);
   } else if (Array.isArray(normalized.hypotheses)) {
     normalized.hypotheses = normalized.hypotheses.map(normalizeLegacyHypothesis);
   }
   return normalized;
+}
+
+type DiagnosticOutput = z.infer<typeof triageOutput> | z.infer<typeof planOutput> | z.infer<typeof rootCauseOutput>;
+
+function parseDiagnosticOutputWithSchema<T>(answer: string, schema: z.ZodType<T>, kind: DiagnosticOutputKind): T {
+  const value = answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { throw new Error('模型返回了非 JSON 结果，未保存为正式诊断结论'); }
+  if (dangerousOutput(parsed)) throw new Error('模型建议包含可能修改现场系统或执行命令的内容，结果已拦截');
+  const result = schema.safeParse(normalizeDiagnosticOutput(parsed, kind));
+  if (!result.success) {
+    const paths = [...new Set(result.error.issues.slice(0, 4).map(issue => issue.path.map(part => typeof part === 'number' ? `[${part}]` : String(part)).join('.').slice(0, 48)).filter(Boolean))];
+    const detail = paths.length ? `字段校验失败：${paths.join('、')}` : '结果结构校验失败';
+    throw new Error(`诊断助手返回格式与当前版本不兼容，本轮未保存（${detail}）。请重新运行，若仍失败请切换 Runtime 或联系研发`);
+  }
+  return result.data;
+}
+
+export function parseDiagnosticOutput(answer: string, kind: 'triage'): z.infer<typeof triageOutput>;
+export function parseDiagnosticOutput(answer: string, kind: 'plan'): z.infer<typeof planOutput>;
+export function parseDiagnosticOutput(answer: string, kind: 'root_cause'): z.infer<typeof rootCauseOutput>;
+export function parseDiagnosticOutput(answer: string, kind: DiagnosticOutputKind): DiagnosticOutput {
+  if (kind === 'triage') return parseDiagnosticOutputWithSchema(answer, triageOutput, kind);
+  if (kind === 'plan') return parseDiagnosticOutputWithSchema(answer, planOutput, kind);
+  return parseDiagnosticOutputWithSchema(answer, rootCauseOutput, kind);
+}
+
+function dangerousOutput(value: unknown): boolean {
+  return /\b(?:insert\s+into|update\s+[\w.[\]]+\s+set|delete\s+from|drop\s+(?:table|database)|alter\s+table|truncate\s+table|restart\s+(?:the\s+)?service|reboot\s+(?:the\s+)?server|stop\s+service|powershell(?:\.exe)?|cmd\.exe|invoke-webrequest|curl\s+[^\n]{0,80}-x\s*(?:post|put|delete))\b/i.test(JSON.stringify(value));
 }
 
 interface IpcOptions {

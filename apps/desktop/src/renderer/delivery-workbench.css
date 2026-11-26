@@ -1,0 +1,27 @@
+.delivery-workbench { overflow: auto; }
+.delivery-projects, .delivery-recent { min-width: 0; }
+.delivery-projects { display: grid; gap: 10px; }
+.delivery-projects > .task-workbench-section-heading, .delivery-recent > .task-workbench-section-heading { margin-bottom: 0; }
+.delivery-project-card { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); padding: 12px; }
+.delivery-project-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.delivery-project-card > header > div { display: grid; min-width: 0; gap: 4px; }
+.delivery-project-card h3 { overflow: hidden; margin: 0; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-project-card header span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.delivery-project-summary { display: -webkit-box; overflow: hidden; margin: 9px 0 0; color: var(--text); font-size: 10px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.delivery-project-card .secondary-button { flex: 0 0 auto; min-height: 30px; padding: 5px 9px; }
+.delivery-session-list { display: grid; gap: 5px; margin-top: 10px; }
+.delivery-session { display: grid; width: 100%; min-width: 0; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-1); color: inherit; padding: 8px 10px; text-align: left; }
+.delivery-session:hover { border-color: var(--accent); }
+.delivery-session-main, .delivery-session-meta { display: grid; min-width: 0; gap: 3px; }
+.delivery-session-main strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-session-main small, .delivery-session-meta small { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.5; text-overflow: ellipsis; }
+.delivery-session-meta { justify-items: end; }
+.delivery-session-meta b { font-size: 9px; font-weight: 500; white-space: nowrap; }
+.delivery-recent { border-top: 1px solid var(--line); padding-top: 12px; }
+@media (max-width: 620px) {
+  .delivery-project-card { padding: 9px; }
+  .delivery-project-card > header { align-items: flex-start; }
+  .delivery-project-card .secondary-button { min-height: 28px; padding: 4px 7px; white-space: nowrap; }
+  .delivery-session { grid-template-columns: 8px minmax(0, 1fr); }
+  .delivery-session-meta { grid-column: 2; display: flex; align-items: center; justify-items: start; gap: 8px; }
+}
