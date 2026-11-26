@@ -78,6 +78,7 @@ import { OperationManualLibrary } from './operation-manual-library';
 import { hasManualVersionConflict, isManualQuery, manualProductScope, type ManualProductType } from '../../../../packages/operation-manuals/src';
 import { RuntimeEventBatcher } from './runtime-event-batcher';
 import { quickChatHistory, streamQuickChat, type QuickChatBackend } from './quick-chat';
+import { lookupWeatherForecast, parseWeatherQuery } from './weather-query';
 import { recommendTests, type RegisteredTestCommand } from '../../../../packages/performance/src';
 import { registerTaskGovernanceIpc } from './task-governance-ipc';
 import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
@@ -2276,6 +2277,45 @@ if (primaryInstance) app.whenReady().then(async () => {
     }
   }
 
+  async function sendWeatherTurn(session: Session, userPrompt: string, query: NonNullable<ReturnType<typeof parseWeatherQuery>>, queuedTurnId?: string): Promise<{ queued: false }> {
+    const controller = new AbortController();
+    if (queuedTurnId) followups.begin(session.id, queuedTurnId);
+    const previousTitleSource = session.titleSource;
+    session = store.nameSessionFromContent(session.id, settings.redactContent(userPrompt));
+    if (session.titleSource === 'content' && previousTitleSource !== session.titleSource && !window.isDestroyed()) {
+      window.webContents.send('session:title-changed', { id: session.id, title: session.title, titleSource: session.titleSource });
+    }
+    session.status = 'running';
+    session.unreadCompletionId = undefined;
+    store.saveSession(session);
+    if (!queuedTurnId) emit(session.id, 'user', userPrompt);
+    emit(session.id, 'status', 'running');
+    quickChatControllers.set(session.id, controller);
+
+    try {
+      const output = await lookupWeatherForecast({ query, signal: controller.signal });
+      emit(session.id, 'message', settings.redact(output));
+      emit(session.id, 'status', 'completed');
+      if (queuedTurnId) followups.markDispatched(session.id, queuedTurnId);
+      return { queued: false };
+    } catch (error) {
+      const latest = store.getSession(session.id) ?? session;
+      if (controller.signal.aborted) {
+        store.saveSession({ ...latest, status: 'interrupted' });
+        emit(session.id, 'status', 'interrupted', undefined, 'session.cancelled');
+      } else {
+        const message = settings.redact(error instanceof Error ? error.message : String(error));
+        store.saveSession({ ...latest, status: 'failed' });
+        emit(session.id, 'error', message);
+        emit(session.id, 'status', 'failed');
+      }
+      throw error;
+    } finally {
+      if (quickChatControllers.get(session.id) === controller) quickChatControllers.delete(session.id);
+      void followups.drain(session.id);
+    }
+  }
+
   sendSessionTurn = async (value: unknown, input: unknown, queuedTurnId?: string) => {
     let session = sessionById(value);
     const parsed = typeof input === 'string' ? { prompt: promptSchema.parse(input), attachmentIds: [] } : sessionSendSchema.parse(input);
@@ -2283,6 +2323,12 @@ if (primaryInstance) app.whenReady().then(async () => {
     if (attachments.length !== (parsed.attachmentIds ?? []).length) throw new Error('会话附件已失效，请重新选择后发送');
     const prompt = attachmentPrompt(parsed.prompt, attachments);
     settings.assertCleanText(prompt);
+
+    const weatherQuery = attachments.length ? undefined : parseWeatherQuery(parsed.prompt);
+    const sessionBusy = runs.get(session.id) || quickChatControllers.has(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length > 0;
+    if (weatherQuery && (!session.projectId || weatherQuery.location) && (!sessionBusy || queuedTurnId)) {
+      return sendWeatherTurn(session, parsed.prompt, weatherQuery, queuedTurnId);
+    }
 
     if (!session.projectId) {
       if (!queuedTurnId && (runs.get(session.id) || quickChatControllers.has(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
