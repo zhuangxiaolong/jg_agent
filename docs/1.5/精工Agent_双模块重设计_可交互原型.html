@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>精工 Agent｜项目交付与现场诊断原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1b2823;
+      --muted: #66756e;
+      --muted-2: #87948e;
+      --line: #dfe6e1;
+      --line-dark: #31443a;
+      --canvas: #f3f6f3;
+      --paper: #ffffff;
+      --rail: #14241d;
+      --rail-hover: #20362b;
+      --green: #147950;
+      --green-soft: #e5f4eb;
+      --blue: #356b9a;
+      --blue-soft: #eaf2f8;
+      --amber: #a86710;
+      --amber-soft: #fff2dc;
+      --red: #b23c33;
+      --red-soft: #fdece9;
+      --gray-soft: #eef2ef;
+      --shadow: 0 10px 35px rgba(20, 36, 29, .12);
+      font-family: "DM Sans", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); font-size: 13px; }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+    .rail { min-height: 100vh; background: var(--rail); color: #e9f0eb; display: flex; flex-direction: column; padding: 18px 12px 14px; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 3px 10px 22px; border-bottom: 1px solid var(--line-dark); }
+    .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 7px; background: #2e7b55; color: white; font-size: 15px; font-weight: 800; }
+    .brand-title { font-size: 14px; font-weight: 700; }
+    .brand-sub { margin-top: 2px; color: #9fb2a7; font-size: 11px; }
+    .nav-label { margin: 21px 10px 7px; color: #91a49a; font-size: 10px; text-transform: uppercase; }
+    .nav { display: grid; gap: 3px; }
+    .nav button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; border: 0; border-radius: 5px; padding: 0 10px; background: transparent; color: #c6d3cb; text-align: left; }
+    .nav button:hover { background: var(--rail-hover); color: white; }
+    .nav button.active { background: #24563d; color: white; }
+    .nav-glyph { width: 18px; color: #a8c4b2; text-align: center; font-size: 14px; }
+    .nav button.active .nav-glyph { color: #d4f1df; }
+    .rail-spacer { flex: 1; }
+    .rail-profile { display: flex; align-items: center; gap: 9px; padding: 12px 9px 3px; border-top: 1px solid var(--line-dark); }
+    .avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #d9e9dd; color: #1e603b; font-weight: 700; }
+    .profile-name { font-size: 12px; font-weight: 600; }
+    .profile-role { color: #9fb2a7; font-size: 10px; margin-top: 2px; }
+    main { min-width: 0; }
+    .topbar { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 28px; background: var(--paper); border-bottom: 1px solid var(--line); }
+    .crumb { color: var(--muted); font-size: 12px; }
+    .crumb strong { color: var(--ink); font-weight: 650; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .top-search { width: min(270px, 27vw); height: 33px; padding: 0 10px; border: 1px solid var(--line); border-radius: 5px; background: #fbfcfb; outline: 0; }
+    .top-search:focus, input:focus, select:focus, textarea:focus { border-color: #70a98a; box-shadow: 0 0 0 3px rgba(20, 121, 80, .1); outline: 0; }
+    .avatar-small { width: 29px; height: 29px; border-radius: 50%; display: grid; place-items: center; background: #e7eee9; color: #356248; font-size: 11px; font-weight: 700; }
+    .content { max-width: 1500px; margin: 0 auto; padding: 24px 28px 40px; }
+    .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 19px; }
+    .page-head h1 { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 720; }
+    .page-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .button { min-height: 33px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); border-radius: 5px; padding: 0 11px; background: white; color: #34453d; font-weight: 600; white-space: nowrap; }
+    .button:hover { border-color: #aebdb4; background: #f8faf8; }
+    .button.primary { border-color: var(--green); background: var(--green); color: white; }
+    .button.primary:hover { background: #106744; }
+    .button.ghost { border-color: transparent; background: transparent; color: var(--green); }
+    .button.danger { border-color: #f0cfcb; color: var(--red); }
+    .button.small { min-height: 27px; padding: 0 8px; font-size: 11px; }
+    .button:disabled { cursor: not-allowed; opacity: .5; }
+    .segmented { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: #f8faf8; }
+    .segmented button { min-height: 27px; border: 0; border-radius: 4px; padding: 0 9px; color: var(--muted); background: transparent; font-size: 11px; }
+    .segmented button.active { background: white; color: var(--ink); box-shadow: 0 1px 3px #1b28231c; font-weight: 650; }
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 6px; background: white; margin-bottom: 18px; }
+    .metric { min-height: 89px; padding: 15px 17px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric-label { color: var(--muted); font-size: 11px; }
+    .metric-value { margin-top: 6px; font-size: 25px; line-height: 1; font-weight: 700; letter-spacing: 0; }
+    .metric-note { margin-top: 6px; color: var(--muted-2); font-size: 10px; }
+    .metric-value.red { color: var(--red); }
+    .metric-value.amber { color: var(--amber); }
+    .metric-value.green { color: var(--green); }
+    .section { border: 1px solid var(--line); border-radius: 6px; background: white; margin-bottom: 17px; }
+    .section-head { min-height: 47px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 15px; border-bottom: 1px solid var(--line); }
+    .section-head h2 { margin: 0; font-size: 13px; font-weight: 700; }
+    .section-head .subtle { color: var(--muted); font-size: 11px; }
+    .section-body { padding: 14px 15px; }
+    .columns { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(360px, .88fr); gap: 17px; align-items: start; }
+    .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    .filter-row input, .filter-row select, .select { min-height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--ink); }
+    .filter-row input { min-width: 190px; }
+    .filter-row select { min-width: 112px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 10px 11px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
+    td { padding: 11px; border-bottom: 1px solid #edf1ee; vertical-align: middle; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #fafcfb; }
+    .main-cell { color: #24342c; font-weight: 650; }
+    .cell-sub { margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 400; }
+    .nowrap { white-space: nowrap; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; min-height: 20px; border-radius: 4px; padding: 0 6px; background: var(--gray-soft); color: #52625a; font-size: 10px; white-space: nowrap; }
+    .badge.green { background: var(--green-soft); color: #176b45; }
+    .badge.blue { background: var(--blue-soft); color: #2e608b; }
+    .badge.amber { background: var(--amber-soft); color: #96600e; }
+    .badge.red { background: var(--red-soft); color: #a4352d; }
+    .badge.dark { background: #e9eeeb; color: #34473d; }
+    .health { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #46a274; }
+    .dot.red { background: var(--red); }
+    .dot.amber { background: #d49325; }
+    .dot.gray { background: #94a19a; }
+    .queue { display: grid; }
+    .queue-item { display: grid; grid-template-columns: 5px minmax(0, 1fr) auto; gap: 10px; align-items: stretch; padding: 12px 0; border-bottom: 1px solid #edf1ee; }
+    .queue-item:last-child { border-bottom: 0; }
+    .queue-bar { border-radius: 3px; background: #5aa27a; }
+    .queue-bar.red { background: var(--red); }
+    .queue-bar.amber { background: #d49325; }
+    .queue-title { font-weight: 650; line-height: 1.4; }
+    .queue-meta { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .queue-action { align-self: center; }
+    .project-banner { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 6px; background: white; margin-bottom: 14px; }
+    .project-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .project-title-line h2 { margin: 0; font-size: 17px; }
+    .project-meta { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 7px 16px; color: var(--muted); font-size: 11px; }
+    .project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .tabs { display: flex; align-items: center; gap: 3px; border-bottom: 1px solid var(--line); margin-bottom: 15px; overflow-x: auto; }
+    .tabs button { position: relative; min-height: 37px; border: 0; padding: 0 12px; background: transparent; color: var(--muted); white-space: nowrap; }
+    .tabs button.active { color: var(--green); font-weight: 700; }
+    .tabs button.active::after { position: absolute; bottom: -1px; left: 10px; right: 10px; height: 2px; background: var(--green); content: ""; }
+    .summary-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 15px; }
+    .plain-panel { border: 1px solid var(--line); border-radius: 5px; background: white; }
+    .plain-title { padding: 12px 13px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 700; }
+    .plain-body { padding: 12px 13px; }
+    .list-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #edf1ee; }
+    .list-row:first-child { padding-top: 0; }
+    .list-row:last-child { padding-bottom: 0; border-bottom: 0; }
+    .list-title { font-weight: 650; line-height: 1.4; }
+    .list-meta { color: var(--muted); font-size: 10px; margin-top: 4px; }
+    .kv { display: grid; grid-template-columns: 90px 1fr; gap: 9px 12px; font-size: 11px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; color: #35463d; }
+    .progress-track { height: 6px; overflow: hidden; border-radius: 5px; background: #e9efeb; }
+    .progress-fill { height: 100%; border-radius: inherit; background: var(--green); }
+    .step-line { display: flex; gap: 0; margin: 12px 0 18px; overflow-x: auto; }
+    .step-stage { flex: 1; min-width: 92px; position: relative; padding-top: 20px; color: var(--muted); font-size: 10px; text-align: center; white-space: nowrap; }
+    .step-stage::before { position: absolute; z-index: 1; top: 0; left: calc(50% - 6px); width: 12px; height: 12px; border: 2px solid #bdc9c1; border-radius: 50%; background: white; content: ""; }
+    .step-stage::after { position: absolute; top: 5px; left: 0; width: 100%; height: 2px; background: #d9e2dc; content: ""; }
+    .step-stage:first-child::after { left: 50%; width: 50%; }
+    .step-stage:last-child::after { width: 50%; }
+    .step-stage.done::before, .step-stage.current::before { border-color: var(--green); background: var(--green); box-shadow: inset 0 0 0 3px white; }
+    .step-stage.done::after { background: #66a983; }
+    .step-stage.current { color: var(--green); font-weight: 700; }
+    .case-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 6px; background: white; }
+    .case-header h2 { margin: 0; font-size: 17px; }
+    .case-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .case-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .detail-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 16px; margin-top: 15px; align-items: start; }
+    .block { padding: 15px; border: 1px solid var(--line); border-radius: 5px; background: white; margin-bottom: 13px; }
+    .block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+    .block-head h3 { margin: 0; font-size: 12px; }
+    .block p { margin: 0; color: #43544b; line-height: 1.65; }
+    .fact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .fact { padding: 10px; border: 1px solid #e8eeea; border-radius: 4px; background: #fbfcfb; }
+    .fact-label { margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+    .fact-value { color: #2b3b32; font-size: 11px; line-height: 1.5; }
+    .hypothesis { padding: 11px 0; border-bottom: 1px solid #edf1ee; }
+    .hypothesis:first-child { padding-top: 0; }
+    .hypothesis:last-child { padding-bottom: 0; border-bottom: 0; }
+    .hypothesis-title { display: flex; justify-content: space-between; gap: 12px; font-weight: 650; }
+    .hypothesis p { margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .evidence-row { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid #edf1ee; }
+    .evidence-row:last-child { border-bottom: 0; }
+    .file-mark { display: grid; place-items: center; width: 27px; height: 30px; border: 1px solid var(--line); border-radius: 4px; color: var(--blue); background: var(--blue-soft); font-size: 9px; font-weight: 700; }
+    .timeline { display: grid; gap: 0; }
+    .timeline-row { display: grid; grid-template-columns: 76px 12px minmax(0, 1fr); gap: 9px; padding-bottom: 12px; }
+    .timeline-time { color: var(--muted); font-size: 10px; }
+    .timeline-node { position: relative; display: flex; justify-content: center; }
+    .timeline-node::before { z-index: 1; width: 7px; height: 7px; border: 2px solid #6ba47f; border-radius: 50%; background: white; content: ""; }
+    .timeline-node::after { position: absolute; top: 9px; bottom: -3px; width: 1px; background: #dbe4de; content: ""; }
+    .timeline-row:last-child .timeline-node::after { display: none; }
+    .timeline-copy { color: #405148; font-size: 11px; line-height: 1.45; }
+    .timeline-copy strong { color: #28392f; }
+    .callout { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border: 1px solid #d6e6db; border-left: 3px solid var(--green); border-radius: 4px; background: #f5faf6; color: #3a5645; font-size: 11px; line-height: 1.55; }
+    .callout.warn { border-color: #f0dfbd; border-left-color: #d49325; background: #fffbf2; color: #70531e; }
+    .callout.red { border-color: #f0d2ce; border-left-color: var(--red); background: #fff8f7; color: #783a34; }
+    .empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+    .empty strong { display: block; margin-bottom: 5px; color: #34453c; font-size: 12px; }
+    .modal-layer { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(11, 23, 17, .45); }
+    .modal { width: min(620px, 100%); max-height: min(88vh, 780px); overflow: auto; border: 1px solid var(--line); border-radius: 7px; background: white; box-shadow: var(--shadow); }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 15px 17px; border-bottom: 1px solid var(--line); }
+    .modal-head h2 { margin: 0; font-size: 15px; }
+    .modal-body { padding: 17px; }
+    .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 17px; border-top: 1px solid var(--line); background: #fbfcfb; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field { display: grid; gap: 5px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { color: #47594f; font-size: 11px; font-weight: 650; }
+    .field input, .field select, .field textarea { width: 100%; min-height: 34px; border: 1px solid var(--line); border-radius: 4px; padding: 7px 9px; background: white; }
+    .field textarea { min-height: 72px; resize: vertical; }
+    .required { color: var(--red); }
+    .preview-list { display: grid; gap: 7px; margin: 10px 0 14px; }
+    .preview-source { display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; }
+    .preview-source span:last-child { color: var(--muted); }
+    .toast { position: fixed; z-index: 30; right: 24px; bottom: 22px; max-width: min(380px, calc(100vw - 40px)); padding: 11px 14px; border: 1px solid #bdd6c6; border-radius: 5px; background: #f4fbf6; color: #225b39; box-shadow: var(--shadow); font-size: 12px; }
+    .prototype-stamp { position: fixed; right: 14px; bottom: 10px; color: #87948e; font-size: 9px; pointer-events: none; }
+    .hidden { display: none !important; }
+    @media (max-width: 1000px) {
+      .shell { grid-template-columns: 206px minmax(0, 1fr); }
+      .content { padding: 20px 18px 32px; }
+      .topbar { padding: 0 18px; }
+      .columns, .summary-grid { grid-template-columns: 1fr; }
+      .detail-grid { grid-template-columns: minmax(0, 1fr) 290px; }
+      .metrics { grid-template-columns: repeat(3, 1fr); }
+      .metric:nth-child(3) { border-right: 0; }
+      .metric:nth-child(n+4) { border-top: 1px solid var(--line); }
+    }
+    @media (max-width: 720px) {
+      .shell { grid-template-columns: 58px minmax(0, 1fr); }
+      .rail { padding: 12px 7px; }
+      .brand { justify-content: center; padding: 0 0 15px; }
+      .brand-copy, .nav-label, .nav-text, .profile-copy { display: none; }
+      .brand-mark { width: 34px; height: 34px; }
+      .nav { margin-top: 13px; }
+      .nav button { justify-content: center; min-height: 40px; padding: 0; }
+      .nav-glyph { width: auto; font-size: 15px; }
+      .rail-profile { justify-content: center; padding: 11px 0 0; }
+      .topbar { min-height: 54px; padding: 0 11px; }
+      .top-search { width: min(170px, 34vw); }
+      .content { padding: 16px 11px 28px; }
+      .page-head { flex-direction: column; gap: 12px; }
+      .head-actions { justify-content: flex-start; }
+      .page-head h1 { font-size: 19px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric { min-height: 76px; padding: 12px; border-right: 1px solid var(--line) !important; border-top: 1px solid var(--line); }
+      .metric:nth-child(1), .metric:nth-child(2) { border-top: 0; }
+      .metric:nth-child(even) { border-right: 0 !important; }
+      .metric-value { font-size: 22px; }
+      .columns, .summary-grid, .detail-grid { grid-template-columns: 1fr; }
+      .case-header, .project-banner { flex-direction: column; }
+      .case-actions, .project-actions { justify-content: flex-start; }
+      .form-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .filter-row input { min-width: 100%; }
+      .filter-row select { flex: 1; min-width: 120px; }
+      .prototype-stamp { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-mark">JG</div>
+        <div class="brand-copy"><div class="brand-title">精工 Agent</div><div class="brand-sub">项目交付工作区</div></div>
+      </div>
+      <div class="nav-label">工作空间</div>
+      <nav class="nav" aria-label="主导航">
+        <button data-view="dev"><span class="nav-glyph">⌘</span><span class="nav-text">开发工作台</span></button>
+        <button class="active" data-module="delivery"><span class="nav-glyph">▦</span><span class="nav-text">项目交付作战中心</span></button>
+        <button data-module="diagnostics"><span class="nav-glyph">◎</span><span class="nav-text">MES/WMS 现场智能诊断</span></button>
+      </nav>
+      <div class="nav-label">能力中心</div>
+      <nav class="nav" aria-label="能力导航">
+        <button data-view="experts"><span class="nav-glyph">◇</span><span class="nav-text">专家中心</span></button>
+        <button data-view="knowledge"><span class="nav-glyph">▤</span><span class="nav-text">操作手册与知识</span></button>
+        <button data-view="settings"><span class="nav-glyph">⚙</span><span class="nav-text">设置</span></button>
+      </nav>
+      <div class="rail-spacer"></div>
+      <div class="rail-profile"><div class="avatar">林</div><div class="profile-copy"><div class="profile-name">林工</div><div class="profile-role">本地工作区</div></div></div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="crumb">精工 Agent　/　<strong id="breadcrumb">项目交付作战中心</strong></div>
+        <div class="top-actions"><input class="top-search" id="globalSearch" type="search" placeholder="搜索项目、问题或编号"><button class="button small" data-action="notifications">通知 <span class="badge red">4</span></button><div class="avatar-small">林</div></div>
+      </header>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+  <div id="overlay"></div>
+  <div class="prototype-stamp">产品方案评审原型 · 演示数据</div>
+  <script>
+    const projects = [
+      { id: 'p-1048', code: 'JG-2026-018', name: '华东精密 MES6 一期', customer: '华东精密制造', system: 'MES6', version: '6.2.1', stage: '现场试运行', manager: '林工', end: '2026-12-18', health: 'red', progress: 68, tasks: 27, open: 5, diag: 4, reason: '2 项逾期任务 · 1 个 Critical 现场问题' },
+      { id: 'p-1052', code: 'JG-2026-022', name: '新锐电子 WMS 上线', customer: '新锐电子', system: 'WMS', version: 'WMS 3.8', stage: '上线准备', manager: '周工', end: '2026-12-05', health: 'amber', progress: 82, tasks: 41, open: 3, diag: 2, reason: '1 个验收资料缺口 · 1 项待客户确认' },
+      { id: 'p-1039', code: 'JG-2026-011', name: '科达器件 MES5 升级', customer: '科达器件', system: 'MES5', version: '5.4.9', stage: '集成测试', manager: '陈工', end: '2027-01-09', health: 'green', progress: 54, tasks: 33, open: 2, diag: 1, reason: '按计划推进' },
+      { id: 'p-1061', code: 'JG-2026-031', name: '荣盛装备 MES6 二期', customer: '荣盛装备', system: 'MES6', version: '6.2.0', stage: '需求蓝图', manager: '许工', end: '2027-02-20', health: 'gray', progress: null, tasks: 8, open: 1, diag: 0, reason: '计划日期待确认' }
+    ];
+    const issues = [
+      { id: 'i-501', project: 'p-1048', title: '工单报工后在制数量未回写', type: '阻塞', priority: 'critical', status: '处理中', owner: '林工', due: '今天', linked: '诊断 D-2026-083' },
+      { id: 'i-502', project: 'p-1048', title: '扫码枪偶发重复提交', type: '问题', priority: 'high', status: '待客户确认', owner: '周工', due: '11月27日', linked: '未关联诊断' },
+      { id: 'i-503', project: 'p-1048', title: '基础资料批量导入责任人确认', type: '待确认', priority: 'medium', status: '待客户确认', owner: '林工', due: '11月28日', linked: '未关联诊断' },
+      { id: 'i-521', project: 'p-1052', title: '波次拣货任务释放规则需复核', type: '风险', priority: 'high', status: '处理中', owner: '周工', due: '11月27日', linked: '诊断 D-2026-079' },
+      { id: 'i-539', project: 'p-1039', title: '工艺路线版本切换窗口待确认', type: '待确认', priority: 'medium', status: '待客户确认', owner: '陈工', due: '12月02日', linked: '未关联诊断' }
+    ];
+    const cases = [
+      { id: 'D-2026-083', project: 'p-1048', issue: 'i-501', title: '工单报工后在制数量未回写', product: 'MES6', version: '6.2.1', module: '生产管理 / 工单报工', priority: 'critical', status: '排查中', owner: '林工', updated: '10 分钟前', symptom: '工单 OP-260418 已完成工序报工，操作端提示提交成功，但生产看板在制数量没有减少。相同工单在 MES 页面和手持终端都可复现。', expected: '报工成功后，在制数量应按良品数及时扣减。', actual: '报工记录已生成，在制数量仍为 128。', step: '核对报工记录与工单工序的工单号、工序号和数量单位', stepState: '待回填', evidence: 3, run: '11月26日 09:42', priorityClass: 'red' },
+      { id: 'D-2026-079', project: 'p-1052', issue: 'i-521', title: '波次释放后部分拣货任务未生成', product: 'WMS', version: '3.8.2', module: '仓储 / 波次拣货', priority: 'high', status: '等待客户', owner: '周工', updated: '32 分钟前', symptom: '波次 WK-1118 释放成功，部分订单没有生成拣货任务。', expected: '满足策略条件的订单全部生成拣货任务。', actual: '18 个订单中 3 个订单未生成任务。', step: '核对订单状态与波次过滤条件', stepState: '已确认异常', evidence: 2, run: '11月25日 16:18', priorityClass: 'amber' },
+      { id: 'D-2026-074', project: 'p-1039', issue: null, title: 'MES5 接口回执偶发超时', product: 'MES5', version: '5.4.9', module: '接口 / ERP 工单同步', priority: 'medium', status: '待验证', owner: '陈工', updated: '2 小时前', symptom: 'ERP 下发工单后偶发未收到 MES 回执，重发后恢复。', expected: '工单消息在约定时间内收到成功回执。', actual: '少量消息回执超过 30 秒。', step: '观察修复后连续三批工单同步结果', stepState: '待回填', evidence: 4, run: '11月26日 08:14', priorityClass: 'blue' },
+      { id: 'D-2026-068', project: 'p-1052', issue: null, title: '库位冻结后库存仍进入分配结果', product: 'WMS', version: '3.8.2', module: '库存 / 库位控制', priority: 'high', status: '等待开发', owner: '赵工', updated: '昨天', symptom: '执行库位冻结后，新波次仍将该库位库存分配给拣货任务。', expected: '冻结库位不应参与库存分配。', actual: '个别并发波次仍出现该库位。', step: '等待开发确认并发分配窗口的修正方案', stepState: '阻塞', evidence: 5, run: '11月24日 14:30', priorityClass: 'red' }
+    ];
+    const tasks = [
+      { project: 'p-1048', title: '复核在制数量计算口径', owner: '林工', date: '11月26日', status: '进行中', priority: 'high' },
+      { project: 'p-1048', title: '确认报工回写接口超时阈值', owner: '赵工', date: '11月25日', status: '逾期', priority: 'high' },
+      { project: 'p-1048', title: '整理试运行问题清单', owner: '周工', date: '11月28日', status: '待办', priority: 'medium' },
+      { project: 'p-1052', title: '完成上线切换演练', owner: '周工', date: '12月02日', status: '进行中', priority: 'high' },
+      { project: 'p-1039', title: '准备集成测试回归数据', owner: '陈工', date: '12月04日', status: '待办', priority: 'medium' },
+      { project: 'p-1061', title: '确认二期接口范围', owner: '许工', date: '待确认', status: '待办', priority: 'low' }
+    ];
+    const state = { module: 'delivery', deliveryView: 'overview', cockpitTab: 'summary', diagnosticsView: 'queue', selectedProject: 'p-1048', selectedCase: 'D-2026-083', role: '项目经理', saved: false };
+    const content = document.getElementById('content');
+    const overlay = document.getElementById('overlay');
+    const projectById = id => projects.find(p => p.id === id);
+    const caseById = id => cases.find(c => c.id === id);
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const badge = (text, tone = '') => `<span class="badge ${tone}">${esc(text)}</span>`;
+    const healthLabel = project => project.health === 'red' ? ['需关注', 'red'] : project.health === 'amber' ? ['有风险', 'amber'] : project.health === 'green' ? ['正常', 'green'] : ['数据不足', ''];
+    const priorityTone = value => value === 'critical' ? 'red' : value === 'high' ? 'amber' : value === 'medium' ? 'blue' : '';
+    const statusTone = value => ({ '排查中': 'blue', '等待客户': 'amber', '等待开发': 'red', '待验证': 'amber', '已解决': 'green', '处理中': 'blue', '待客户确认': 'amber', '逾期': 'red', '进行中': 'blue', '待办': '' }[value] || '');
+    const projectOptions = selected => projects.filter(project => project.health !== 'gray' || project.id === selected).map(p => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`).join('');
+    function setTitle() {
+      document.getElementById('breadcrumb').textContent = state.module === 'delivery' ? '项目交付作战中心' : 'MES/WMS 现场智能诊断中心';
+      document.querySelectorAll('[data-module]').forEach(button => button.classList.toggle('active', button.dataset.module === state.module));
+    }
+    function render() {
+      setTitle();
+      if (state.module === 'delivery') {
+        if (state.deliveryView === 'overview') renderDeliveryOverview();
+        else if (state.deliveryView === 'ledger') renderLedger();
+        else if (state.deliveryView === 'actions') renderActions();
+        else if (state.deliveryView === 'cockpit') renderCockpit();
+      } else {
+        if (state.diagnosticsView === 'detail') renderCaseDetail();
+        else if (state.diagnosticsView === 'projects') renderDiagnosticProjects();
+        else if (state.diagnosticsView === 'knowledge') renderKnowledge();
+        else renderDiagnosticQueue();
+      }
+    }
+    function pageHead(title, description, actions = '') {
+      return `<div class="page-head"><div><h1>${title}</h1><p>${description}</p></div><div class="head-actions">${actions}</div></div>`;
+    }
+    function metrics(items) {
+      return `<div class="metrics">${items.map(item => `<div class="metric"><div class="metric-label">${item.label}</div><div class="metric-value ${item.tone || ''}">${item.value}</div><div class="metric-note">${item.note || ''}</div></div>`).join('')}</div>`;
+    }
+    function projectRow(p) {
+      const [label, tone] = healthLabel(p);
+      return `<tr data-row-search="${esc([p.code, p.name, p.customer, p.system, p.manager].join(' ')).toLowerCase()}">
+        <td><div class="main-cell">${esc(p.name)}</div><div class="cell-sub">${esc(p.code)} · ${esc(p.customer)}</div></td>
+        <td class="nowrap">${esc(p.system)}<div class="cell-sub">${esc(p.version)}</div></td>
+        <td>${esc(p.stage)}</td><td>${esc(p.manager)}</td>
+        <td><span class="health"><i class="dot ${tone}"></i>${label}</span><div class="cell-sub">${esc(p.reason)}</div></td>
+        <td>${p.progress === null ? '—' : `${p.progress}%`}<div class="cell-sub">${p.tasks} 项任务</div></td>
+        <td class="nowrap">${esc(p.end)}</td>
+        <td>${p.diag ? badge(`${p.diag} 个诊断`, p.health === 'red' ? 'red' : 'blue') : badge('暂无诊断')}</td>
+        <td><button class="button small" data-project="${p.id}">打开</button></td>
+      </tr>`;
+    }
+    function renderDeliveryOverview() {
+      const actionRows = [
+        { tone: 'red', title: '工单报工后在制数量未回写', meta: '华东精密 MES6 一期 · D-2026-083 · 林工 · Critical', action: '打开诊断', caseId: 'D-2026-083' },
+        { tone: 'red', title: '报工回写接口超时阈值已逾期', meta: '华东精密 MES6 一期 · 任务 · 赵工 · 逾期 1 天', action: '打开任务', projectId: 'p-1048' },
+        { tone: 'amber', title: '上线切换演练待确认', meta: '新锐电子 WMS 上线 · 里程碑 · 12月2日', action: '打开项目', projectId: 'p-1052' },
+        { tone: 'amber', title: '库位冻结规则修正等待开发', meta: '新锐电子 WMS 上线 · D-2026-068 · 赵工', action: '打开诊断', caseId: 'D-2026-068' }
+      ];
+      content.innerHTML = pageHead('项目交付作战中心', '按项目例外与待办推进实施交付，项目状态以结构化记录为准。', `<div class="segmented" data-role-switch>${['项目经理', '实施工程师', '交付负责人'].map(role => `<button data-role="${role}" class="${state.role === role ? 'active' : ''}">${role}</button>`).join('')}</div><button class="button" data-view="ledger">项目台账</button><button class="button primary" data-action="new-project">＋ 新建项目</button>`)
+        + metrics([{ label: '进行中项目', value: '4', note: '含 1 个数据不足', tone: 'green' }, { label: '逾期任务', value: '3', note: '跨 2 个项目', tone: 'red' }, { label: '高优先级交付问题', value: '6', note: '未关闭', tone: 'amber' }, { label: '待客户确认', value: '4', note: '交付与诊断合计' }, { label: '待验证诊断', value: '2', note: '需要现场回填', tone: 'blue' }])
+        + `<div class="columns"><section class="section"><div class="section-head"><h2>需要处理</h2><span class="subtle">按严重度和截止时间排序</span></div><div class="section-body queue">${actionRows.map(row => `<div class="queue-item"><span class="queue-bar ${row.tone}"></span><div><div class="queue-title">${esc(row.title)}</div><div class="queue-meta">${esc(row.meta)}</div></div><div class="queue-action"><button class="button small" ${row.caseId ? `data-case="${row.caseId}"` : `data-project="${row.projectId}"`}>${row.action}</button></div></div>`).join('')}</div><div class="section-head"><span class="subtle">显示 4 项 · 还有 9 项行动</span><button class="button ghost small" data-view="actions">查看全部行动 →</button></div></section>
+        <section class="section"><div class="section-head"><h2>项目状态</h2><button class="button ghost small" data-view="ledger">全部项目 →</button></div><div class="section-body queue">${projects.map(p => { const [label, tone] = healthLabel(p); return `<div class="queue-item"><span class="queue-bar ${tone}"></span><div><div class="queue-title">${esc(p.name)}</div><div class="queue-meta">${esc(p.customer)} · ${esc(p.stage)} · 结束 ${esc(p.end)}<br>${esc(p.reason)}</div></div><div class="queue-action">${badge(label, tone)}<div style="margin-top:7px;text-align:right"><button class="button ghost small" data-project="${p.id}">作战舱</button></div></div></div>`; }).join('')}</div></section></div>
+        <section class="section"><div class="section-head"><h2>现场诊断态势</h2><button class="button ghost small" data-module="diagnostics">进入诊断中心 →</button></div><div class="table-wrap"><table><thead><tr><th>项目</th><th>未关闭</th><th>严重 / 高</th><th>等客户</th><th>等开发</th><th>待验证</th><th>最近更新</th><th></th></tr></thead><tbody>${[
+          ['华东精密 MES6 一期', '3', '1', '1', '1', '1', '10 分钟前', 'p-1048'], ['新锐电子 WMS 上线', '2', '1', '1', '1', '0', '32 分钟前', 'p-1052'], ['科达器件 MES5 升级', '1', '0', '0', '0', '1', '2 小时前', 'p-1039'], ['荣盛装备 MES6 二期', '0', '0', '0', '0', '0', '暂无诊断', 'p-1061']
+        ].map(row => `<tr><td class="main-cell">${row[0]}</td><td>${row[1]}</td><td>${row[2]}</td><td>${row[3]}</td><td>${row[4]}</td><td>${row[5]}</td><td>${row[6]}</td><td><button class="button small" data-project-diagnostics="${row[7]}">查看</button></td></tr>`).join('')}</tbody></table></div></section>`;
+    }
+    function renderLedger() {
+      content.innerHTML = pageHead('项目台账', '按客户、产品和交付阶段定位项目。', `<button class="button" data-view="overview">返回总览</button><button class="button primary" data-action="new-project">＋ 新建项目</button>`)
+        + `<section class="section"><div class="section-head"><div class="filter-row"><input data-filter-table="projectTable" placeholder="搜索项目编号、名称、客户"><select><option>全部系统</option><option>MES5</option><option>MES6</option><option>WMS</option></select><select><option>全部阶段</option><option>需求蓝图</option><option>集成测试</option><option>现场试运行</option><option>上线准备</option></select><select><option>全部状态</option><option>需关注</option><option>有风险</option><option>正常</option></select></div><button class="button small" data-action="export-ledger">导出清单</button></div><div class="table-wrap"><table id="projectTable"><thead><tr><th>项目 / 客户</th><th>系统 / 版本</th><th>阶段</th><th>项目经理</th><th>健康与原因</th><th>进度</th><th>计划结束</th><th>诊断</th><th></th></tr></thead><tbody>${projects.map(projectRow).join('')}</tbody></table></div><div class="section-head"><span class="subtle">4 个项目 · 1 个数据不足</span><span class="subtle">更新日期 2026-11-26</span></div></section>`;
+    }
+    function renderActions() {
+      const rows = tasks.map(task => { const project = projectById(task.project); return `<tr data-row-search="${esc([project.name, task.title, task.owner, task.status].join(' ')).toLowerCase()}"><td><div class="main-cell">${esc(task.title)}</div><div class="cell-sub">${esc(project.name)}</div></td><td>${esc(task.owner)}</td><td>${esc(task.date)}</td><td>${badge(task.status, statusTone(task.status))}</td><td>${badge(task.priority, priorityTone(task.priority))}</td><td><button class="button small" data-project="${project.id}">打開项目</button></td></tr>`; }).join('');
+      content.innerHTML = pageHead('我的行动', '任务与现场问题按负责人和下一步动作汇总。', `<div class="segmented"><button class="active">全部行动</button><button data-action="set-role" data-role="实施工程师">实施视图</button><button data-action="set-role" data-role="项目经理">项目经理视图</button></div><button class="button" data-view="overview">返回总览</button>`)
+        + metrics([{ label: '分配给林工', value: '5', note: '交付 3 · 诊断 2', tone: 'blue' }, { label: '逾期', value: '1', note: '需要处理', tone: 'red' }, { label: '待客户配合', value: '3', note: '跨 2 个项目', tone: 'amber' }, { label: '待验证', value: '2', note: '诊断案件' }, { label: '未分配', value: '2', note: '需要项目经理指派' }])
+        + `<section class="section"><div class="section-head"><div class="filter-row"><input data-filter-table="actionTable" placeholder="搜索行动或项目"><select><option>所有类型</option><option>交付任务</option><option>客户待确认</option><option>现场诊断</option></select><select><option>所有状态</option><option>逾期</option><option>待办</option><option>进行中</option></select></div></div><div class="table-wrap"><table id="actionTable"><thead><tr><th>事项</th><th>负责人</th><th>截止/更新</th><th>状态</th><th>优先级</th><th></th></tr></thead><tbody>${rows}${cases.map(c => `<tr data-row-search="${esc([c.title, projectById(c.project).name, c.owner, c.status].join(' ')).toLowerCase()}"><td><div class="main-cell">${esc(c.title)}</div><div class="cell-sub">${esc(projectById(c.project).name)} · ${c.id}</div></td><td>${esc(c.owner)}</td><td>${esc(c.updated)}</td><td>${badge(c.status, statusTone(c.status))}</td><td>${badge(c.priority, priorityTone(c.priority))}</td><td><button class="button small" data-case="${c.id}">打开诊断</button></td></tr>`).join('')}</tbody></table></div></section>`;
+    }
+    function renderCockpit() {
+      const p = projectById(state.selectedProject) || projects[0];
+      const [label, tone] = healthLabel(p);
+      const diag = cases.filter(c => c.project === p.id);
+      const tabs = [['summary', '项目总览'], ['plan', '里程碑与任务'], ['issues', '交付问题与风险'], ['diagnostics', '现场诊断'], ['meetings', '客户会议与决策'], ['docs', '项目资料与知识'], ['reports', '周报与验收']];
+      let panel = '';
+      if (state.cockpitTab === 'summary') panel = `<div class="summary-grid"><div class="plain-panel"><div class="plain-title">交付进展</div><div class="plain-body"><div class="kv"><dt>项目阶段</dt><dd>${esc(p.stage)}</dd><dt>项目健康</dt><dd><span class="health"><i class="dot ${tone}"></i>${label}</span>　${esc(p.reason)}</dd><dt>计划结束</dt><dd>${esc(p.end)}</dd><dt>任务进度</dt><dd>${p.progress === null ? '数据待补齐' : `${p.progress}%　${Math.round(p.tasks * p.progress / 100)} / ${p.tasks} 项完成`}<div class="progress-track" style="margin-top:7px"><div class="progress-fill" style="width:${p.progress || 0}%"></div></div></dd><dt>项目经理</dt><dd>${esc(p.manager)}　·　成员 6 人</dd></div></div></div><div class="plain-panel"><div class="plain-title">下一步关注</div><div class="plain-body">${p.health === 'red' ? `<div class="callout red">关键问题正在影响现场试运行，建议先确认在制数量口径与接口回写链路。</div>` : `<div class="callout warn">上线前仍有客户确认和资料核对事项。</div>`}<div style="height:10px"></div><div class="list-row"><div><div class="list-title">现场诊断未关闭</div><div class="list-meta">${diag.filter(c => c.status !== '已解决' && c.status !== '已关闭').length} 个案件 · 严重/高 ${diag.filter(c => ['critical', 'high'].includes(c.priority)).length} 个</div></div><button class="button ghost small" data-cockpit-tab="diagnostics">查看 →</button></div><div class="list-row"><div><div class="list-title">下个里程碑</div><div class="list-meta">试运行问题关闭 · 11月30日 · 林工</div></div>${badge('进行中', 'blue')}</div><div class="list-row"><div><div class="list-title">项目资料状态</div><div class="list-meta">验收测试记录缺少客户确认页</div></div>${badge('待补齐', 'amber')}</div></div></div></div><section class="section" style="margin-top:15px"><div class="section-head"><h2>近期活动</h2><button class="button ghost small" data-cockpit-tab="reports">查看报告与验收 →</button></div><div class="section-body timeline"><div class="timeline-row"><div class="timeline-time">09:42</div><div class="timeline-node"></div><div class="timeline-copy"><strong>诊断 D-2026-083 更新</strong>　新增接口日志并生成下一条验证步骤</div></div><div class="timeline-row"><div class="timeline-time">昨天 16:20</div><div class="timeline-node"></div><div class="timeline-copy"><strong>试运行周会纪要已保存</strong>　关联 2 项客户待确认和 3 项实施任务</div></div><div class="timeline-row"><div class="timeline-time">11月24日</div><div class="timeline-node"></div><div class="timeline-copy"><strong>工单报工问题转入诊断</strong>　交付问题与诊断档案通过项目/问题 ID 关联</div></div></div></section>`;
+      else if (state.cockpitTab === 'plan') panel = `<section class="section"><div class="section-head"><h2>实施计划</h2><div><button class="button small" data-action="new-task">＋ 新建任务</button> <button class="button small">批量录入</button></div></div><div class="section-body"><div class="step-line"><div class="step-stage done">需求蓝图</div><div class="step-stage done">配置与开发</div><div class="step-stage current">现场试运行</div><div class="step-stage">上线准备</div><div class="step-stage">验收</div></div><div class="table-wrap"><table><thead><tr><th>任务</th><th>里程碑</th><th>负责人</th><th>优先级</th><th>截止日期</th><th>状态</th><th></th></tr></thead><tbody>${tasks.filter(t => t.project === p.id).map(t => `<tr><td class="main-cell">${esc(t.title)}</td><td>试运行</td><td>${esc(t.owner)}</td><td>${badge(t.priority, priorityTone(t.priority))}</td><td>${esc(t.date)}</td><td>${badge(t.status, statusTone(t.status))}</td><td><button class="button ghost small">编辑</button></td></tr>`).join('')}</tbody></table></div><div class="callout warn" style="margin-top:12px">逾期口径按未完成且截止日期早于本地当天计算。缺少截止日期的任务保留为待确认，不计入逾期。</div></div></section>`;
+      else if (state.cockpitTab === 'issues') panel = `<section class="section"><div class="section-head"><h2>交付问题与风险</h2><button class="button primary small" data-action="new-issue">＋ 新建交付问题</button></div><div class="table-wrap"><table><thead><tr><th>事项</th><th>类型</th><th>优先级</th><th>负责人</th><th>截止</th><th>状态</th><th>诊断关联</th><th></th></tr></thead><tbody>${issues.filter(i => i.project === p.id).map(i => `<tr><td><div class="main-cell">${esc(i.title)}</div><div class="cell-sub">${i.id.toUpperCase()}</div></td><td>${esc(i.type)}</td><td>${badge(i.priority, priorityTone(i.priority))}</td><td>${esc(i.owner)}</td><td>${esc(i.due)}</td><td>${badge(i.status, statusTone(i.status))}</td><td class="nowrap">${esc(i.linked)}</td><td>${i.linked.startsWith('诊断') ? `<button class="button small" data-case="${i.linked.split(' ')[1]}">打开诊断</button>` : `<button class="button small" data-start-diagnostic="${i.id}">发起诊断</button>`}</td></tr>`).join('')}</tbody></table></div></section>`;
+      else if (state.cockpitTab === 'diagnostics') panel = `<section class="section"><div class="section-head"><div><h2>项目现场诊断</h2><span class="subtle">　项目下共有 ${diag.length} 个档案</span></div><button class="button primary small" data-action="new-diagnostic">＋ 登记现场问题</button></div>${diag.length ? `<div class="table-wrap"><table><thead><tr><th>案件</th><th>优先级</th><th>状态</th><th>负责人</th><th>更新时间</th><th></th></tr></thead><tbody>${diag.map(c => `<tr><td><div class="main-cell">${esc(c.title)}</div><div class="cell-sub">${c.id} · ${esc(c.module)}</div></td><td>${badge(c.priority, priorityTone(c.priority))}</td><td>${badge(c.status, statusTone(c.status))}</td><td>${esc(c.owner)}</td><td>${esc(c.updated)}</td><td><button class="button small" data-case="${c.id}">打开</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><strong>该项目暂无现场诊断</strong><button class="button primary small" data-action="new-diagnostic">登记现场问题</button></div>`}</section>`;
+      else if (state.cockpitTab === 'meetings') panel = `<section class="section"><div class="section-head"><h2>客户会议与决策</h2><button class="button primary small" data-action="new-meeting">＋ 记录会议</button></div><div class="section-body">${['试运行周会 · 11月25日 16:00', '上线准备评审 · 11月21日 10:30'].map((item, index) => `<div class="list-row"><div><div class="list-title">${item}</div><div class="list-meta">${index ? '客户代表、项目经理、实施负责人' : '客户生产主管、项目经理、实施工程师'} · 纪要已保存</div><div class="list-meta">决策：报工回写问题由双方按接口日志和生产记录共同核对</div></div><button class="button small">查看纪要</button></div>`).join('')}</div></section>`;
+      else if (state.cockpitTab === 'docs') panel = `<section class="section"><div class="section-head"><h2>项目资料与知识</h2><button class="button primary small" data-action="import-document">＋ 导入资料</button></div><div class="section-body"><div class="list-row"><div><div class="list-title">MES6 试运行方案 v3.docx</div><div class="list-meta">蓝图/方案 · 已校验 · 11月18日导入</div></div>${badge('可用', 'green')}<button class="button small">打开</button></div><div class="list-row"><div><div class="list-title">接口联调记录.xlsx</div><div class="list-meta">测试资料 · 已校验 · 11月22日导入</div></div>${badge('可用', 'green')}<button class="button small">打开</button></div><div class="list-row"><div><div class="list-title">客户验收测试记录.docx</div><div class="list-meta">验收资料 · 文件 hash 与索引待复核</div></div>${badge('待确认', 'amber')}<button class="button small">复核</button></div></div></section>`;
+      else panel = `<section class="section"><div class="section-head"><h2>周报与验收</h2><button class="button primary small" data-action="build-report">生成周报草稿</button></div><div class="section-body"><div class="callout">草稿来源包括项目任务、里程碑、交付问题、会议和关联诊断状态。生成后先检查事实、周期和客户措辞，再保存定稿。</div><div style="height:12px"></div><div class="list-row"><div><div class="list-title">华东精密 MES6 一期周报 · 11月20日—11月26日</div><div class="list-meta">草稿 · 来源快照 11月26日 10:12 · 4 项待核对</div></div>${badge('草稿', 'blue')}<button class="button small">继续编辑</button></div><div class="list-row"><div><div class="list-title">试运行验收资料清单</div><div class="list-meta">验收方案、测试记录、问题关闭记录、客户签字页</div></div>${badge('1 项待补齐', 'amber')}<button class="button small">查看清单</button></div></div></section>`;
+      content.innerHTML = pageHead('项目作战舱', '项目级计划、风险、客户沟通与现场诊断统一从此进入。', `<select class="select" data-switch-project>${projectOptions(p.id)}</select><button class="button" data-view="ledger">返回项目台账</button><button class="button primary" data-action="new-task">＋ 新建任务</button>`)
+        + `<div class="project-banner"><div><div class="project-title-line"><h2>${esc(p.name)}</h2>${badge(p.code, 'dark')}<span class="health"><i class="dot ${tone}"></i>${label}</span></div><div class="project-meta"><span>${esc(p.customer)}</span><span>${esc(p.system)} · ${esc(p.version)}</span><span>${esc(p.stage)}</span><span>项目经理 ${esc(p.manager)}</span><span>计划结束 ${esc(p.end)}</span></div></div><div class="project-actions"><button class="button small" data-action="edit-project">编辑项目</button><button class="button small" data-cockpit-tab="diagnostics">现场诊断 ${diag.length ? badge(diag.length, 'blue') : ''}</button></div></div>
+        <div class="tabs">${tabs.map(([id, label]) => `<button class="${state.cockpitTab === id ? 'active' : ''}" data-cockpit-tab="${id}">${label}${id === 'diagnostics' ? `　${diag.length}` : ''}</button>`).join('')}</div>${panel}`;
+    }
+    function diagnosticNav() {
+      return `<div class="tabs"><button data-diagnostic-view="queue" class="${state.diagnosticsView === 'queue' || state.diagnosticsView === 'detail' ? 'active' : ''}">诊断队列</button><button data-diagnostic-view="projects" class="${state.diagnosticsView === 'projects' ? 'active' : ''}">项目问题态势</button><button data-diagnostic-view="knowledge" class="${state.diagnosticsView === 'knowledge' ? 'active' : ''}">案例审核与知识</button></div>`;
+    }
+    function diagnosticRow(c) {
+      const p = projectById(c.project);
+      return `<tr data-row-search="${esc([c.id, c.title, p.name, p.customer, c.owner, c.status, c.module].join(' ')).toLowerCase()}"><td><div class="main-cell">${esc(c.title)}</div><div class="cell-sub">${c.id} · ${esc(c.module)}</div></td><td><div class="main-cell">${esc(p.name)}</div><div class="cell-sub">${esc(p.customer)} · ${esc(c.product)} ${esc(c.version)}</div></td><td>${badge(c.priority, priorityTone(c.priority))}</td><td>${badge(c.status, statusTone(c.status))}</td><td>${esc(c.owner)}</td><td>${esc(c.updated)}</td><td><button class="button small" data-case="${c.id}">打开</button></td></tr>`;
+    }
+    function renderDiagnosticQueue() {
+      const open = cases.filter(c => !['已解决', '已关闭'].includes(c.status));
+      content.innerHTML = pageHead('MES/WMS 现场智能诊断中心', '围绕项目归属、现场证据与逐步验证处置问题。', `<button class="button" data-diagnostic-view="projects">项目问题态势</button><button class="button primary" data-action="new-diagnostic">＋ 新建诊断</button>`)
+        + diagnosticNav()
+        + metrics([{ label: '未关闭', value: open.length, note: '全部项目', tone: 'blue' }, { label: '严重 / 高', value: open.filter(c => ['critical', 'high'].includes(c.priority)).length, note: '优先处理', tone: 'red' }, { label: '等待客户', value: open.filter(c => c.status === '等待客户').length, note: '需要现场配合', tone: 'amber' }, { label: '等待开发', value: open.filter(c => c.status === '等待开发').length, note: '已形成开发草稿' }, { label: '待验证', value: open.filter(c => c.status === '待验证').length, note: '等待结果回填', tone: 'amber' }])
+        + `<div class="section"><div class="section-head"><div class="filter-row"><input data-filter-table="caseTable" placeholder="搜索案件、项目、客户或负责人"><select><option>所有项目</option>${projects.map(p => `<option>${esc(p.name)}</option>`).join('')}</select><select><option>所有状态</option><option>排查中</option><option>等待客户</option><option>等待开发</option><option>待验证</option><option>已重开</option></select><select><option>所有优先级</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option></select></div></div><div class="table-wrap"><table id="caseTable"><thead><tr><th>案件</th><th>项目 / 产品</th><th>优先级</th><th>处置状态</th><th>负责人</th><th>最近更新</th><th></th></tr></thead><tbody>${cases.map(diagnosticRow).join('')}</tbody></table></div><div class="section-head"><span class="subtle">${cases.length} 个案件 · 项目归属从交付项目主数据读取</span><span class="subtle">已关闭与取消案件可通过状态筛选查看</span></div></div>`;
+    }
+    function renderDiagnosticProjects() {
+      const rows = projects.map(p => {
+        const group = cases.filter(c => c.project === p.id);
+        const active = group.filter(c => !['已解决', '已关闭'].includes(c.status));
+        const count = status => group.filter(c => c.status === status).length;
+        return `<tr><td><div class="main-cell">${esc(p.name)}</div><div class="cell-sub">${esc(p.code)} · ${esc(p.customer)}</div></td><td>${esc(p.system)}<div class="cell-sub">${esc(p.stage)} · ${esc(p.manager)}</div></td><td>${group.length}</td><td>${active.filter(c => ['critical', 'high'].includes(c.priority)).length}</td><td>${count('等待客户')}</td><td>${count('等待开发')}</td><td>${count('待验证')}</td><td>${active.filter(c => !c.owner).length}</td><td>${group.length ? group[0].updated : '暂无诊断'}</td><td><button class="button small" data-project-diagnostics="${p.id}">${group.length ? '查看队列' : '登记问题'}</button></td></tr>`;
+      }).join('');
+      content.innerHTML = pageHead('项目问题态势', '从交付项目主数据汇总诊断，未发生问题的项目仍保留在列表。', `<button class="button" data-diagnostic-view="queue">返回诊断队列</button><button class="button primary" data-action="new-diagnostic">＋ 新建诊断</button>`)
+        + diagnosticNav()
+        + `<section class="section"><div class="section-head"><div class="filter-row"><input placeholder="搜索项目编号、名称或客户"><select><option>所有系统</option><option>MES5</option><option>MES6</option><option>WMS</option></select><select><option>包含归档项目</option><option>仅活动项目</option></select></div><span class="subtle">${projects.length} 个项目</span></div><div class="table-wrap"><table><thead><tr><th>项目 / 客户</th><th>系统 / 阶段 / 经理</th><th>诊断总量</th><th>严重 / 高</th><th>等客户</th><th>等开发</th><th>待验证</th><th>未分配</th><th>最近更新</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="section-body"><div class="callout">项目归属来自 DeliveryProject.id。诊断中心不维护第二份项目资料。归档项目可查看历史档案，但不能新建关联。</div></div></section>`;
+    }
+    function renderCaseDetail() {
+      const c = caseById(state.selectedCase) || cases[0];
+      const p = projectById(c.project);
+      const issue = issues.find(i => i.id === c.issue);
+      const stageItems = [['登记', 'done'], ['分诊', 'done'], ['排查', 'current'], ['处理', ''], ['验证', '']];
+      content.innerHTML = pageHead('诊断工作区', '每次运行与每条现场证据都保留在当前案件中。', `<button class="button" data-diagnostic-view="queue">返回队列</button><button class="button" data-project="${p.id}" data-switch-module="delivery">打开交付项目</button>`)
+        + diagnosticNav()
+        + `<div class="case-header"><div><div class="project-title-line"><h2>${esc(c.title)}</h2>${badge(c.id, 'dark')}${badge(c.priority, priorityTone(c.priority))}${badge(c.status, statusTone(c.status))}</div><div class="case-meta"><span>${esc(p.code)} · ${esc(p.name)}</span><span>${esc(p.customer)}</span><span>${esc(c.product)} ${esc(c.version)}</span><span>${esc(c.module)}</span><span>负责人 ${esc(c.owner)}</span>${issue ? `<span>交付问题 ${esc(issue.title)}</span>` : '<span>未关联具体交付问题</span>'}</div></div><div class="case-actions"><button class="button" data-action="preflight">预检 Runtime 与来源</button><button class="button primary" data-action="new-plan">生成下一步排查</button></div></div>
+        <div class="step-line">${stageItems.map(([label, cls]) => `<div class="step-stage ${cls}">${label}</div>`).join('')}</div>
+        <div class="detail-grid"><div>
+          <section class="block"><div class="block-head"><h3>现场事实</h3><button class="button ghost small" data-action="edit-case">编辑事实</button></div><p>${esc(c.symptom)}</p><div class="fact-grid" style="margin-top:12px"><div class="fact"><div class="fact-label">預期结果</div><div class="fact-value">${esc(c.expected)}</div></div><div class="fact"><div class="fact-label">实际结果</div><div class="fact-value">${esc(c.actual || '待现场补充')}</div></div></div><div style="margin-top:11px">${badge('项目关联有效', 'green')} ${badge('AI 建议需人工确认', 'amber')}</div></section>
+          <section class="block"><div class="block-head"><h3>当前排查步骤</h3><span class="subtle">计划版本 2 · 依据 2 条</span></div><div class="callout">${esc(c.step)}。仅核对经授权的 MES 页面记录和脱敏日志，不执行生产写操作。</div><div class="fact-grid" style="margin-top:10px"><div class="fact"><div class="fact-label">目的</div><div class="fact-value">区分报工记录缺失、工序关联错误与数量单位换算路径。</div></div><div class="fact"><div class="fact-label">预期正常信号</div><div class="fact-value">工单、工序、报工数量和单位一致，状态更新记录完整。</div></div><div class="fact"><div class="fact-label">异常信号</div><div class="fact-value">报工记录存在，但关联工序或扣减数量为空/不一致。</div></div><div class="fact"><div class="fact-label">安全等级</div><div class="fact-value">只读证据检查 · 由实施人员手动查看</div></div></div><div class="field" style="margin-top:11px"><label for="stepResult">现场结果</label><textarea id="stepResult" placeholder="记录查询到的记录号、字段和值，避免粘贴明文凭据"></textarea></div><div class="head-actions" style="justify-content:flex-start;margin-top:9px"><button class="button small" data-step-result="confirmed_normal">确认正常</button><button class="button small" data-step-result="confirmed_abnormal">确认异常</button><button class="button small" data-step-result="inconclusive">结果不明确</button><button class="button small" data-action="add-evidence">＋ 添加证据</button></div></section>
+          <section class="block"><div class="block-head"><h3>根因假设</h3><button class="button ghost small">查看依据</button></div><div class="hypothesis"><div class="hypothesis-title"><span>工序完成状态未触发在制数量汇总刷新</span>${badge('中置信度 · 待验证', 'amber')}</div><p>支持：报工记录存在，数量未更新。待补：工序状态变化日志和汇总任务时间。</p><button class="button small" data-action="verify-hypothesis">标记人工验证</button></div><div class="hypothesis"><div class="hypothesis-title"><span>接口重试造成异步回写延迟</span>${badge('低置信度 · AI 假设', 'blue')}</div><p>当前没有重试队列证据，需先检查接口日志，不应作为已确认原因。</p></div></section>
+          <section class="block"><div class="block-head"><h3>处理与验证</h3><button class="button small" data-action="save-resolution">记录处理结果</button></div><div class="callout warn">根因尚未验证，当前不能关闭。生产变更由客户授权人员按既有变更流程执行。</div></section>
+        </div><aside>
+          <section class="block"><div class="block-head"><h3>项目上下文</h3><button class="button ghost small" data-project="${p.id}" data-switch-module="delivery">打开项目 →</button></div><dl class="kv"><dt>项目</dt><dd>${esc(p.name)}</dd><dt>客户</dt><dd>${esc(p.customer)}</dd><dt>产品版本</dt><dd>${esc(c.product)} ${esc(c.version)}</dd><dt>阶段</dt><dd>${esc(p.stage)}</dd><dt>项目经理</dt><dd>${esc(p.manager)}</dd><dt>交付问题</dt><dd>${issue ? esc(issue.title) : '未关联'}</dd></dl></section>
+          <section class="block"><div class="block-head"><h3>证据 <span class="subtle">${c.evidence} 项</span></h3><button class="button ghost small" data-action="add-evidence">＋ 添加</button></div><div class="evidence-row"><span class="file-mark">LOG</span><div><div class="list-title">mes-api-redacted.log</div><div class="list-meta">脱敏 · SHA-256 已记录</div></div></div><div class="evidence-row"><span class="file-mark">PNG</span><div><div class="list-title">报工结果截图.png</div><div class="list-meta">来源：实施工程师 · 09:37</div></div></div><div class="evidence-row"><span class="file-mark">TXT</span><div><div class="list-title">现场复现步骤.txt</div><div class="list-meta">已关联步骤 1</div></div></div></section>
+          <section class="block"><div class="block-head"><h3>运行记录</h3><button class="button ghost small" data-action="preflight">查看预检</button></div><div class="list-title">${esc(c.run)} · 分诊与计划</div><div class="list-meta">Runtime：Codex · 模型 gpt-5.1-codex<br>专家：MES6 实施工程师 v3<br>来源：操作手册 1 · 项目资料 1 · 证据 1</div><div style="margin-top:9px">${badge('运行成功', 'green')} ${badge('输入摘要已保存', 'dark')}</div></section>
+          <section class="block"><div class="block-head"><h3>处理时间线</h3><button class="button ghost small">全部记录</button></div><div class="timeline"><div class="timeline-row"><div class="timeline-time">09:42</div><div class="timeline-node"></div><div class="timeline-copy"><strong>新计划生成</strong><br>等待读取报工关联字段</div></div><div class="timeline-row"><div class="timeline-time">09:37</div><div class="timeline-node"></div><div class="timeline-copy"><strong>新增接口日志</strong><br>已脱敏并保存 hash</div></div><div class="timeline-row"><div class="timeline-time">09:12</div><div class="timeline-node"></div><div class="timeline-copy"><strong>人工确认分诊</strong><br>产品、版本、业务环节</div></div></div></section>
+        </aside></div>`;
+    }
+    function renderKnowledge() {
+      content.innerHTML = pageHead('案例审核与知识', '已审核的去敏案例才可进入跨项目检索。', `<button class="button" data-diagnostic-view="queue">返回诊断队列</button>`)
+        + diagnosticNav()
+        + `<section class="section"><div class="section-head"><div class="filter-row"><select><option>全部审核状态</option><option>待审核</option><option>已批准</option></select><select><option>全部共享范围</option><option>仅项目内</option><option>跨项目共享</option></select><select><option>全部产品</option><option>MES5</option><option>MES6</option><option>WMS</option></select></div></div><div class="table-wrap"><table><thead><tr><th>案例</th><th>来源案件 / 项目</th><th>产品</th><th>审核状态</th><th>共享范围</th><th>更新时间</th><th></th></tr></thead><tbody><tr><td><div class="main-cell">MES6 报工数量回写检查路径</div><div class="cell-sub">原因、验证方法和版本范围已脱敏</div></td><td>D-2026-061<div class="cell-sub">华东精密制造</div></td><td>MES6 6.2.x</td><td>${badge('待审核', 'amber')}</td><td>${badge('仅本项目', 'dark')}</td><td>11月26日 09:50</td><td><button class="button small" data-action="review-case">审核</button></td></tr><tr><td><div class="main-cell">WMS 波次过滤条件导致订单未释放</div><div class="cell-sub">包含处理方案与回归检查项</div></td><td>D-2026-052<div class="cell-sub">新锐电子</div></td><td>WMS 3.8.x</td><td>${badge('已批准', 'green')}</td><td>${badge('跨项目共享', 'blue')}</td><td>11月24日 14:20</td><td><button class="button small">查看</button></td></tr></tbody></table></div><div class="section-body"><div class="callout warn">共享范围在提交和审核时再次确认。源案件的客户名、账号、路径、日志和专属业务数据不能随案例跨项目共享。</div></div></section>`;
+    }
+    function showModal(title, body, footer) {
+      overlay.innerHTML = `<div class="modal-layer" data-close-modal><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-head"><h2>${title}</h2><button class="button small" data-action="close-modal">关闭</button></div><div class="modal-body">${body}</div><div class="modal-foot">${footer}</div></section></div>`;
+    }
+    function showToast(message) {
+      const old = document.querySelector('.toast');
+      if (old) old.remove();
+      const node = document.createElement('div'); node.className = 'toast'; node.textContent = message; document.body.append(node);
+      setTimeout(() => node.remove(), 2800);
+    }
+    function openPreflight() {
+      const c = caseById(state.selectedCase);
+      const p = projectById(c.project);
+      showModal('运行预检', `<div class="callout">当前预览使用案件事实、项目摘要和以下选定来源。运行不会读取聊天历史，也不会执行生产环境操作。</div><div class="form-grid" style="margin-top:13px"><div class="field"><label>Runtime</label><select><option>Codex</option><option>精工 Runtime</option></select></div><div class="field"><label>模型</label><select><option>gpt-5.1-codex</option><option>gpt-5-codex-mini</option></select></div><div class="field full"><label>专家档案</label><select><option>MES6 实施工程师 · v3</option><option>MES6 测试质量专家 · v2</option><option>MES6 后端开发专家 · v4</option></select></div></div><div style="margin-top:15px;font-weight:700;font-size:12px">将发送的来源</div><div class="preview-list"><div class="preview-source"><span>案件现象、期望/实际结果、当前步骤</span><span>必要字段</span></div><div class="preview-source"><span>项目：${esc(p.name)} · ${esc(p.stage)}</span><span>项目摘要</span></div><div class="preview-source"><span>MES6 操作手册 · 报工回写</span><span>版本 6.2.x</span></div><div class="preview-source"><span>mes-api-redacted.log</span><span>已脱敏 · hash 有效</span></div></div><div class="callout warn">发现日志中的工单编号和现场路径。运行前确认已按客户数据规则处理。凭据不会发送。</div><div style="margin-top:10px;color:var(--muted);font-size:10px">输入摘要　SHA-256 预览值已生成　·　专家档案 MES6 实施工程师 v3</div>`, `<button class="button" data-action="close-modal">取消</button><button class="button primary" data-action="confirm-run">确认并运行</button>`);
+    }
+    function newDiagnosticModal(issueId) {
+      const issue = issues.find(i => i.id === issueId);
+      const projectId = issue?.project || state.selectedProject;
+      const p = projectById(projectId);
+      showModal('登记现场问题', `<div class="form-grid"><div class="field full"><label>项目归属 <span class="required">*</span></label><select id="newDiagProject" data-new-project>${projectOptions(projectId)}</select></div><div class="field full"><label>关联交付问题</label><select id="newDiagIssue"><option value="">仅关联项目</option>${issues.filter(i => i.project === projectId).map(i => `<option value="${i.id}" ${i.id === issueId ? 'selected' : ''}>${esc(i.title)}</option>`).join('')}</select></div><div class="field full"><label>问题标题 <span class="required">*</span></label><input id="newDiagTitle" value="${issue ? esc(issue.title) : ''}" placeholder="描述可识别的现场现象"></div><div class="field full"><label>现场现象 <span class="required">*</span></label><textarea id="newDiagSymptom" placeholder="发生时间、操作路径、实际结果与影响范围"></textarea></div><div class="field"><label>产品系统</label><input id="newDiagSystem" value="${esc(p.system)}" disabled></div><div class="field"><label>产品版本</label><input placeholder="如 6.2.1" value="${esc(p.version)}"></div><div class="field"><label>优先级</label><select><option>high</option><option>critical</option><option>medium</option><option>low</option></select></div><div class="field"><label>负责人</label><input value="林工"></div></div>`, `<button class="button" data-action="close-modal">取消</button><button class="button primary" data-action="create-diagnostic">创建并打开</button>`);
+    }
+    function openModalFor(action, button) {
+      if (action === 'preflight') return openPreflight();
+      if (action === 'new-diagnostic') return newDiagnosticModal();
+      if (action === 'start-diagnostic') return newDiagnosticModal(button.dataset.startDiagnostic);
+      const data = {
+        'new-project': ['新建交付项目', '<div class="form-grid"><div class="field"><label>项目编号</label><input placeholder="如 JG-2026-035"></div><div class="field"><label>客户名称 <span class="required">*</span></label><input placeholder="客户全称"></div><div class="field full"><label>项目名称 <span class="required">*</span></label><input placeholder="项目名称"></div><div class="field"><label>产品系统</label><select><option>MES6</option><option>MES5</option><option>WMS</option></select></div><div class="field"><label>项目阶段</label><input placeholder="需求蓝图"></div><div class="field"><label>项目经理</label><input value="林工"></div><div class="field"><label>计划结束</label><input type="date"></div></div>', 'create-project'],
+        'new-task': ['新建交付任务', '<div class="form-grid"><div class="field full"><label>任务名称 <span class="required">*</span></label><input id="taskTitle" placeholder="可验收的具体行动"></div><div class="field"><label>里程碑</label><select><option>现场试运行</option><option>上线准备</option><option>验收</option></select></div><div class="field"><label>负责人</label><input value="林工"></div><div class="field"><label>优先级</label><select><option>high</option><option>medium</option><option>low</option></select></div><div class="field"><label>截止日期</label><input type="date"></div></div>', 'save-task'],
+        'new-issue': ['新建交付问题', '<div class="form-grid"><div class="field full"><label>事项标题</label><input placeholder="问题、阻塞、风险、待确认或变更"></div><div class="field"><label>类型</label><select><option>问题</option><option>阻塞</option><option>风险</option><option>待确认</option><option>变更</option></select></div><div class="field"><label>优先级</label><select><option>high</option><option>medium</option><option>low</option></select></div><div class="field"><label>负责人</label><input value="林工"></div><div class="field"><label>截止日期</label><input type="date"></div><div class="field full"><label>缓解/处理措施</label><textarea></textarea></div></div>', 'save-issue'],
+        'new-meeting': ['记录客户会议', '<div class="form-grid"><div class="field full"><label>会议主题</label><input placeholder="会议主题"></div><div class="field"><label>时间</label><input type="datetime-local"></div><div class="field"><label>会议类型</label><select><option>客户现场</option><option>远程</option><option>内部</option></select></div><div class="field full"><label>参会人员</label><input placeholder="客户代表、项目组成员"></div><div class="field full"><label>纪要与决策</label><textarea placeholder="明确决定、责任人与完成时间"></textarea></div></div>', 'save-meeting'],
+        'edit-case': ['编辑现场事实', '<div class="form-grid"><div class="field full"><label>问题现象</label><textarea>工单 OP-260418 已完成工序报工，操作端提示提交成功，但生产看板在制数量没有减少。</textarea></div><div class="field"><label>预期结果</label><input value="报工成功后，在制数量按良品数扣减"></div><div class="field"><label>实际结果</label><input value="报工记录已生成，在制数量仍为 128"></div><div class="field"><label>模块/环节</label><input value="生产管理 / 工单报工"></div><div class="field"><label>影响范围</label><input value="试运行工单"></div></div>', 'save-case'],
+        'save-resolution': ['记录处理与验证', '<div class="form-grid"><div class="field full"><label>根因状态</label><select><option>疑似，待验证</option><option>工程师已验证</option><option>根因未知</option></select></div><div class="field full"><label>根因摘要</label><textarea placeholder="说明事实依据"></textarea></div><div class="field full"><label>处理措施与验证方法</label><textarea placeholder="由谁在什么环境执行，如何确认结果"></textarea></div><div class="field"><label>验证结果</label><select><option>未执行</option><option>通过</option><option>失败</option><option>部分通过</option></select></div><div class="field"><label>验证人</label><input value="林工"></div></div>', 'confirm-resolution'],
+        'review-case': ['审核知识案例', '<div class="callout warn">核对产品版本、客户专属字段、工单号、用户信息、路径和日志内容。只有去敏且可通用的内容才选择跨项目共享。</div><div class="form-grid" style="margin-top:12px"><div class="field full"><label>案例范围</label><select><option>仅来源项目</option><option>跨项目共享（需去敏）</option></select></div><div class="field full"><label>审核意见</label><textarea placeholder="记录通过/拒绝原因"></textarea></div></div>', 'approve-knowledge'],
+        'build-report': ['生成周报草稿', '<div class="form-grid"><div class="field"><label>报告周期</label><input value="2026-11-20 至 2026-11-26"></div><div class="field"><label>报告类型</label><select><option>项目周报</option><option>风险巡检</option></select></div><div class="field full"><label>来源范围</label><div class="callout">项目任务、里程碑、交付问题、会议和项目诊断态势。来源快照会记录生成时间和 hash。</div></div></div>', 'confirm-report']
+      }[action];
+      if (!data) return;
+      showModal(data[0], data[1], `<button class="button" data-action="close-modal">取消</button><button class="button primary" data-action="${data[2]}">保存草稿</button>`);
+    }
+    function handleAction(action, button) {
+      if (['new-project', 'new-task', 'new-issue', 'new-meeting', 'edit-project', 'edit-case', 'save-resolution', 'review-case', 'build-report'].includes(action)) return openModalFor(action, button);
+      if (action === 'close-modal') { overlay.innerHTML = ''; return; }
+      if (action === 'confirm-run') { overlay.innerHTML = ''; showToast('原型模拟：运行完成，结果只更新演示状态。'); return; }
+      if (action === 'create-diagnostic') {
+        const projectId = document.getElementById('newDiagProject').value;
+        const p = projectById(projectId);
+        const issueId = document.getElementById('newDiagIssue').value || undefined;
+        const issue = issues.find(i => i.id === issueId);
+        const title = document.getElementById('newDiagTitle').value.trim() || '新登记现场问题';
+        const symptom = document.getElementById('newDiagSymptom').value.trim() || '现场现象待补充，先保存项目归属并收集复现信息。';
+        const id = `D-2026-${String(90 + cases.length).padStart(3, '0')}`;
+        cases.unshift({ id, project: projectId, issue: issueId, title, product: p.system, version: p.version, module: '待分诊', priority: 'high', status: '新建', owner: '林工', updated: '刚刚', symptom, expected: '待补充', actual: '待补充', step: '待执行分诊', stepState: '待回填', evidence: 0, run: '暂无运行', priorityClass: 'amber' });
+        if (issue) issue.linked = `诊断 ${id}`;
+        state.selectedCase = id; state.selectedProject = projectId; state.module = 'diagnostics'; state.diagnosticsView = 'detail'; overlay.innerHTML = ''; render(); showToast('诊断档案已加入演示数据，并关联到所选项目。'); return;
+      }
+      if (action === 'new-plan') { showToast('原型模拟：已创建计划预览。请先完成 Runtime 与来源预检。'); return; }
+      if (action === 'verify-hypothesis') { showToast('原型状态：已记录人工验证待办。'); return; }
+      if (action === 'add-evidence') { showToast('原型状态：证据选择器入口。真实实现会通过主进程文件选择与校验。'); return; }
+      if (action === 'confirm-resolution' || action === 'approve-knowledge' || action === 'confirm-report' || action === 'save-task' || action === 'save-issue' || action === 'save-meeting' || action === 'save-case' || action === 'create-project' || action === 'export-ledger') {
+        overlay.innerHTML = ''; showToast('已保存演示草稿状态。'); return;
+      }
+      if (action === 'notifications') { showToast('有 4 项需要处理的项目行动。'); return; }
+      if (action === 'set-role') { state.role = button.dataset.role; render(); showToast(`已切换到${state.role}视图预设。`); return; }
+      if (action === 'edit-project') { openModalFor('new-project', button); return; }
+      if (action === 'start-diagnostic') { openModalFor('start-diagnostic', button); return; }
+    }
+    document.addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (!button) {
+        if (event.target.matches('[data-close-modal]')) overlay.innerHTML = '';
+        return;
+      }
+      const { module, view, project, case: caseId, diagnosticView, cockpitTab, projectDiagnostics, startDiagnostic, action, stepResult, switchModule } = button.dataset;
+      if (module) { state.module = module; state.diagnosticsView = 'queue'; state.deliveryView = 'overview'; render(); return; }
+      if (switchModule) state.module = switchModule;
+      if (view) { state.module = 'delivery'; state.deliveryView = view; render(); return; }
+      if (project) { state.selectedProject = project; state.module = 'delivery'; state.deliveryView = 'cockpit'; state.cockpitTab = 'summary'; render(); return; }
+      if (projectDiagnostics) { state.selectedProject = projectDiagnostics; state.module = 'diagnostics'; state.diagnosticsView = 'queue'; render(); setTimeout(() => showToast(`已按 ${projectById(projectDiagnostics).name} 过滤诊断队列。`), 0); return; }
+      if (caseId) { state.selectedCase = caseId; state.selectedProject = caseById(caseId)?.project || state.selectedProject; state.module = 'diagnostics'; state.diagnosticsView = 'detail'; render(); return; }
+      if (diagnosticView) { state.module = 'diagnostics'; state.diagnosticsView = diagnosticView; render(); return; }
+      if (cockpitTab) { state.cockpitTab = cockpitTab; state.module = 'delivery'; state.deliveryView = 'cockpit'; render(); return; }
+      if (startDiagnostic) { openModalFor('start-diagnostic', button); return; }
+      if (stepResult) { const c = caseById(state.selectedCase); c.stepState = stepResult === 'confirmed_normal' ? '确认正常' : stepResult === 'confirmed_abnormal' ? '确认异常' : '结果不明确'; c.updated = '刚刚'; showToast(`已将当前步骤标记为${c.stepState}（演示数据）。`); render(); return; }
+      if (action) { handleAction(action, button); return; }
+      if (button.dataset.role) { state.role = button.dataset.role; render(); showToast(`已切换到${state.role}视图预设。`); }
+    });
+    document.addEventListener('change', event => {
+      if (event.target.matches('[data-switch-project]')) { state.selectedProject = event.target.value; state.cockpitTab = 'summary'; render(); }
+      if (event.target.matches('[data-new-project]')) {
+        const projectId = event.target.value;
+        const p = projectById(projectId);
+        const issueSelect = document.getElementById('newDiagIssue');
+        document.getElementById('newDiagSystem').value = p.system;
+        issueSelect.innerHTML = `<option value="">仅关联项目</option>${issues.filter(i => i.project === projectId).map(i => `<option value="${i.id}">${esc(i.title)}</option>`).join('')}`;
+      }
+    });
+    document.addEventListener('input', event => {
+      if (event.target.dataset.filterTable) {
+        const query = event.target.value.trim().toLowerCase();
+        document.querySelectorAll(`#${event.target.dataset.filterTable} [data-row-search]`).forEach(row => row.classList.toggle('hidden', !row.dataset.rowSearch.includes(query)));
+      }
+      if (event.target.id === 'globalSearch') {
+        const query = event.target.value.trim();
+        if (query.length > 1) {
+          state.module = 'diagnostics'; state.diagnosticsView = 'queue'; render();
+          const input = document.querySelector('[data-filter-table="caseTable"]'); if (input) { input.value = query; input.dispatchEvent(new Event('input', { bubbles: true })); }
+        }
+      }
+    });
+    render();
+  </script>
+</body>
+</html>

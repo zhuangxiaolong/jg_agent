@@ -77,6 +77,7 @@ import { registerExpertCollaborationIpc } from './expert-collaboration';
 import { OperationManualLibrary } from './operation-manual-library';
 import { hasManualVersionConflict, isManualQuery, manualProductScope, type ManualProductType } from '../../../../packages/operation-manuals/src';
 import { RuntimeEventBatcher } from './runtime-event-batcher';
+import { quickChatHistory, streamQuickChat, type QuickChatBackend } from './quick-chat';
 import { recommendTests, type RegisteredTestCommand } from '../../../../packages/performance/src';
 import { registerTaskGovernanceIpc } from './task-governance-ipc';
 import { registerIterationIpc, assembleProjectContext } from './iteration-ipc';
@@ -123,13 +124,14 @@ const SKILL_RUNTIME_TOOL_DEFINITIONS: NonNullable<RuntimeOptions['skillTools']>[
   { type: 'function', name: 'read_skill_resource', description: '先加载 Skill，再读取其已登记的非脚本相对资源；禁止路径跳转，绝不执行文件。', inputSchema: { type: 'object', properties: { skillId: { type: 'string' }, resourcePath: { type: 'string' } }, required: ['skillId', 'resourcePath'], additionalProperties: false } },
 ];
 const runs = new RunLifecycle();
+const quickChatControllers = new Map<string, AbortController>();
 let sendSessionTurn: (value: unknown, input: unknown, queuedTurnId?: string) => Promise<void | { queued: boolean; steered?: boolean }>;
 const terminalSessions = new Set<string>();
 const terminalOutcomes = new Map<string, 'completed' | 'failed' | 'interrupted'>();
 const followups = new SessionFollowups({
   events: sessionId => store.events(sessionId),
   publish: (sessionId, type, text, requestId) => emit(sessionId, type, text, requestId),
-  ready: sessionId => !quitting && !shutdownStarted && !terminalSessions.has(sessionId) && !runs.get(sessionId) && !runtimes.hasActive(sessionId),
+  ready: sessionId => !quitting && !shutdownStarted && !terminalSessions.has(sessionId) && !runs.get(sessionId) && !quickChatControllers.has(sessionId) && !runtimes.hasActive(sessionId),
   execute: (sessionId, turn) => sendSessionTurn(sessionId, { prompt: turn.prompt, attachmentIds: [] }, turn.id),
 });
 const pendingSessionSteers = new Map<string, Set<Promise<unknown>>>();
@@ -2184,16 +2186,119 @@ if (primaryInstance) app.whenReady().then(async () => {
     sessionById(input.sessionId);
     return addConversationAttachments(input.sessionId, input.items);
   });
-  sendSessionTurn = async (value: unknown, input: unknown, queuedTurnId?: string) => {
-    await waitForAgentStart();
-    let session = await sessionWithWorkspace(value);
-    const parsed = typeof input === 'string' ? { prompt: promptSchema.parse(input), attachmentIds: [] } : sessionSendSchema.parse(input);
+  async function sendQuickChatTurn(session: Session, userPrompt: string, prompt: string, attachments: PendingConversationAttachment[], queuedTurnId?: string): Promise<{ queued: false }> {
     assertClaudeModelCompatible(session);
+    const runtimeKind = session.runtimeKind ?? store.getRuntimeKind();
+    let baseUrl: string | undefined;
+    let apiKey: string | undefined;
+    let backend: QuickChatBackend;
+    if (runtimeKind === 'grok_build_acp') {
+      const provider = grokSettings.profiles().find(item => item.id === session.providerId);
+      const model = provider?.models.find(item => item.id === session.model);
+      if (!provider || !model || !provider.hasKey) throw new Error('请先在【模型中转站】中配置当前会话的模型和 API Key');
+      baseUrl = provider.baseUrl;
+      apiKey = grokSettings.apiKey(provider.id);
+      backend = model.apiBackend;
+      if (attachments.some(item => item.kind === 'image')) throw new Error('Grok Runtime 当前不支持图片输入，请移除图片附件后重试');
+    } else {
+      const provider = settings.profiles().find(item => item.id === session.providerId) ?? (!session.providerId ? settings.profiles()[0] : undefined);
+      if (!provider || !provider.models.includes(session.model)) throw new Error('当前会话的模型中转站或模型配置已失效，请重新选择模型');
+      baseUrl = provider.baseUrl;
+      apiKey = settings.credential(provider.id).read(provider.baseUrl);
+      backend = runtimeKind === 'claude_agent_sdk' ? 'messages' : 'responses';
+    }
+    if (!apiKey) throw new Error('请先为当前会话的模型中转站配置 API Key');
+
+    const controller = new AbortController();
+    const priorEvents = store.events(session.id).filter(event => !(queuedTurnId && event.type === 'user' && event.requestId === queuedTurnId));
+    const history = quickChatHistory(priorEvents);
+    if (queuedTurnId) followups.begin(session.id, queuedTurnId);
+    const previousTitleSource = session.titleSource;
+    session = store.nameSessionFromContent(session.id, settings.redactContent(userPrompt));
+    if (session.titleSource === 'content' && previousTitleSource !== session.titleSource && !window.isDestroyed()) {
+      window.webContents.send('session:title-changed', { id: session.id, title: session.title, titleSource: session.titleSource });
+    }
+    session.status = 'running';
+    session.unreadCompletionId = undefined;
+    store.saveSession(session);
+    if (!queuedTurnId) emit(session.id, 'user', userPrompt, undefined, undefined, undefined, undefined, attachments);
+    emit(session.id, 'status', 'running');
+
+    let bufferedDelta = '';
+    const knownSecrets = settings.memorySecrets().filter(Boolean);
+    const publishDelta = (chunk: string) => {
+      bufferedDelta += chunk;
+      let held = 0;
+      for (const secret of knownSecrets) {
+        for (let length = Math.min(bufferedDelta.length, secret.length - 1); length > held; length -= 1) {
+          if (bufferedDelta.endsWith(secret.slice(0, length))) { held = length; break; }
+        }
+      }
+      const safeLength = bufferedDelta.length - held;
+      if (!safeLength) return;
+      const safe = settings.redact(bufferedDelta.slice(0, safeLength));
+      bufferedDelta = bufferedDelta.slice(safeLength);
+      if (safe) emit(session.id, 'delta', safe);
+    };
+
+    quickChatControllers.set(session.id, controller);
+    try {
+      const imageInputs = await Promise.all(attachments.filter(item => item.kind === 'image').map(item => conversationImageDataUrl(session.id, item.id, true)));
+      const messages = [...history, { role: 'user' as const, text: prompt, ...(imageInputs.length ? { images: imageInputs } : {}) }];
+      const output = await streamQuickChat({
+        baseUrl: baseUrl!, apiKey, model: session.model, backend, messages, signal: controller.signal, onDelta: publishDelta,
+      });
+      if (bufferedDelta) {
+        const safe = settings.redact(bufferedDelta);
+        if (safe) emit(session.id, 'delta', safe);
+        bufferedDelta = '';
+      }
+      emit(session.id, 'message', settings.redact(output));
+      emit(session.id, 'status', 'completed');
+      if (queuedTurnId) followups.markDispatched(session.id, queuedTurnId);
+      for (const attachment of attachments) pendingConversationAttachments.get(session.id)?.delete(attachment.id);
+      return { queued: false };
+    } catch (error) {
+      const latest = store.getSession(session.id) ?? session;
+      if (controller.signal.aborted) {
+        store.saveSession({ ...latest, status: 'interrupted' });
+        emit(session.id, 'status', 'interrupted', undefined, 'session.cancelled');
+      } else {
+        const message = settings.redact(error instanceof Error ? error.message : String(error));
+        store.saveSession({ ...latest, status: 'failed' });
+        emit(session.id, 'error', message);
+        emit(session.id, 'status', 'failed');
+      }
+      throw error;
+    } finally {
+      if (quickChatControllers.get(session.id) === controller) quickChatControllers.delete(session.id);
+      void followups.drain(session.id);
+    }
+  }
+
+  sendSessionTurn = async (value: unknown, input: unknown, queuedTurnId?: string) => {
+    let session = sessionById(value);
+    const parsed = typeof input === 'string' ? { prompt: promptSchema.parse(input), attachmentIds: [] } : sessionSendSchema.parse(input);
     const attachments = (parsed.attachmentIds ?? []).map(id => pendingAttachments(session.id).get(id)).filter((item): item is PendingConversationAttachment => !!item);
     if (attachments.length !== (parsed.attachmentIds ?? []).length) throw new Error('会话附件已失效，请重新选择后发送');
     const prompt = attachmentPrompt(parsed.prompt, attachments);
     settings.assertCleanText(prompt);
-    if (!queuedTurnId && (runs.get(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
+
+    if (!session.projectId) {
+      if (!queuedTurnId && (runs.get(session.id) || quickChatControllers.has(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
+        if (runs.get(session.id)?.cancelled) throw new Error('当前任务正在停止，请等待停止完成后再发送');
+        if (attachments.length) throw new Error('运行中补充任务暂只支持文字，请在本轮结束后发送附件');
+        followups.enqueue(session.id, parsed.prompt);
+        void followups.drain(session.id);
+        return { queued: true };
+      }
+      return sendQuickChatTurn(session, parsed.prompt, prompt, attachments, queuedTurnId);
+    }
+
+    await waitForAgentStart();
+    session = await sessionWithWorkspace(value);
+    assertClaudeModelCompatible(session);
+    if (!queuedTurnId && (runs.get(session.id) || quickChatControllers.has(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
       if (runs.get(session.id)?.cancelled) throw new Error('当前任务正在停止，请等待停止完成后再发送');
       if (attachments.length) throw new Error('运行中补充任务暂只支持文字，请在本轮结束后发送附件');
       const active = runs.get(session.id);
@@ -2341,6 +2446,12 @@ if (primaryInstance) app.whenReady().then(async () => {
   handle('session:send', sendSessionTurn);
   handle('session:cancel', async (value: unknown) => {
     const session = sessionById(value);
+    const quickChatController = quickChatControllers.get(session.id);
+    if (quickChatController) {
+      followups.stop(session.id, '用户已停止任务');
+      quickChatController.abort();
+      return;
+    }
     const ticket = runs.get(session.id);
     const mainTicket = ticket && !ticket.cancelled ? ticket : undefined;
     followups.stop(session.id, '用户已停止任务');
