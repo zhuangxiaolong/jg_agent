@@ -26,7 +26,6 @@ import { SessionRow } from './SessionRow';
 import { AgentTasksPanel } from './AgentTasksPanel';
 import { TaskWorkbench } from './TaskWorkbench';
 import { DeliveryTaskWorkbench } from './DeliveryTaskWorkbench';
-import { DiagnosticsPage } from './DiagnosticsPage';
 import { IterationWorkbench } from './IterationWorkbench';
 import { agentTasksToReveal } from './agent-task-state';
 import { useSessionAgentTasks } from './use-session-agent-tasks';
@@ -219,7 +218,6 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
   const [error, setError] = useTransientError();
   const [notice, setNotice] = useTransientError();
   const [showSettings, setShowSettings] = useState(false);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [newSessionMenu, setNewSessionMenu] = useState<{ x: number; y: number } | null>(null);
   const [browserStates, setBrowserStates] = useState<Record<string, BrowserPanelState>>({});
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false);
@@ -1069,7 +1067,6 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     modeSelections.current[mode] = { projectId, sessionId };
     setSessionSettingsOpen(false);
     setNewSessionMenu(null);
-    setShowSettings(false);
     setError('');
     const target = modeSnapshots.current[next];
     try {
@@ -1391,14 +1388,11 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     '--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
   const standaloneSessions = data?.sessions.filter(item => mode === 'delivery' ? !item.deliveryProjectId : !item.projectId) ?? [];
-  if (diagnosticsOpen && api.diagnostics) {
-    return <DiagnosticsPage api={api.diagnostics} mode={mode} onModeChange={switchWorkMode} transitioning={modeTransitioning} onClose={() => setDiagnosticsOpen(false)} />;
-  }
   return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'} ${modeTransitioning ? 'mode-transitioning' : ''}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>{mode === 'delivery' ? '交付助手' : '研发助手'}</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
         <div className="work-mode-switch" role="group" aria-label="工作模式"><button type="button" className={mode === 'delivery' ? 'active' : ''} aria-pressed={mode === 'delivery'} onClick={() => switchWorkMode('delivery')}>交付模式</button><button type="button" className={mode === 'development' ? 'active' : ''} aria-pressed={mode === 'development'} onClick={() => switchWorkMode('development')}>开发模式</button></div>
-        <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className={`nav-item ${!session && !diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(false); setSessionId(''); }}><Icon name="layers" />{mode === 'delivery' ? '交付任务工作台' : '研发任务工作台'}</button><button type="button" className={`nav-item ${diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy || !api.diagnostics} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(true); }}><Icon name="alert" />现场问题诊断</button></div>
+        <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className={`nav-item ${!session ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setSessionId(''); }}><Icon name="layers" />{mode === 'delivery' ? '交付任务工作台' : '研发任务工作台'}</button></div>
       {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
         <div className="sidebar-section projects-heading"><span>{mode === 'delivery' ? '交付项目' : '本地项目'}</span><button className="icon-button" onClick={() => { if (mode === 'delivery') openDeliveryProjectDialog(); else void addProject(); }} disabled={!!busy} title={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'} aria-label={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'}><Icon name="plus" /></button></div>

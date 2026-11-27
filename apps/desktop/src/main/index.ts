@@ -1479,7 +1479,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     if (recent && (recent.runtimeKind ?? 'codex') === 'codex') void prewarmCodexSession(recent.id).catch(() => undefined);
     return { mode, projects: mode === 'development' ? store.listProjects() : [], deliveryProjects: mode === 'delivery' ? store.listDeliveryTaskProjects() : [], sessions, activeSessionIds: runs.tickets.map(ticket => ticket.sessionId).filter(id => sessions.some(session => session.id === id)), provider: settings.defaultProvider(), settings: settings.snapshot(updateStatus, mode), layout: store.getLayout(), runtime: selected === 'jinggong' ? jinggong : selected === 'claude_agent_sdk' ? claude_agent_sdk : selected === 'grok_build_acp' ? grok_build_acp : codex, runtimes: { jinggong, codex, claude_agent_sdk, grok_build_acp }, dataDirectory: dataRoot, closeToTray: !!tray && !tray.isDestroyed(), gitVersion };
   });
-  registerExpertCenter({handle,store,session:developmentSessionById,idle:assertSessionIdle,manuals:()=>operationManualLibrary,
+  registerExpertCenter({handle,store,session:sessionById,idle:assertSessionIdle,manuals:()=>operationManualLibrary,
     manualEnabled:()=>performanceService?.telemetry.getSettings().contextSources.operation_manual !== false,
     directory:path.join(dataRoot,'expert-evaluation'),secrets:()=>settings.memorySecrets(),redact:value=>settings.redactContent(value),
     credentials:session=>{
@@ -1493,7 +1493,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       const result = await dialog.showSaveDialog(window,{defaultPath:'专家对照评测.'+format,filters:[{name:format.toUpperCase(),extensions:[format]}]});
       return result.canceled ? undefined : result.filePath;
     }});
-  registerExpertCollaborationIpc({ handle, store, runner: agentTaskRunner!, session: developmentSessionById });
+  registerExpertCollaborationIpc({ handle, store, runner: agentTaskRunner!, session: sessionById });
   const iterationProject = (value: unknown) => {
     const id = projectIdSchema.parse(value); const project = store.listProjects().find(item => item.id === id);
     if (!project) throw new Error('项目未授权，请重新选择');

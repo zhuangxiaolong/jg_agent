@@ -20,7 +20,6 @@ const tabs: { id: Tab; name: string; icon: 'box' | 'layers' | 'branch' | 'file' 
   { id: 'providers', name: '模型中转站', icon: 'box' }, { id:'experts',name:'专家中心',icon:'layers' }, { id:'knowledge',name:'知识中心',icon:'layers' }, { id: 'appearance', name: '外观', icon: 'layers' }, { id: 'profile', name: '关于我', icon: 'edit' },
   { id: 'jira', name: 'Jira 连接', icon: 'branch' }, { id: 'runtime', name: '运行时', icon: 'terminal' }, { id: 'plugins', name: '插件管理', icon: 'box' }, { id: 'sessions', name: '会话与数据', icon: 'chat' }, { id: 'wecom', name: '企业微信通知', icon: 'chat' }, { id: 'updates', name: '更新', icon: 'refresh' }, { id: 'documents', name: '数据字典', icon: 'file' }, { id: 'manuals', name: '产品手册', icon: 'file' }, { id: 'requirements', name: '开发要求与规范', icon: 'shield' }, { id: 'memories', name: '记忆', icon: 'chat' },
 ];
-const developmentTabs = new Set<Tab>(['experts', 'knowledge', 'jira', 'plugins', 'sessions', 'documents', 'requirements', 'memories']);
 const failure = readableError;
 type SuccessNotice = string | (() => string);
 function validateUrl(value: string) {
@@ -34,10 +33,9 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
 }) {
   const api = window.jinggong;
   const [snapshot, setSnapshot] = useState(settings);
-  const [tab, setTab] = useState<Tab>(mode === 'delivery' && developmentTabs.has(initialTab) ? 'providers' : initialTab);
-  const visibleTabs = mode === 'delivery' ? tabs.filter(item => !developmentTabs.has(item.id)) : tabs;
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const visibleTabs = tabs;
   useEffect(() => setSnapshot(settings), [settings]);
-  useEffect(() => setTab(current => mode === 'delivery' && developmentTabs.has(current) ? 'providers' : current), [mode]);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'notice'; text: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -67,7 +65,7 @@ export function SettingsPanel({ settings, sessions, projects, currentProjectId, 
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   return <div className="modal-backdrop"><div className={`settings-shell ${tab === 'experts' ? 'expert-settings-shell' : ''}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={key}>
-    <header className="settings-header"><div><h2 id="settings-title">设置</h2><p>{mode === 'delivery' ? '管理交付偏好与通知' : '管理本地研发环境与个人偏好'}</p></div><button className="icon-button" aria-label="关闭设置" title="关闭设置" onClick={onClose} disabled={pending}><Icon name="close" /></button></header>
+    <header className="settings-header"><div><h2 id="settings-title">设置</h2><p>管理本地偏好与开发环境</p></div><button className="icon-button" aria-label="关闭设置" title="关闭设置" onClick={onClose} disabled={pending}><Icon name="close" /></button></header>
     <div className="settings-body"><nav className="settings-navigation" aria-label="设置分类">{visibleTabs.map(item => <button key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => setTab(item.id)} disabled={pending}><Icon name={item.icon} />{item.name}</button>)}</nav>
       <div className="settings-content">
         {feedback && <div className={`settings-feedback ${feedback.kind === 'error' ? 'form-error' : 'settings-notice'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}><Icon name={feedback.kind === 'error' ? 'alert' : 'check'} /><span>{feedback.text}</span><button type="button" className="icon-button" aria-label="关闭设置提示" title="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" /></button></div>}
