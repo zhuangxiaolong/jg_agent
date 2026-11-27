@@ -52,6 +52,7 @@ interface PanelResizeDrag { kind: ResizeKind; startX: number; startY: number; st
 interface FileContextMenu { file: FileDiff; x: number; y: number }
 type MessageFileContextMenu = { kind: 'project'; path: string; x: number; y: number } | { kind: 'attachment'; sessionId: string; attachment: ConversationAttachment; x: number; y: number };
 interface SessionDraft { prompt: string; attachments: ConversationAttachment[] }
+interface ModeSelection { projectId: string; sessionId: string }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
 function time(value: string) { return formatClockTime(value); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
@@ -153,12 +154,21 @@ export function App() {
     window.localStorage.setItem('jinggong-work-mode', next);
     setMode(next);
   }
-  return <ModeApp key={mode} mode={mode} onModeChange={changeMode} />;
+  return <ModeApp mode={mode} onModeChange={changeMode} />;
 }
 
 function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: WorkMode) => void }) {
   const api = window.jinggong;
   const [data, setData] = useState<Bootstrap | null>(null);
+  const modeSnapshots = useRef<Partial<Record<WorkMode, Bootstrap>>>({});
+  const modeBootstrapRequests = useRef<Partial<Record<WorkMode, Promise<Bootstrap>>>>({});
+  const modeSelections = useRef<Partial<Record<WorkMode, ModeSelection>>>({});
+  const modeSwitching = useRef(false);
+  const modeSwitchSequence = useRef(0);
+  const alternateModePrefetched = useRef(false);
+  const [modeTransitioning, setModeTransitioning] = useState(false);
+  const [deliveryProjectDialogOpen, setDeliveryProjectDialogOpen] = useState(false);
+  const [deliveryProjectName, setDeliveryProjectName] = useState('');
   const runtimeHealthUpdates = useRef({ version: 0, values: new Map<RuntimeKind, { version: number; health: RuntimeHealth }>() });
   const visibleSessionIds = useRef(new Set<string>());
   const [projectId, setProjectId] = useState('');
@@ -192,6 +202,12 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
   useEffect(() => {
     visibleSessionIds.current = new Set(data?.sessions.map(item => item.id) ?? []);
   }, [data?.sessions]);
+  useEffect(() => {
+    if (data?.mode === mode) {
+      modeSnapshots.current[mode] = data;
+      modeSelections.current[mode] = { projectId, sessionId };
+    }
+  }, [data, mode, projectId, sessionId]);
   const [busy, setBusy] = useState('');
   const [approvalBusy, setApprovalBusy] = useState<ReadonlySet<string>>(new Set());
   const [approvalSubmitted, setApprovalSubmitted] = useState<ReadonlySet<string>>(new Set());
@@ -364,10 +380,34 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     if (imported) { setProjectId(mode === 'delivery' ? imported.deliveryProjectId || '' : imported.projectId || ''); setSessionId(imported.id); }
   }
   async function refresh() {
-    const healthVersion = runtimeHealthUpdates.current.version;
-    const next = mergeRuntimeSnapshot(await api.bootstrap(mode), healthVersion);
+    const next = await loadModeSnapshot(mode);
     setData(next);
     return next;
+  }
+  function loadModeSnapshot(targetMode: WorkMode): Promise<Bootstrap> {
+    const active = modeBootstrapRequests.current[targetMode];
+    if (active) return active;
+    const request = api.bootstrap(targetMode).then(snapshot => {
+      const next = mergeRuntimeSnapshot(snapshot, runtimeHealthUpdates.current.version);
+      modeSnapshots.current[targetMode] = next;
+      return next;
+    }).finally(() => {
+      if (modeBootstrapRequests.current[targetMode] === request) delete modeBootstrapRequests.current[targetMode];
+    });
+    modeBootstrapRequests.current[targetMode] = request;
+    return request;
+  }
+  function applyModeSnapshot(next: Bootstrap, targetMode: WorkMode) {
+    visibleSessionIds.current = new Set(next.sessions.map(item => item.id));
+    setData(next);
+    setUnread(Object.fromEntries(next.sessions.filter(item => item.unreadCompletionId).map(item => [item.id, item.unreadCompletionId!])));
+    layoutRef.current = next.layout; savedLayoutRef.current = next.layout; setLayout(next.layout);
+    const remembered = modeSelections.current[targetMode];
+    const rememberedSession = next.sessions.find(item => item.id === remembered?.sessionId);
+    const projects = targetMode === 'delivery' ? next.deliveryProjects ?? [] : next.projects;
+    const rememberedProject = projects.some(item => item.id === remembered?.projectId) ? remembered?.projectId : undefined;
+    setProjectId(rememberedProject ?? (rememberedSession ? targetMode === 'delivery' ? rememberedSession.deliveryProjectId || '' : rememberedSession.projectId || '' : projects[0]?.id || ''));
+    setSessionId(rememberedSession?.id ?? '');
   }
   function mergeRuntimeSnapshot(next: Bootstrap, healthVersion: number): Bootstrap {
     const runtimes = { ...next.runtimes };
@@ -786,25 +826,28 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     const observedRunStatuses = new Set<string>();
     if (!api) { setError('桌面桥接未就绪，请通过精工Agent桌面程序打开。'); return; }
     const healthVersion = runtimeHealthUpdates.current.version;
+    if (!alternateModePrefetched.current) {
+      alternateModePrefetched.current = true;
+      const alternateMode: WorkMode = mode === 'delivery' ? 'development' : 'delivery';
+      void loadModeSnapshot(alternateMode).catch(() => undefined);
+    }
     const offRuntime = api.onRuntimeHealthChanged?.(health => {
       if (alive) runtimeChecked(health.kind, health);
     });
-    api.bootstrap(mode).then(snapshot => {
+    const cached = modeSnapshots.current[mode];
+    if (cached) {
+      bootstrapping = false;
+      applyModeSnapshot(cached, mode);
+    }
+    loadModeSnapshot(mode).then(snapshot => {
       if (!alive) return;
       const next = mergeRuntimeSnapshot(snapshot, healthVersion);
       for (const id of next.activeSessionIds ?? []) {
         if (!observedRunStatuses.has(id)) runningSessions.current.add(id);
       }
       bootstrapping = false;
-      visibleSessionIds.current = new Set(next.sessions.map(item => item.id));
-      setData(next);
-      setUnread(Object.fromEntries(next.sessions.filter(item => item.unreadCompletionId).map(item => [item.id, item.unreadCompletionId!])));
-      layoutRef.current = next.layout; savedLayoutRef.current = next.layout; setLayout(next.layout);
-      const recent = next.sessions[0];
-      setProjectId(recent
-        ? mode === 'delivery' ? recent.deliveryProjectId || '' : recent.projectId || ''
-        : mode === 'delivery' ? next.deliveryProjects?.[0]?.id || '' : next.projects[0]?.id || '');
-      setSessionId('');
+      modeSnapshots.current[mode] = next;
+      applyModeSnapshot(next, mode);
     }).catch(reason => alive && setError(message(reason)));
     let pendingEvents: AgentEvent[] = [];
     let frame: number | undefined;
@@ -939,9 +982,10 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
   useEffect(() => {
     const leavingSessionId = sessionId;
     return () => {
+      if (modeSwitching.current) return;
       if (leavingSessionId) void discardEmptySession(leavingSessionId);
     };
-  }, [sessionId, api]);
+  }, [sessionId, mode, api]);
 
   useEffect(() => {
     const element = messagesRef.current;
@@ -998,17 +1042,57 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
   }
-  async function addDeliveryProject() {
-    const name = window.prompt('请输入交付项目名称');
-    if (!name?.trim()) return;
+  function openDeliveryProjectDialog() {
+    setDeliveryProjectName('');
+    setDeliveryProjectDialogOpen(true);
+  }
+  async function addDeliveryProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = deliveryProjectName.trim();
+    if (!name) return;
     setBusy('project'); setError(''); setNotice('');
     try {
       const created = await api.createDeliveryProject(name);
       await refresh();
       setProjectId(created.id);
       setSessionId('');
+      modeSelections.current.delivery = { projectId: created.id, sessionId: '' };
+      setDeliveryProjectDialogOpen(false);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(''); }
+  }
+  async function switchWorkMode(next: WorkMode) {
+    if (next === mode || modeSwitching.current) return;
+    const sequence = ++modeSwitchSequence.current;
+    modeSwitching.current = true;
+    if (data) modeSnapshots.current[mode] = data;
+    modeSelections.current[mode] = { projectId, sessionId };
+    setSessionSettingsOpen(false);
+    setNewSessionMenu(null);
+    setShowSettings(false);
+    setError('');
+    const target = modeSnapshots.current[next];
+    try {
+      const snapshot = target ?? await loadModeSnapshot(next);
+      if (sequence !== modeSwitchSequence.current) return;
+      setModeTransitioning(true);
+      const transitionMs = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150;
+      if (transitionMs) await new Promise(resolve => window.setTimeout(resolve, transitionMs));
+      if (sequence !== modeSwitchSequence.current) return;
+      applyModeSnapshot(snapshot, next);
+      setInspector(next === 'delivery' ? 'agents' : 'jira');
+      onModeChange(next);
+      if (transitionMs) await new Promise(resolve => window.requestAnimationFrame(() => resolve(undefined)));
+      if (sequence === modeSwitchSequence.current) {
+        modeSwitching.current = false;
+        setModeTransitioning(false);
+      }
+    } catch (reason) {
+      if (sequence !== modeSwitchSequence.current) return;
+      modeSwitching.current = false;
+      setModeTransitioning(false);
+      setError(message(reason));
+    }
   }
   async function resolveBaseBranch(targetProjectId: string): Promise<string | undefined> {
     const target = data?.projects.find(item => item.id === targetProjectId);
@@ -1307,16 +1391,16 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     '--standalone-height': `${layout.standaloneSessionsHeight ?? 30}%`
   } as CSSProperties;
   const standaloneSessions = data?.sessions.filter(item => mode === 'delivery' ? !item.deliveryProjectId : !item.projectId) ?? [];
-  if (mode === 'development' && diagnosticsOpen && api.diagnostics) {
-    return <DiagnosticsPage api={api.diagnostics} onClose={() => setDiagnosticsOpen(false)} />;
+  if (diagnosticsOpen && api.diagnostics) {
+    return <DiagnosticsPage api={api.diagnostics} mode={mode} onModeChange={switchWorkMode} transitioning={modeTransitioning} onClose={() => setDiagnosticsOpen(false)} />;
   }
-  return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'}`} style={layoutStyle}>
+  return <div className={`app-shell dock-layout ${layout.leftVisible ? '' : 'left-panel-hidden'} ${layout.rightVisible ? '' : 'right-panel-hidden'} ${layout.bottomVisible ? '' : 'bottom-panel-hidden'} ${modeTransitioning ? 'mode-transitioning' : ''}`} style={layoutStyle}>
     <aside id="project-sidebar" className="sidebar" aria-label="项目和会话" hidden={!layout.leftVisible} inert={showSettings} aria-hidden={showSettings || undefined}>
        <div className="brand"><Mark /><div><strong>精工Agent</strong><span>{mode === 'delivery' ? '交付助手' : '研发助手'}</span></div><span className="version">v{data?.settings.appVersion || "…"}</span></div>
-        <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className={`nav-item ${!session && !diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(false); setSessionId(''); }}><Icon name="layers" />{mode === 'delivery' ? '交付任务工作台' : '研发任务工作台'}</button>{mode === 'development' && <button type="button" className={`nav-item ${diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy || !api.diagnostics} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(true); }}><Icon name="alert" />现场问题诊断</button>}</div>
+        <div className="sidebar-section top-nav"><button ref={newSessionButtonRef} className="nav-item" disabled={!data || !!busy} onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); setNewSessionMenu({ x: event.clientX, y: event.clientY }); }} onClick={() => { setSessionSettingsOpen(false); openCreateSession(); }} title="新建会话 (Ctrl+N)" aria-keyshortcuts="Control+N"><Icon name="plus" />新建会话</button><button type="button" className={`nav-item ${!session && !diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(false); setSessionId(''); }}><Icon name="layers" />{mode === 'delivery' ? '交付任务工作台' : '研发任务工作台'}</button><button type="button" className={`nav-item ${diagnosticsOpen ? 'active' : ''}`} disabled={!data || !!busy || !api.diagnostics} onClick={() => { setSessionSettingsOpen(false); setDiagnosticsOpen(true); }}><Icon name="alert" />现场问题诊断</button></div>
       {newSessionMenu && <div ref={newSessionMenuRef} className="new-session-menu" role="menu" aria-label="新建会话方式" style={{ left: newSessionMenu.x, top: newSessionMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}><button type="button" role="menuitem" disabled={!data || !!busy} onClick={openIndependentSession}><Icon name="chat" />新建独立会话</button>{projectId && <button type="button" role="menuitem" disabled={!data || !!busy} onClick={() => { setNewSessionMenu(null); openCreateSession(projectId); }}><Icon name="folder" />新建项目会话</button>}</div>}
       <div className="project-list">
-        <div className="sidebar-section projects-heading"><span>{mode === 'delivery' ? '交付项目' : '本地项目'}</span><button className="icon-button" onClick={() => { if (mode === 'delivery') void addDeliveryProject(); else void addProject(); }} disabled={!!busy} title={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'} aria-label={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'}><Icon name="plus" /></button></div>
+        <div className="sidebar-section projects-heading"><span>{mode === 'delivery' ? '交付项目' : '本地项目'}</span><button className="icon-button" onClick={() => { if (mode === 'delivery') openDeliveryProjectDialog(); else void addProject(); }} disabled={!!busy} title={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'} aria-label={mode === 'delivery' ? '新建交付项目' : '添加 Git 项目'}><Icon name="plus" /></button></div>
         {mode === 'development' && !data?.projects.length && <div className="sidebar-empty">可以添加 Git 项目，也可以直接创建独立会话。</div>}
         {mode === 'delivery' && !data?.deliveryProjects?.length && <div className="sidebar-empty">创建交付项目后，可将交付会话归入项目。</div>}
         {mode === 'development' && data?.projects.map(item => renderProjectGroup(item))}
@@ -1332,8 +1416,9 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
 
     <div className="workspace" inert={showSettings} aria-hidden={showSettings || undefined}>
       <header className="workspace-header">
+        <div className="work-mode-switch" role="group" aria-label="工作模式"><button type="button" className={mode === 'delivery' ? 'active' : ''} aria-pressed={mode === 'delivery'} onClick={() => switchWorkMode('delivery')}>交付模式</button><button type="button" className={mode === 'development' ? 'active' : ''} aria-pressed={mode === 'development'} onClick={() => switchWorkMode('development')}>开发模式</button></div>
         <div className="breadcrumbs"><strong>{session ? mode === 'delivery' ? deliveryProject?.name || '未归属交付项目' : project?.name || '独立会话' : mode === 'delivery' ? '交付任务工作台' : '研发任务工作台'}</strong>{session && <><Icon name="chevron" /><span className="breadcrumb-session">{sessionTitle}</span></>}</div>
-        <div className="header-actions"><div className="work-mode-switch" role="group" aria-label="工作模式"><button type="button" className={mode === 'delivery' ? 'active' : ''} aria-pressed={mode === 'delivery'} onClick={() => onModeChange('delivery')}>交付</button><button type="button" className={mode === 'development' ? 'active' : ''} aria-pressed={mode === 'development'} onClick={() => onModeChange('development')}>开发</button></div>{mode === 'development' && <button className={`icon-button ${browserOpen ? 'panel-visible' : ''}`} title="打开会话浏览器" aria-label="打开会话浏览器" aria-controls="browser-panel" aria-expanded={browserOpen} disabled={!session} onClick={() => { if (session) void api.openBrowser(session.id).catch(error => setError(message(error))); }}><Icon name="box" /></button>}<div className="panel-toggles" role="group" aria-label="面板显示"><button className={`icon-button ${layout.leftVisible ? 'panel-visible' : ''}`} aria-label={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} title={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} aria-controls="project-sidebar" aria-expanded={layout.leftVisible} disabled={!data} onClick={() => changeLayout({ leftVisible: !layoutRef.current.leftVisible })}><Icon name="panel-left" /></button>{mode === 'development' && <button className={`icon-button ${layout.rightVisible || browserOpen ? 'panel-visible' : ''}`} aria-label={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} title={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} aria-controls={browserOpen ? 'browser-panel' : 'right-panel'} aria-expanded={layout.rightVisible || browserOpen} disabled={!data} onClick={() => { if (browserOpen) void closeBrowser(); else changeLayout({ rightVisible: !layoutRef.current.rightVisible }); }}><Icon name="panel-right" /></button>}<button className={`icon-button ${layout.bottomVisible ? 'panel-visible' : ''}`} aria-label={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} title={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} aria-controls="bottom-panel" aria-expanded={layout.bottomVisible} disabled={!data} onClick={() => changeLayout({ bottomVisible: !layoutRef.current.bottomVisible })}><Icon name="panel-bottom" /></button></div></div>
+        <div className="header-actions">{mode === 'development' && <button className={`icon-button ${browserOpen ? 'panel-visible' : ''}`} title="打开会话浏览器" aria-label="打开会话浏览器" aria-controls="browser-panel" aria-expanded={browserOpen} disabled={!session} onClick={() => { if (session) void api.openBrowser(session.id).catch(error => setError(message(error))); }}><Icon name="box" /></button>}<div className="panel-toggles" role="group" aria-label="面板显示"><button className={`icon-button ${layout.leftVisible ? 'panel-visible' : ''}`} aria-label={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} title={layout.leftVisible ? '隐藏项目侧栏' : '显示项目侧栏'} aria-controls="project-sidebar" aria-expanded={layout.leftVisible} disabled={!data} onClick={() => changeLayout({ leftVisible: !layoutRef.current.leftVisible })}><Icon name="panel-left" /></button>{mode === 'development' && <button className={`icon-button ${layout.rightVisible || browserOpen ? 'panel-visible' : ''}`} aria-label={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} title={browserOpen ? '隐藏浏览器面板' : layout.rightVisible ? '隐藏右侧面板' : '显示右侧面板'} aria-controls={browserOpen ? 'browser-panel' : 'right-panel'} aria-expanded={layout.rightVisible || browserOpen} disabled={!data} onClick={() => { if (browserOpen) void closeBrowser(); else changeLayout({ rightVisible: !layoutRef.current.rightVisible }); }}><Icon name="panel-right" /></button>}<button className={`icon-button ${layout.bottomVisible ? 'panel-visible' : ''}`} aria-label={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} title={layout.bottomVisible ? '隐藏底部面板' : '显示底部面板'} aria-controls="bottom-panel" aria-expanded={layout.bottomVisible} disabled={!data} onClick={() => changeLayout({ bottomVisible: !layoutRef.current.bottomVisible })}><Icon name="panel-bottom" /></button></div></div>
       </header>
       {(error || notice) && <div className={`banner ${error ? 'error' : 'notice'}`} role={error ? 'alert' : 'status'}><Icon name={error ? 'alert' : 'check'} /><span>{error || notice}</span>{updateAvailableVersion && !updateDownloadedVersion && <button className="secondary-button update-restart" onClick={() => { void api.downloadUpdate().then(status => { if (status.state === 'error') setError(status.message ?? '更新下载失败'); }).catch(reason => setError(message(reason))); }}>下载更新</button>}{updateDownloadedVersion && notice.includes('更新已下载') && <button className="secondary-button update-restart" onClick={() => { void restartToUpdate(); }}>重启并更新</button>}<button className="icon-button" aria-label="关闭提示" onClick={() => { setError(''); setNotice(''); setUpdateAvailableVersion(''); }}><Icon name="close" /></button></div>}
       <div className={`workspace-body ${browserOpen ? 'with-browser' : ''} ${inspector === 'git' ? 'with-git-inspector' : ''} ${inspector === 'jira' ? 'with-jira-inspector' : ''}`}>
@@ -1377,7 +1462,7 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
               <button type="button" className="panel-resize-handle composer-resize-handle" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={80} aria-valuemax={400} aria-valuenow={layout.composerHeight ?? 110} title="拖动调整输入框高度，双击恢复" onPointerDown={event => beginResize('composer', event)} onKeyDown={event => adjustResize('composer', event)} onDoubleClick={() => changeLayout({ composerHeight: 110 })} />
               {!configuredProvider?.hasKey && <button className="setup-notice" onClick={() => setSessionSettingsOpen(true)}><Icon name="settings" /><span>当前会话尚未配置中转站凭据</span><Icon name="chevron" /></button>}
               {sessionRuntimeHealth?.warmingUp && <p className="field-hint" role="status">本地组件后台预热中，可直接发送任务。</p>}
-              {mode === 'development' && <ExpertSession key={session.id} session={session} running={running} latestExpert={latestTurnExpert} open={()=>{setSettingsTab('experts');setShowSettings(true);}} />}
+              <ExpertSession key={session.id} session={session} running={running} latestExpert={latestTurnExpert} open={()=>{setSettingsTab('experts');setShowSettings(true);}} />
               <form className={`composer ${running ? 'is-running' : ''}`} onSubmit={send} onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
                 <textarea aria-label="输入任务" placeholder={`向 ${assistantName} 描述您的任务…`} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={inputKey} onPaste={handleComposerPaste} rows={3} maxLength={32000} />
                 {(jiraDraftImageAttachments.length > 0 || conversationAttachments.length > 0) && <div className="composer-attachments" aria-label="待发送附件">
@@ -1402,7 +1487,7 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
 </div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(draftReasoning || undefined)}`} title="当前会话推理强度">推理 {reasoningLabel(draftReasoning || undefined)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
             </div>
           </> : data ? mode === 'delivery'
-            ? <DeliveryTaskWorkbench api={api} projects={data.deliveryProjects ?? []} sessions={data.sessions} statuses={statuses} onOpenSession={item => { readSession(item.id); setProjectId(item.deliveryProjectId ?? ''); setSessionId(item.id); }} onCreateSession={targetProjectId => openCreateSession(targetProjectId || projectId)} onCreateProject={() => { void addDeliveryProject(); }} />
+            ? <DeliveryTaskWorkbench api={api} projects={data.deliveryProjects ?? []} sessions={data.sessions} statuses={statuses} onOpenSession={item => { readSession(item.id); setProjectId(item.deliveryProjectId ?? ''); setSessionId(item.id); }} onCreateSession={targetProjectId => openCreateSession(targetProjectId || projectId)} onCreateProject={openDeliveryProjectDialog} />
             : <TaskWorkbench api={api} projects={data.projects} sessions={data.sessions} statuses={statuses} onOpenSession={item => { readSession(item.id); setProjectId(item.projectId ?? ''); setSessionId(item.id); }} onCreateSession={targetProjectId => openCreateSession(targetProjectId || projectId)} onAddProject={() => { void addProject(); }} onOpenJira={() => { setInspector('jira'); if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true }); }} onOpenIteration={() => { setInspector('iteration'); if (!layoutRef.current.rightVisible) changeLayout({ rightVisible: true }); }} onOpenExperts={() => openSettings('experts')} onOpenKnowledge={() => openSettings('knowledge')} /> : <div className="welcome-screen"><span>正在载入本地项目与会话…</span></div>}
         </main>
 
@@ -1456,6 +1541,7 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
       </section>
     </div>
     {showSettings && data?.settings && <SettingsPanel mode={mode} settings={data.settings} sessions={data.sessions} projects={data.projects} currentProjectId={projectId} onImportCompleted={importedShare} onRuntimeChecked={runtimeChecked} initialTab={settingsTab} onClose={() => setShowSettings(false)} onChanged={settingsChanged} />}
+    {deliveryProjectDialogOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setDeliveryProjectDialogOpen(false); }}><form className="settings-modal delivery-project-modal" onSubmit={event => void addDeliveryProject(event)}><div className="modal-heading"><span className="modal-icon"><Icon name="folder" /></span><div><h2>新建交付项目</h2><p>填写项目名称以开始归档交付会话</p></div><button type="button" className="icon-button" aria-label="关闭" disabled={!!busy} onClick={() => setDeliveryProjectDialogOpen(false)}><Icon name="close" /></button></div><label htmlFor="delivery-project-name">项目名称</label><input id="delivery-project-name" name="name" autoFocus maxLength={120} placeholder="例如：佛山工厂 MES 上线" value={deliveryProjectName} onChange={event => setDeliveryProjectName(event.target.value)} disabled={!!busy} />{error && <div className="form-error" role="alert"><Icon name="alert" />{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" disabled={!!busy} onClick={() => setDeliveryProjectDialogOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={!deliveryProjectName.trim() || !!busy}>{busy === 'project' ? '正在创建…' : '创建项目'}</button></div></form></div>}
   </div>;
 }
 

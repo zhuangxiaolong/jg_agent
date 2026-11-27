@@ -205,3 +205,41 @@ html[data-theme="light"] .markdown-warning-title>.icon, html[data-theme="light"]
   .dock-layout .composer textarea { min-height: 54px; height: 54px; }
   .dock-layout .session-welcome { padding-top: 12px; }
 }
+
+.work-mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--accent-bg);
+}
+.work-mode-switch button {
+  min-width: 76px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.work-mode-switch button.active {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 650;
+  box-shadow: 0 1px 4px #0002;
+}
+.dock-layout .breadcrumbs { flex: 1; }
+.dock-layout .workspace-body { transition: opacity .15s ease, transform .15s ease; }
+.dock-layout.mode-transitioning .workspace-body { opacity: 0; transform: translateY(4px); pointer-events: none; }
+.delivery-project-modal { width: min(440px, calc(100vw - 32px)); border-radius: 8px; padding: 22px; }
+.delivery-project-modal .modal-heading { margin-bottom: 17px; }
+.delivery-project-modal .modal-heading h2 { letter-spacing: 0; }
+.delivery-project-modal label { display: block; margin: 0 0 8px; }
+.delivery-project-modal input { border-radius: 5px; }
+.delivery-project-modal .modal-actions { margin-top: 19px; padding-top: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .dock-layout .workspace-body { transition: none; transform: none; }
+}
