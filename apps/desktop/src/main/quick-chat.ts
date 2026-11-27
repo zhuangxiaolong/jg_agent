@@ -21,6 +21,7 @@ export interface QuickChatRequest {
 interface ConversationEvent { type: string; text: string }
 
 const SYSTEM_INSTRUCTIONS = '你是通用对话助手。简洁回答。你没有项目文件、命令执行或实时联网工具；遇到需要实时数据的问题，明确说明无法实时查询，不得编造。';
+export const DELIVERY_SYSTEM_INSTRUCTIONS = '你是精工Agent交付助手。已预加载本地产品操作手册资料（由系统按任务匹配注入，本轮上下文中可见），回答时优先引用手册内容，注明来源。没有实时联网能力，不编造数据。';
 const MAX_INPUT_BYTES = 48 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 256 * 1024;
