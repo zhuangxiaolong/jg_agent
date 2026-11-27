@@ -15,6 +15,7 @@ export interface QuickChatRequest {
   signal: AbortSignal;
   onDelta: (text: string) => void;
   fetcher?: typeof fetch;
+  systemPrompt?: string;
 }
 
 interface ConversationEvent { type: string; text: string }
@@ -105,12 +106,13 @@ function endpoint(baseUrl: string, backend: QuickChatBackend): string {
 }
 
 function requestBody(request: QuickChatRequest): Record<string, unknown> {
+  const system = request.systemPrompt ?? SYSTEM_INSTRUCTIONS;
   if (request.backend === 'messages') {
     return {
       model: request.model,
       max_tokens: 4096,
       stream: true,
-      system: SYSTEM_INSTRUCTIONS,
+      system,
       messages: request.messages.map(message => ({ role: message.role, content: anthropicContent(message) })),
     };
   }
@@ -119,7 +121,7 @@ function requestBody(request: QuickChatRequest): Record<string, unknown> {
       model: request.model,
       stream: true,
       messages: [
-        { role: 'system', content: SYSTEM_INSTRUCTIONS },
+        { role: 'system', content: system },
         ...request.messages.map(message => ({ role: message.role, content: openAiContent(message) })),
       ],
     };
@@ -128,7 +130,7 @@ function requestBody(request: QuickChatRequest): Record<string, unknown> {
     model: request.model,
     store: false,
     stream: true,
-    instructions: SYSTEM_INSTRUCTIONS,
+    instructions: system,
     input: request.messages.map(message => ({ role: message.role, content: [
       { type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.text },
       ...(message.role === 'user' ? (message.images ?? []).map(image => ({ type: 'input_image', image_url: image })) : []),
