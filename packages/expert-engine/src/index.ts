@@ -21,7 +21,7 @@ export const builtinProfiles = [
   define(engineering, 'MES/WMS 需求与研发总专家', engineering, undefined, 'engineering-review',
     ['确认产品与任务边界', '核验当前项目证据', '明确可以推进的工作和待确认项'], ['项目规范','项目资料'], [], '目标、依据、行动和验证', '任务不明确时说明当前采用通用研发视角'),
   define(delivery, '项目交付总专家', delivery, undefined, 'delivery-review',
-    ['区分项目群、单项目和现场操作', '核实资料日期和责任范围'], ['项目资料'], [], '现状、差距、下一步', '说明缺失数据，不推测经营结果'),
+    ['区分项目群、单项目和现场操作', '核实资料日期和责任范围'], ['项目资料', '产品手册'], [], '现状、差距、下一步', '说明缺失数据，不推测经营结果'),
   define('mes-wms-requirements','需求分析专家',engineering,'requirements_analyst','mes-wms-requirements',
     ['明确角色、业务目标和现状证据','拆分流程、状态、字段、接口和权限','梳理异常、依赖、范围外和待确认项'], ['项目资料','产品手册','数据字典'], ['需求分析','验收标准'], '范围、业务规则、验收标准和测试用例', '仅要求方案时止于分析；区分资料事实与推断'),
   define('mes-wms-backend','后端开发专家',engineering,'backend_developer','mes-wms-backend-development',
