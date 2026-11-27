@@ -1132,12 +1132,11 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
     try {
       const created = await api.createSession(mode === 'delivery'
         ? (() => {
-            // 交付会话：先从现有交付会话取上次用的 runtime，再按模型自动推断
             const lastDeliveryRuntime = data?.sessions.filter(s => s.workMode === 'delivery').slice(-1)[0]?.runtimeKind;
             const modelId = session?.model || defaultProvider?.models.find(m => m.enabled)?.id || '';
             const modelName = configuredModel?.name || '';
             const autoRuntime = runtimeForSelectedModel(modelId, modelName);
-            const deliveryRuntime = autoRuntime ?? lastDeliveryRuntime ?? session?.runtimeKind ?? data?.settings.runtimeKind ?? 'claude_agent_sdk';
+            const deliveryRuntime = autoRuntime ?? lastDeliveryRuntime ?? 'claude_agent_sdk';
             return { workMode: mode, ...(selectedProjectId ? { deliveryProjectId: selectedProjectId } : {}), runtimeKind: deliveryRuntime };
           })()
         : { workMode: mode, ...(selectedProjectId ? { projectId: selectedProjectId, baseBranch: await resolveBaseBranch(selectedProjectId) } : {}), runtimeKind: session?.runtimeKind ?? data?.settings.runtimeKind ?? 'codex' });
