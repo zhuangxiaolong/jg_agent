@@ -2254,7 +2254,14 @@ if (primaryInstance) app.whenReady().then(async () => {
       if (!provider || !provider.models.includes(session.model)) throw new Error('当前会话的模型中转站或模型配置已失效，请重新选择模型');
       baseUrl = provider.baseUrl;
       apiKey = settings.credential(provider.id).read(provider.baseUrl);
-      backend = runtimeKind === 'claude_agent_sdk' ? 'messages' : 'responses';
+      // 通过非官方中转站访问 Claude 时，优先使用 OpenAI 兼容接口以获得 SSE 流式支持；
+      // 官方 api.anthropic.com 使用原生 messages 接口。
+      if (runtimeKind === 'claude_agent_sdk') {
+        const isDirectAnthropic = /(?:^|\.)api\.anthropic\.com(\/|$)/.test(provider.baseUrl);
+        backend = isDirectAnthropic ? 'messages' : 'chat_completions';
+      } else {
+        backend = 'responses';
+      }
     }
     if (!apiKey) throw new Error('请先为当前会话的模型中转站配置 API Key');
 
