@@ -991,10 +991,8 @@ async function getRuntime(ticket: RunTicket, session: Session, skillPrompt = '')
   if (!apiKey) throw new Error('请先在【模型中转站】中配置该中转站的 API Key');
   const currentTask = skillPrompt;
   let expert: Resolution | undefined;
-  if (developmentMode) {
-    try { expert = resolveExpert(store.expertProfiles(),session,store.expertSelection(session.id),currentTask); }
-    catch { emit(session.id,'tool','专家档案读取失败，本轮使用普通 Agent'); }
-  }
+  try { expert = resolveExpert(store.expertProfiles(),session,store.expertSelection(session.id),currentTask); }
+  catch { emit(session.id,'tool','专家档案读取失败，本轮使用普通 Agent'); }
   if (expert && !expert.profile && /无效|不可用|未启用/.test(expert.reason)) emit(session.id,'tool',expert.reason);
   const product = expert?.profile && expert.scope.find(item => item !== 'COMMON');
   const documents = (developmentMode ? applicableDocuments(store.listDocuments(), session) : []).filter(item =>

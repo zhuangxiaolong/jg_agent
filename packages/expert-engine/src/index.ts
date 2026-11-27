@@ -51,7 +51,8 @@ const intents: [ExpertRole, RegExp][] = [
   ['backend_developer', /后端|服务端|数据库|事务|索引|接口|性能|查询|\.cs\b|\bSQL\b/i],
   ['requirements_analyst', /需求|业务流程|业务规则/],
 ];
-export function resolveExpert(profiles: ExpertProfile[], session: Pick<Session,'system'|'manualKnowledgeScope'|'jiraIssue'|'projectId'>, selected: ExpertSelection, prompt: string) {
+export function resolveExpert(profiles: ExpertProfile[], session: Pick<Session,'system'|'manualKnowledgeScope'|'jiraIssue'|'projectId'|'workMode'>, selected: ExpertSelection, prompt: string) {
+  const isDelivery = (session.workMode ?? 'development') === 'delivery';
   const scope = selected.scope === 'auto' ? session.manualKnowledgeScope : selected.scope;
   const product = scope && !['auto','off'].includes(scope) ? scope : session.system;
   const scoped = manualProductScope(scope, product, session.projectId || (product && product !== '通用') ? '' : prompt);
@@ -61,9 +62,13 @@ export function resolveExpert(profiles: ExpertProfile[], session: Pick<Session,'
   if (selected.profileId === 'off') return plain('会话已选择普通 Agent');
   const explicit = profiles.find(p => prompt.startsWith('@' + p.name) || prompt.startsWith('使用' + p.name));
   const pinned = explicit?.id ?? (selected.profileId === 'auto' ? undefined : selected.profileId);
-  const start = pinned ? profiles.find(p => p.id === pinned) : profiles.find(p => p.isDefault);
+  // 交付会话未手动固定时，默认走交付总专家；开发会话走 isDefault 专家
+  const start = pinned ? profiles.find(p => p.id === pinned)
+    : isDelivery ? (profiles.find(p => p.id === delivery && p.enabled) ?? profiles.find(p => p.isDefault))
+    : profiles.find(p => p.isDefault);
   if (!start?.enabled || !start.steps?.length || stamp(start).contentHash !== start.contentHash) return plain('专家未启用或档案无效，本轮使用普通 Agent');
-  if ((!applicable && start.familyId === engineering) || (!pinned && session.projectId && !recognizedProject) || (!pinned && !applicable)) {
+  // 交付会话不受产品范围限制
+  if (!isDelivery && ((!applicable && start.familyId === engineering) || (!pinned && session.projectId && !recognizedProject) || (!pinned && !applicable))) {
     return plain('产品范围不适用，请选择产品或交付专家');
   }
   const task = [prompt,session.jiraIssue?.summary].filter(Boolean).join('\n');
