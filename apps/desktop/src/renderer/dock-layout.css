@@ -103,6 +103,8 @@ body[data-resizing="row"], body[data-resizing="row"] * { cursor: row-resize !imp
 /* 压缩界面留白，把固定工具栏占用的空间还给会话内容。 */
 .dock-layout .brand { height: 62px; }
 .dock-layout .top-nav { gap: 2px; padding-bottom: 8px; }
+.dock-layout .sidebar .work-mode-switch { display: flex; margin: 6px 8px 4px; }
+.dock-layout .sidebar .work-mode-switch button { flex: 1; min-width: 0; }
 .dock-layout .nav-item { padding: 7px 10px; }
 .dock-layout .project-item, .dock-layout .session-item { min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
 .dock-layout .project-new-session { margin-top: 3px; margin-bottom: 6px; }
