@@ -2378,7 +2378,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       return sendWeatherTurn(session, parsed.prompt, weatherQuery, queuedTurnId);
     }
 
-    if (!session.projectId) {
+    if (!session.projectId && (session.workMode ?? 'development') === 'development') {
       if (!queuedTurnId && (runs.get(session.id) || quickChatControllers.has(session.id) || runtimes.hasActive(session.id) || terminalSessions.has(session.id) || followups.isDispatching(session.id) || followups.pending(session.id).length)) {
         if (runs.get(session.id)?.cancelled) throw new Error('当前任务正在停止，请等待停止完成后再发送');
         if (attachments.length) throw new Error('运行中补充任务暂只支持文字，请在本轮结束后发送附件');
