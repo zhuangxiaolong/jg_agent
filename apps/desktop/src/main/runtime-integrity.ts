@@ -7,14 +7,6 @@ import type { RuntimeKind } from '../../../../packages/domain/src';
 import { validateWindowsX64Executable } from '../../../../scripts/windows-executable.mjs';
 
 const requiredFiles: Partial<Record<RuntimeKind, string[]>> = {
-  jinggong: [
-    'bin/jinggong-runtime.exe',
-    'bin/codex-code-mode-host.exe',
-    'codex-path/rg.exe',
-    'codex-resources/codex-command-runner.exe',
-    'codex-resources/codex-windows-sandbox-setup.exe',
-    'codex-package.json', 'LICENSE', 'NOTICE', 'BUILD-METADATA.json', 'BUILD-LOG.txt',
-  ],
   codex: [
     'bin/codex.exe',
     'bin/codex-code-mode-host.exe',

@@ -17,9 +17,9 @@
     "test:ui:grok": "node scripts/grok-ui-smoke.mjs",
     "runtime:probe": "node scripts/probes/runtime-probe.mjs",
     "runtime:build:jinggong": "node scripts/build-jinggong-runtime.mjs",
-    "pack": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",
-    "dist": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && electron-builder --win nsis --x64",
-    "release:win": "npm run runtime:build:jinggong && npm run build && node scripts/stage-runtime.mjs && node scripts/release-win.mjs"
+    "pack": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win --x64 --dir",
+    "dist": "npm run build && node scripts/stage-runtime.mjs && electron-builder --win nsis --x64",
+    "release:win": "npm run build && node scripts/stage-runtime.mjs && node scripts/release-win.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.319",

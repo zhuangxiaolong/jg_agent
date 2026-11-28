@@ -3,7 +3,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { constants, setPriority } from 'node:os';
 import path from 'node:path';
 import { parentPort } from 'node:worker_threads';
-import { createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createGrokBuildRuntimeAdapter, createJinggongRuntimeAdapter, JINGGONG_RUNTIME_VERSION, RUNTIME_CAPABILITIES_VERSION, redactRuntimeText } from '../../../../packages/agent-runtime/src';
+import { createClaudeAgentSdkRuntimeAdapter, createCodexRuntimeAdapter, createGrokBuildRuntimeAdapter, RUNTIME_CAPABILITIES_VERSION, redactRuntimeText } from '../../../../packages/agent-runtime/src';
 import type { RuntimeAdapter } from '../../../../packages/agent-runtime/src/manager';
 import type { RuntimeHealth } from '../../../../packages/domain/src';
 import { DEFAULT_GROK_API_BACKEND } from '../../../../packages/domain/src/grok';
@@ -70,7 +70,7 @@ function assertOpen(): void { if (closing) throw new Error('Runtime 后台预检
 function component(request: Extract<RuntimePrewarmRequest, { kind: unknown }>): { root: string; executable: string; entrypoint: string } {
   if (request.kind === 'grok_build_acp') throw new Error('Grok 使用本机组件，不支持随包清单校验');
   const root = path.join(request.resourcesRoot, 'runtime', request.kind);
-  const entrypoint = request.kind === 'jinggong' ? 'bin/jinggong-runtime.exe' : request.kind === 'claude_agent_sdk' ? 'bin/claude.exe' : 'bin/codex.exe';
+  const entrypoint = request.kind === 'claude_agent_sdk' ? 'bin/claude.exe' : 'bin/codex.exe';
   return { root, executable: path.join(root, ...entrypoint.split('/')), entrypoint };
 }
 
@@ -95,8 +95,8 @@ async function check(request: Extract<RuntimePrewarmRequest, { kind: unknown }>)
     } else if (request.kind === 'claude_agent_sdk') {
       adapter = createClaudeAgentSdkRuntimeAdapter({ model: 'health', executablePath: component(request).executable });
     } else {
-      const options = { executable: component(request).executable, home, baseUrl: 'https://health.invalid', model: 'health', runtimeVersion: request.kind === 'jinggong' ? JINGGONG_RUNTIME_VERSION : undefined, runtimeDisplayName: request.kind === 'jinggong' ? 'Jinggong Runtime' : 'Codex Runtime' };
-      adapter = request.kind === 'jinggong' ? createJinggongRuntimeAdapter(options) : createCodexRuntimeAdapter(options);
+      const options = { executable: component(request).executable, home, baseUrl: 'https://health.invalid', model: 'health', runtimeDisplayName: 'Codex Runtime' };
+      adapter = createCodexRuntimeAdapter(options);
     }
     adapters.add(adapter);
     const health = await adapter.checkRuntime();
@@ -136,7 +136,7 @@ port.on('message', (request: RuntimePrewarmRequest) => {
   void (async () => {
     try {
       assertOpen();
-      if (!['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'].includes(request.kind)) throw new Error('不支持的 Runtime 类型');
+      if (!['codex', 'claude_agent_sdk', 'grok_build_acp'].includes(request.kind)) throw new Error('不支持的 Runtime 类型');
       const result = request.method === 'check' ? await check(request) : request.method === 'verify' ? await verify(request) : (() => { throw new Error('不支持的 Runtime 预检操作'); })();
       publish({ id: request.id, result });
     } catch (error) { publish({ id: request.id, error: redactRuntimeText(error instanceof Error ? error.message : String(error), undefined, 2000) }); }

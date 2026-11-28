@@ -74,7 +74,7 @@ export class SettingsService {
     return policy;
   }
   saveRuntimeKind(value: unknown): RuntimeKind {
-    if (value !== 'jinggong' && value !== 'codex' && value !== 'claude_agent_sdk' && value !== 'grok_build_acp') throw new Error('Runtime 类型无效');
+    if (value !== 'codex' && value !== 'claude_agent_sdk' && value !== 'grok_build_acp') throw new Error('Runtime 类型无效');
     return this.store.saveRuntimeKind(value);
   }
   redact(text: string): string {

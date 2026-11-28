@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads';
 import type { RuntimeHealth, RuntimeKind } from '../../../../packages/domain/src';
 import type { RuntimeManifest, RuntimePrewarmRequest, RuntimePrewarmResponse } from './runtime-prewarm-protocol';
 
-const kinds: RuntimeKind[] = ['codex', 'jinggong', 'claude_agent_sdk', 'grok_build_acp'];
+const kinds: RuntimeKind[] = ['codex', 'claude_agent_sdk', 'grok_build_acp'];
 interface Pending { worker: Worker; resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 interface Options {
   workerFile: string;

@@ -55,7 +55,7 @@ interface ModeSelection { projectId: string; sessionId: string }
 interface DiffTreeNode { name: string; path: string; children: DiffTreeNode[]; file?: FileDiff }
 function time(value: string) { return formatClockTime(value); }
 function message(error: unknown) { return engineText(error instanceof Error ? error.message : String(error)); }
-function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? 'Grok Runtime' : kind === 'jinggong' ? 'Jinggong Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
+function runtimeLabel(kind?: RuntimeKind): string { return kind === 'grok_build_acp' ? 'Grok Runtime' : kind === 'claude_agent_sdk' ? 'Claude Agent SDK Runtime' : 'Codex Runtime'; }
 function reasoningLabel(value?: ReasoningEffort): string { return value ? reasoningLabels[value] : '模型默认'; }
 function displayUserMessageText(text: string): string {
   return text.replace(/\r?\n\r?\n【本轮上传附件(?:；[^】]*)?】[\s\S]*$/, '').trim();
@@ -1485,7 +1485,7 @@ function ModeApp({ mode, onModeChange }: { mode: WorkMode; onModeChange: (mode: 
               <button className="text-button session-provider-manage" type="button" onClick={() => openSettings('providers')}>管理中转站与凭据</button>
               <p className="session-requirements-note"><Icon name="shield" />开发任务将参考 {data?.settings.documents.filter(item => item.enabled && item.kind === 'requirement' && (item.system === '通用' || item.system === (session.system || '通用'))).length ?? 0} 份当前系统开发要求；执行时遵循当前 Runtime 配置和本机安全策略；提交前检查规范。</p>
             </div>}
-</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(draftReasoning || undefined)}`} title="当前会话推理强度">推理 {reasoningLabel(draftReasoning || undefined)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option><option value="jinggong">Jinggong Runtime</option></select></label>}</div></div>
+</div><span className="session-reasoning-indicator" aria-label={`当前会话推理强度：${reasoningLabel(draftReasoning || undefined)}`} title="当前会话推理强度">推理 {reasoningLabel(draftReasoning || undefined)}</span>{sessionRuntimeKind === 'grok_build_acp' ? <span className="session-runtime-picker" aria-label="当前会话运行时" title="当前会话运行时"><Icon name="terminal" />当前引擎</span> : <label className="session-runtime-picker"><Icon name="terminal" /><select aria-label="当前会话运行时" title="仅切换当前会话的 Runtime" value={sessionRuntimeKind} disabled={running || !!busy} onChange={event => { void switchSessionRuntime(event.target.value as RuntimeKind); }}><option value="claude_agent_sdk">Claude Runtime</option><option value="codex">Codex Runtime</option></select></label>}</div></div>
             </div>
           </> : data ? mode === 'delivery'
             ? <DeliveryTaskWorkbench api={api} projects={data.deliveryProjects ?? []} sessions={data.sessions} statuses={statuses} onOpenSession={item => { readSession(item.id); setProjectId(item.deliveryProjectId ?? ''); setSessionId(item.id); }} onCreateSession={targetProjectId => openCreateSession(targetProjectId || projectId)} onCreateProject={openDeliveryProjectDialog} />
