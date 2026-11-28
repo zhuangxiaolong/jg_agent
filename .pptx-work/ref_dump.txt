@@ -1,0 +1,534 @@
+﻿SIZE 13.333333333333334 7.5 SLIDES 16
+LAYOUTS ['DEFAULT']
+
+===== SLIDE 1 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,2.792) 13.33x1.38 fill=solid #00B050
+- AUTO_SHAPE (1) '' (6.271,5.750) 0.79x0.03 fill=solid #00B050
+- TEXT_BOX (17) '' (0.625,2.417) 3.17x0.19 fill=None
+    'DEPARTMENT WORK PLAN 2027' sz=11.25 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (0.000,3.146) 13.33x0.71 fill=None
+    '2027年部门工作规划' sz=42.0 b=True c=FFFFFF align=CENTER (2)
+- TEXT_BOX (17) '' (0.000,4.500) 13.33x0.28 fill=None
+    '广东精工智能系统有限公司 · 数字化工厂事业部' sz=16.5 b=True c=16301F align=CENTER (2)
+- TEXT_BOX (17) '' (0.000,4.917) 13.33x0.21 fill=None
+    '综合管理组\u3000|\u30002026年11月\u3000|\u3000汇报人：弥田甜' sz=12.0 b=None c=5F7768 align=CENTER (2)
+- TEXT_BOX (17) '' (0.000,5.917) 13.33x0.19 fill=None
+    '经营目标 · 组织搭建 · 部门工作 · 季度工作清单' sz=11.25 b=None c=5F7768 align=CENTER (2)
+
+===== SLIDE 2 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.625,0.625) 1.38x0.44 fill=solid #009F44
+- TEXT_BOX (17) '' (1.073,0.719) 0.48x0.25 fill=None
+    '目 录' sz=15.0 b=True c=FFFFFF align=None
+- FREEFORM (5) '' (0.625,1.604) 9.79x0.56 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.625,1.604) 0.65x0.38 fill=None
+    '01' sz=22.5 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (1.562,1.635) 2.67x0.31 fill=None
+    '经营目标' sz=18.75 b=True c=1A2B22 align=None
+- FREEFORM (5) '' (0.625,2.469) 9.79x0.56 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.625,2.469) 0.65x0.38 fill=None
+    '02' sz=22.5 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (1.562,2.500) 4.23x0.31 fill=None
+    '组织搭建' sz=18.75 b=True c=1A2B22 align=None
+- FREEFORM (5) '' (0.625,3.333) 9.79x0.56 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.625,3.333) 0.65x0.38 fill=None
+    '03' sz=22.5 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (1.562,3.365) 4.17x0.31 fill=None
+    '部门工作' sz=18.75 b=True c=1A2B22 align=None
+- FREEFORM (5) '' (0.625,4.198) 9.79x0.56 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.625,4.198) 0.65x0.38 fill=None
+    '04' sz=22.5 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (1.562,4.229) 4.79x0.31 fill=None
+    '季度工作清单' sz=18.75 b=True c=1A2B22 align=None
+- AUTO_SHAPE (1) '' (0.625,6.490) 12.08x0.03 fill=solid #009F44
+- TEXT_BOX (17) '' (0.625,6.688) 12.08x0.19 fill=None
+    '经营目标 → 组织搭建 → 部门工作 → 季度工作清单——一页看懂全年怎么干' sz=11.25 b=None c=00B050 align=CENTER (2)
+- PICTURE (13) '' (11.312,0.125) 1.35x0.33 fill=-
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.02 fill=solid #00B050
+
+===== SLIDE 3 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.479) 13.33x0.02 fill=solid #0B7A3B
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.01 fill=solid #DDEDE4
+- PICTURE (13) '' (11.312,0.083) 1.35x0.33 fill=-
+- TEXT_BOX (17) '' (0.625,0.104) 10.42x0.29 fill=None
+    '一、经营目标' sz=15.5 b=True c=075C2A align=None
+- AUTO_SHAPE (1) '' (0.625,6.979) 12.08x0.01 fill=solid #E5EFE9
+- TEXT_BOX (17) '' (0.625,7.073) 4.79x0.18 fill=None
+    '广东精工智能系统有限公司\u3000|\u30002027年部门工作规划' sz=10.5 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (12.438,7.042) 0.27x0.23 fill=solid #E8F5EC
+- TEXT_BOX (17) '' (12.438,7.073) 0.27x0.18 fill=None
+    '03' sz=10.5 b=True c=075C2A align=CENTER (2)
+- TEXT_BOX (17) '' (0.625,0.604) 4.48x0.31 fill=None
+    '事业部2027经营目标' sz=14.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (5.208,0.625) 7.50x0.27 fill=None
+    '签单1亿 · 收款8500万 · 预算6767.6万 · 净利1732.4万——净利率20.38%首次成为第一目标' sz=11.2 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (0.625,0.938) 12.08x0.01 fill=solid #E5EFE9
+- AUTO_SHAPE (1) '' (0.625,1.083) 2.86x1.62 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (0.625,1.083) 2.86x0.05 fill=solid #075C2A
+- TEXT_BOX (17) '' (0.792,1.208) 2.53x0.27 fill=None
+    '签单目标' sz=12.5 b=True c=5F7768 align=None
+- TEXT_BOX (17) '' (0.792,1.500) 2.53x0.48 fill=None
+    '10000 万' sz=21.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (0.792,2.042) 2.53x0.58 fill=None
+    '26年责任制目标5820万的1.72倍' sz=11.5 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (3.698,1.083) 2.86x1.62 fill=solid #F4F9F6
+- AUTO_SHAPE (1) '' (3.698,1.083) 2.86x0.05 fill=solid #075C2A
+- TEXT_BOX (17) '' (3.865,1.208) 2.53x0.27 fill=None
+    '收款目标' sz=12.5 b=True c=5F7768 align=None
+- TEXT_BOX (17) '' (3.865,1.500) 2.53x0.48 fill=None
+    '8500 万' sz=21.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (3.865,2.042) 2.53x0.58 fill=None
+    '26年责任制目标4801万的1.77倍' sz=11.5 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (6.771,1.083) 2.86x1.62 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (6.771,1.083) 2.86x0.05 fill=solid #075C2A
+- TEXT_BOX (17) '' (6.938,1.208) 2.53x0.27 fill=None
+    '费用预算' sz=12.5 b=True c=5F7768 align=None
+- TEXT_BOX (17) '' (6.938,1.500) 2.53x0.48 fill=None
+    '6767.6 万' sz=21.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (6.938,2.042) 2.53x0.58 fill=None
+    '成本4809 + 期间费用1958.6' sz=11.5 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (9.844,1.083) 2.86x1.62 fill=solid #F4F9F6
+- AUTO_SHAPE (1) '' (9.844,1.083) 2.86x0.05 fill=solid #075C2A
+- TEXT_BOX (17) '' (10.010,1.208) 2.53x0.27 fill=None
+    '净利润目标' sz=12.5 b=True c=5F7768 align=None
+- TEXT_BOX (17) '' (10.010,1.500) 2.53x0.48 fill=None
+    '1732.4 万' sz=21.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (10.010,2.042) 2.53x0.58 fill=None
+    '净利率20.38%（26年1-10月仅9.07%）' sz=11.5 b=None c=16301F align=None
+- TEXT_BOX (17) '' (0.625,2.896) 7.29x0.29 fill=None
+    '签单1亿按产品结构倒推（不设保守/期望/乐观三档）' sz=12.0 b=True c=0B7A3B align=None
+- AUTO_SHAPE (1) '' (0.625,3.229) 3.86x1.17 fill=solid #F4F9F6
+- TEXT_BOX (17) '' (0.812,3.333) 2.29x0.29 fill=None
+    '数字化软件' sz=12.5 b=True c=16301F align=None
+- TEXT_BOX (17) '' (0.812,3.667) 2.29x0.44 fill=None
+    '4736万' sz=17.0 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (3.125,3.729) 1.20x0.29 fill=None
+    '47.4%' sz=12.5 b=True c=16301F align=CENTER (2)
+- TEXT_BOX (17) '' (3.125,4.042) 1.20x0.27 fill=None
+    '基本盘' sz=11.0 b=None c=5F7768 align=CENTER (2)
+- AUTO_SHAPE (1) '' (4.656,3.229) 3.86x1.17 fill=solid #F4F9F6
+- TEXT_BOX (17) '' (4.844,3.333) 2.29x0.29 fill=None
+    'AI产品' sz=12.5 b=True c=16301F align=None
+- TEXT_BOX (17) '' (4.844,3.667) 2.29x0.44 fill=None
+    '3955万' sz=17.0 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (7.156,3.729) 1.20x0.29 fill=None
+    '39.6%' sz=12.5 b=True c=16301F align=CENTER (2)
+- TEXT_BOX (17) '' (7.156,4.042) 1.20x0.27 fill=None
+    '主攻' sz=11.0 b=None c=5F7768 align=CENTER (2)
+- AUTO_SHAPE (1) '' (8.688,3.229) 3.86x1.17 fill=solid #F4F9F6
+- TEXT_BOX (17) '' (8.875,3.333) 2.29x0.29 fill=None
+    '智能硬件' sz=12.5 b=True c=16301F align=None
+- TEXT_BOX (17) '' (8.875,3.667) 2.29x0.44 fill=None
+    '1309万' sz=17.0 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (11.188,3.729) 1.20x0.29 fill=None
+    '13.1%' sz=12.5 b=True c=16301F align=CENTER (2)
+- TEXT_BOX (17) '' (11.188,4.042) 1.20x0.27 fill=None
+    '配套≤20%' sz=11.0 b=None c=5F7768 align=CENTER (2)
+- AUTO_SHAPE (1) '' (0.625,4.646) 12.08x1.38 fill=solid #12301F
+- AUTO_SHAPE (1) '' (0.625,4.646) 0.06x1.38 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.958,4.750) 11.50x0.29 fill=None
+    '口径：收入8500 − 成本4809 − 期间费用1958.6 = 净利1732.4万，毛利率43.42%（较26年29.56%提升13.9pct）。' sz=11.5 b=None c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.958,5.062) 11.50x0.29 fill=None
+    '签单1亿按原产品结构等比放大：软件47.4% · AI 39.6% · 硬件13.1%（≤20%仅作配套）。' sz=11.5 b=None c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.958,5.375) 11.50x0.29 fill=None
+    '不设保守/期望/乐观三档——签单10000万为唯一目标，净利率20.38%首次成为第一目标。' sz=11.5 b=None c=FFFFFF align=None
+
+===== SLIDE 4 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.479) 13.33x0.02 fill=solid #0B7A3B
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.01 fill=solid #DDEDE4
+- PICTURE (13) '' (11.312,0.083) 1.35x0.33 fill=-
+- TEXT_BOX (17) '' (0.625,0.104) 10.42x0.29 fill=None
+    '一、经营目标' sz=15.5 b=True c=075C2A align=None
+- AUTO_SHAPE (1) '' (0.625,6.979) 12.08x0.01 fill=solid #E5EFE9
+- TEXT_BOX (17) '' (0.625,7.073) 4.79x0.18 fill=None
+    '广东精工智能系统有限公司\u3000|\u30002027年部门工作规划' sz=10.5 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (12.438,7.042) 0.27x0.23 fill=solid #E8F5EC
+- TEXT_BOX (17) '' (12.438,7.073) 0.27x0.18 fill=None
+    '04' sz=10.5 b=True c=075C2A align=CENTER (2)
+- TEXT_BOX (17) '' (0.625,0.604) 4.48x0.31 fill=None
+    '事业部2027四项重点工作' sz=14.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (5.208,0.625) 7.50x0.27 fill=None
+    '事业部层面只考四件事——每项写清「目标 + 策略 + 考核」，全部与结果挂钩' sz=11.2 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (0.625,0.938) 12.08x0.01 fill=solid #E5EFE9
+- AUTO_SHAPE (1) '' (0.625,1.083) 2.90x4.48 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (0.625,1.083) 2.90x0.46 fill=solid #075C2A
+- TEXT_BOX (17) '' (0.750,1.156) 2.65x0.31 fill=None
+    '① 签单毛利把控' sz=14.0 b=True c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.771,1.646) 2.60x0.27 fill=None
+    '目标' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (0.771,1.938) 2.60x0.42 fill=None
+    '增量毛利 26.3% → 43.42%' sz=15.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (0.771,2.417) 2.60x0.27 fill=None
+    '策略' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (0.771,2.750) 2.62x0.46 fill=None
+    '① 立项前先算毛利，软/硬/外包分开测算' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (0.771,3.229) 2.62x0.46 fill=None
+    '② CRM标准报价固化成制度' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (0.771,3.708) 2.62x0.46 fill=None
+    '③ 硬件三家比价、同品持续降价' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (0.771,4.188) 2.62x0.46 fill=None
+    '④ 提升软件与自有产品占比' sz=11.8 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (0.625,5.021) 2.90x0.46 fill=solid #12301F
+- TEXT_BOX (17) '' (0.750,5.104) 2.65x0.29 fill=None
+    '考核：签单看毛利' sz=12.0 b=True c=FFFFFF align=None
+- AUTO_SHAPE (1) '' (3.698,1.083) 2.90x4.48 fill=solid #F4F9F6
+- AUTO_SHAPE (1) '' (3.698,1.083) 2.90x0.46 fill=solid #075C2A
+- TEXT_BOX (17) '' (3.823,1.156) 2.65x0.31 fill=None
+    '② 收款提升' sz=14.0 b=True c=FFFFFF align=None
+- TEXT_BOX (17) '' (3.844,1.646) 2.60x0.27 fill=None
+    '目标' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (3.844,1.938) 2.60x0.42 fill=None
+    '回款率 44.7% → 100%' sz=15.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (3.844,2.417) 2.60x0.27 fill=None
+    '策略' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (3.844,2.750) 2.62x0.46 fill=None
+    '① 在手未收3411.2万拆到项目客户' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (3.844,3.229) 2.62x0.46 fill=None
+    '② 延期未收单列、定节点定人' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (3.844,3.708) 2.62x0.46 fill=None
+    '③ 总账会计建坏账预警台账' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (3.844,4.188) 2.62x0.46 fill=None
+    '④ 周收款周报、到账才计提成' sz=11.8 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (3.698,5.021) 2.90x0.46 fill=solid #12301F
+- TEXT_BOX (17) '' (3.823,5.104) 2.65x0.29 fill=None
+    '考核：收款看到账' sz=12.0 b=True c=FFFFFF align=None
+- AUTO_SHAPE (1) '' (6.771,1.083) 2.90x4.48 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (6.771,1.083) 2.90x0.46 fill=solid #075C2A
+- TEXT_BOX (17) '' (6.896,1.156) 2.65x0.31 fill=None
+    '③ 交付提升' sz=14.0 b=True c=FFFFFF align=None
+- TEXT_BOX (17) '' (6.917,1.646) 2.60x0.27 fill=None
+    '目标' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (6.917,1.938) 2.60x0.42 fill=None
+    '里程碑按节点达成 · 长尾清零' sz=15.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (6.917,2.417) 2.60x0.27 fill=None
+    '策略' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (6.917,2.750) 2.62x0.46 fill=None
+    '① 里程碑周通报、月度五联跟进' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (6.917,3.229) 2.62x0.46 fill=None
+    '② 专项分析交付慢根因、月度复盘' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (6.917,3.708) 2.62x0.46 fill=None
+    '③ 超1.5年项目攻克小组清验收' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (6.917,4.188) 2.62x0.46 fill=None
+    '④ 验收签字与收款节点绑定' sz=11.8 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (6.771,5.021) 2.90x0.46 fill=solid #12301F
+- TEXT_BOX (17) '' (6.896,5.104) 2.65x0.29 fill=None
+    '考核：交付看验收' sz=12.0 b=True c=FFFFFF align=None
+- AUTO_SHAPE (1) '' (9.844,1.083) 2.90x4.48 fill=solid #F4F9F6
+- AUTO_SHAPE (1) '' (9.844,1.083) 2.90x0.46 fill=solid #075C2A
+- TEXT_BOX (17) '' (9.969,1.156) 2.65x0.31 fill=None
+    '④ 预算控制' sz=14.0 b=True c=FFFFFF align=None
+- TEXT_BOX (17) '' (9.990,1.646) 2.60x0.27 fill=None
+    '目标' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (9.990,1.938) 2.60x0.42 fill=None
+    '偏差≤±3% · 无预算列支0笔' sz=15.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (9.990,2.417) 2.60x0.27 fill=None
+    '策略' sz=12.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (9.990,2.750) 2.62x0.46 fill=None
+    '① 按部门×科目下达年度预算' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (9.990,3.229) 2.62x0.46 fill=None
+    '② 无预算不立项、余额校验放行' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (9.990,3.708) 2.62x0.46 fill=None
+    '③ 80%/95%/100%三级预警干预' sz=11.8 b=None c=16301F align=None
+- TEXT_BOX (17) '' (9.990,4.188) 2.62x0.46 fill=None
+    '④ 超支冻结/审批升级、限期整改' sz=11.8 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (9.844,5.021) 2.90x0.46 fill=solid #12301F
+- TEXT_BOX (17) '' (9.969,5.104) 2.65x0.29 fill=None
+    '考核：预算看偏差' sz=12.0 b=True c=FFFFFF align=None
+- AUTO_SHAPE (1) '' (0.625,5.729) 12.08x1.00 fill=solid #12301F
+- AUTO_SHAPE (1) '' (0.625,5.729) 0.06x1.00 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.958,5.833) 11.50x0.29 fill=None
+    '四件事全部与结果挂钩：签单看毛利、收款看到账、交付看验收、预算看偏差。' sz=12.0 b=None c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.958,6.146) 11.50x0.29 fill=None
+    '分配向结果倾斜，净利率首次成为第一目标——部门工作围绕这四条主线展开。' sz=12.0 b=None c=FFFFFF align=None
+
+===== SLIDE 10 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.479) 13.33x0.02 fill=solid #0B7A3B
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.01 fill=solid #DDEDE4
+- PICTURE (13) '' (11.312,0.083) 1.35x0.33 fill=-
+- TEXT_BOX (17) '' (0.625,0.104) 10.42x0.29 fill=None
+    '三、部门工作' sz=15.5 b=True c=075C2A align=None
+- AUTO_SHAPE (1) '' (0.625,6.979) 12.08x0.01 fill=solid #E5EFE9
+- TEXT_BOX (17) '' (0.625,7.073) 4.79x0.18 fill=None
+    '广东精工智能系统有限公司\u3000|\u30002027年部门工作规划' sz=10.5 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (12.438,7.042) 0.27x0.23 fill=solid #E8F5EC
+- TEXT_BOX (17) '' (12.438,7.073) 0.27x0.18 fill=None
+    '10' sz=10.5 b=True c=075C2A align=CENTER (2)
+- TEXT_BOX (17) '' (0.625,0.604) 3.12x0.31 fill=None
+    '标准化AI平台' sz=14.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (3.958,0.625) 8.75x0.27 fill=None
+    '不是OA，是10模块经营主数据平台——四季四步、步步有交付、不跨年' sz=11.5 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (0.625,0.938) 12.08x0.01 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,1.062) 12.08x0.65 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (0.625,1.062) 0.05x0.65 fill=solid #075C2A
+- TEXT_BOX (17) '' (0.833,1.125) 1.35x0.27 fill=None
+    '年度重点' sz=14.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (2.292,1.125) 10.21x0.29 fill=None
+    '1月前三大AI场景（经营驾驶舱/人效分析/无进度识别）必须上线，不是演示不是试点。' sz=12.5 b=True c=16301F align=None
+- TEXT_BOX (17) '' (0.625,1.833) 7.29x0.31 fill=None
+    '月度常规 · 每月按标准执行' sz=14.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (8.229,1.833) 4.48x0.31 fill=None
+    '阶段 / 周期性工作' sz=14.5 b=True c=075C2A align=None
+- AUTO_SHAPE (1) '' (0.625,2.167) 7.29x0.03 fill=solid #075C2A
+- AUTO_SHAPE (1) '' (8.229,2.167) 4.48x0.03 fill=solid #075C2A
+- AUTO_SHAPE (1) '' (0.625,2.271) 7.29x0.75 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (0.625,2.271) 0.04x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.792,2.354) 1.35x0.31 fill=None
+    '1次/月' sz=15.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (2.229,2.354) 5.52x0.62 fill=None
+    'Owner汇报：综合管理组负责人向总经理汇报系统建设进度与问' sz=12.0 b=None c=16301F align=None
+    '题' sz=12.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (0.625,3.083) 7.29x0.75 fill=solid #F4F9F6
+- AUTO_SHAPE (1) '' (0.625,3.083) 0.04x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.792,3.167) 1.35x0.31 fill=None
+    '1次/月' sz=15.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (2.229,3.167) 5.52x0.62 fill=None
+    '模块上线盘点：合同-项目-财务数据一处录入、处处可用的进度核' sz=12.0 b=None c=16301F align=None
+    '对' sz=12.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (0.625,3.896) 7.29x0.75 fill=solid #E8F5EC
+- AUTO_SHAPE (1) '' (0.625,3.896) 0.04x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.792,3.979) 1.35x0.31 fill=None
+    '1次/月' sz=15.5 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (2.229,3.979) 5.52x0.62 fill=None
+    '审批时效通报：超时流程月度通报并整改，留痕可追溯' sz=12.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (8.229,2.271) 4.48x0.75 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (8.229,2.271) 0.03x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (8.375,2.333) 1.15x0.29 fill=None
+    'Q1' sz=12.5 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (8.375,2.625) 4.17x0.38 fill=None
+    '整体规划与选型；人事/项目/财务/经营分析四' sz=11.0 b=None c=16301F align=None
+    '类表单全部上系统' sz=11.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (8.229,3.062) 4.48x0.75 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (8.229,3.062) 0.03x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (8.375,3.125) 1.15x0.29 fill=None
+    'Q2' sz=12.5 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (8.375,3.417) 4.17x0.38 fill=None
+    '表单关系打通；首份系统化经营月报；经营预警、' sz=11.0 b=None c=16301F align=None
+    '智能报表跑起来' sz=11.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (8.229,3.854) 4.48x0.75 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (8.229,3.854) 0.03x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (8.375,3.917) 1.15x0.29 fill=None
+    'Q3' sz=12.5 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (8.375,4.208) 4.17x0.38 fill=None
+    'OA审批全量迁移，线下纸面审批清零；' sz=11.0 b=None c=16301F align=None
+    '超时流程整改' sz=11.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (8.229,4.646) 4.48x0.75 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (8.229,4.646) 0.03x0.75 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (8.375,4.708) 1.15x0.29 fill=None
+    'Q4' sz=12.5 b=True c=0B7A3B align=None
+- TEXT_BOX (17) '' (8.375,5.000) 4.17x0.38 fill=None
+    '12月起按周盯三大场景，1月前验收——任一场' sz=11.0 b=None c=16301F align=None
+    '景延期视为未完成' sz=11.0 b=None c=16301F align=None
+- AUTO_SHAPE (1) '' (0.625,5.583) 12.08x1.21 fill=solid #12301F
+- AUTO_SHAPE (1) '' (0.625,5.583) 0.06x1.21 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.958,5.688) 11.50x0.29 fill=None
+    '硬节点：1月前三大AI场景可用，不接受跨年延期；新增PMO 2人专职推进。' sz=11.8 b=None c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.958,6.000) 11.50x0.29 fill=None
+    '现有表单全部上系统，数据从Excel变成统一底座。' sz=11.8 b=None c=FFFFFF align=None
+
+===== SLIDE 15 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.479) 13.33x0.02 fill=solid #0B7A3B
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.01 fill=solid #DDEDE4
+- PICTURE (13) '' (11.312,0.083) 1.35x0.33 fill=-
+- TEXT_BOX (17) '' (0.625,0.104) 10.42x0.29 fill=None
+    '四、季度工作清单' sz=15.5 b=True c=075C2A align=None
+- AUTO_SHAPE (1) '' (0.625,6.979) 12.08x0.01 fill=solid #E5EFE9
+- TEXT_BOX (17) '' (0.625,7.073) 4.79x0.18 fill=None
+    '广东精工智能系统有限公司\u3000|\u30002027年部门工作规划' sz=10.5 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (12.438,7.042) 0.27x0.23 fill=solid #E8F5EC
+- TEXT_BOX (17) '' (12.438,7.073) 0.27x0.18 fill=None
+    '15' sz=10.5 b=True c=075C2A align=CENTER (2)
+- TEXT_BOX (17) '' (0.625,0.604) 4.48x0.31 fill=None
+    '季度工作总表：七大板块 × Q1-Q4' sz=14.0 b=True c=075C2A align=None
+- TEXT_BOX (17) '' (5.208,0.625) 7.50x0.27 fill=None
+    '一张表看清全年节奏——年度重点已并入各部门工作页，本表只列阶段性节点' sz=11.2 b=None c=5F7768 align=None
+- AUTO_SHAPE (1) '' (0.625,0.938) 12.08x0.01 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,1.083) 2.50x0.44 fill=solid #075C2A
+- TEXT_BOX (17) '' (0.625,1.156) 2.50x0.29 fill=None
+    '工作板块' sz=13.0 b=True c=FFFFFF align=LEFT (1)
+- AUTO_SHAPE (1) '' (3.125,1.083) 2.29x0.44 fill=solid #075C2A
+- TEXT_BOX (17) '' (3.125,1.156) 2.29x0.29 fill=None
+    'Q1 · 定调启动' sz=13.0 b=True c=FFFFFF align=LEFT (1)
+- AUTO_SHAPE (1) '' (3.125,1.083) 0.01x0.44 fill=solid #8FC5A6
+- AUTO_SHAPE (1) '' (5.417,1.083) 2.29x0.44 fill=solid #075C2A
+- TEXT_BOX (17) '' (5.417,1.156) 2.29x0.29 fill=None
+    'Q2 · 验证取证' sz=13.0 b=True c=FFFFFF align=LEFT (1)
+- AUTO_SHAPE (1) '' (5.417,1.083) 0.01x0.44 fill=solid #8FC5A6
+- AUTO_SHAPE (1) '' (7.708,1.083) 2.29x0.44 fill=solid #075C2A
+- TEXT_BOX (17) '' (7.708,1.156) 2.29x0.29 fill=None
+    'Q3 · 放量攻坚' sz=13.0 b=True c=FFFFFF align=LEFT (1)
+- AUTO_SHAPE (1) '' (7.708,1.083) 0.01x0.44 fill=solid #8FC5A6
+- AUTO_SHAPE (1) '' (10.000,1.083) 2.71x0.44 fill=solid #075C2A
+- TEXT_BOX (17) '' (10.000,1.156) 2.71x0.29 fill=None
+    'Q4 · 收官验收' sz=13.0 b=True c=FFFFFF align=LEFT (1)
+- AUTO_SHAPE (1) '' (10.000,1.083) 0.01x0.44 fill=solid #8FC5A6
+- AUTO_SHAPE (1) '' (0.625,1.521) 12.08x0.56 fill=solid #F2FAF5
+- AUTO_SHAPE (1) '' (3.125,1.521) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,1.521) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,1.521) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,1.521) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,2.073) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,1.604) 2.35x0.42 fill=None
+    '经营管理' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,1.583) 2.12x0.46 fill=None
+    '目标拆解' sz=11.5 b=None c=16301F align=LEFT (1)
+    '预算下达' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,1.583) 2.12x0.46 fill=None
+    '月报上线' sz=11.5 b=None c=16301F align=LEFT (1)
+    '看板呈现' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,1.583) 2.12x0.46 fill=None
+    '三级预警' sz=11.5 b=None c=16301F align=LEFT (1)
+    '专项改善' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,1.583) 2.54x0.46 fill=None
+    '年度决算' sz=11.5 b=None c=16301F align=LEFT (1)
+    '质量复盘' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,2.083) 12.08x0.56 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (3.125,2.083) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,2.083) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,2.083) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,2.083) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,2.635) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,2.167) 2.35x0.42 fill=None
+    '项目管理' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,2.146) 2.12x0.46 fill=None
+    '标准化督导' sz=11.5 b=None c=16301F align=LEFT (1)
+    '项目台账' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,2.146) 2.12x0.46 fill=None
+    '周通报' sz=11.5 b=None c=16301F align=LEFT (1)
+    '月度跟进' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,2.146) 2.12x0.46 fill=None
+    'WMS改善' sz=11.5 b=None c=16301F align=LEFT (1)
+    '长尾攻坚' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,2.146) 2.54x0.46 fill=None
+    '月度复盘' sz=11.5 b=None c=16301F align=LEFT (1)
+    'AI经营分析' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,2.646) 12.08x0.56 fill=solid #F2FAF5
+- AUTO_SHAPE (1) '' (3.125,2.646) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,2.646) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,2.646) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,2.646) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,3.198) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,2.729) 2.35x0.42 fill=None
+    '标准化AI平台' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,2.708) 2.12x0.46 fill=None
+    '整体规划' sz=11.5 b=None c=16301F align=LEFT (1)
+    '表单上系统' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,2.708) 2.12x0.46 fill=None
+    '表单打通' sz=11.5 b=None c=16301F align=LEFT (1)
+    '数据联动' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,2.708) 2.12x0.46 fill=None
+    'OA全量迁移' sz=11.5 b=None c=16301F align=LEFT (1)
+    '时效通报' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,2.708) 2.54x0.46 fill=None
+    '三大AI场景' sz=11.5 b=None c=16301F align=LEFT (1)
+    '常态运营' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,3.208) 12.08x0.56 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (3.125,3.208) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,3.208) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,3.208) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,3.208) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,3.760) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,3.292) 2.35x0.42 fill=None
+    '团队建设' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,3.271) 2.12x0.46 fill=None
+    '人员编制' sz=11.5 b=None c=16301F align=LEFT (1)
+    '培训启动' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,3.271) 2.12x0.46 fill=None
+    '基层走访' sz=11.5 b=None c=16301F align=LEFT (1)
+    '团建活动' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,3.271) 2.12x0.46 fill=None
+    '研讨座谈' sz=11.5 b=None c=16301F align=LEFT (1)
+    '绩效反馈' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,3.271) 2.54x0.46 fill=None
+    '绩效评估' sz=11.5 b=None c=16301F align=LEFT (1)
+    '复盘改善' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,3.771) 12.08x0.56 fill=solid #F2FAF5
+- AUTO_SHAPE (1) '' (3.125,3.771) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,3.771) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,3.771) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,3.771) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,4.323) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,3.854) 2.35x0.42 fill=None
+    '绩效考核' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,3.833) 2.12x0.46 fill=None
+    '制度发布' sz=11.5 b=None c=16301F align=LEFT (1)
+    '销售先行' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,3.833) 2.12x0.46 fill=None
+    '三线接入' sz=11.5 b=None c=16301F align=LEFT (1)
+    '过程入考' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,3.833) 2.12x0.46 fill=None
+    '强制分布' sz=11.5 b=None c=16301F align=LEFT (1)
+    'AI专项奖' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,3.833) 2.54x0.46 fill=None
+    '年度兑现' sz=11.5 b=None c=16301F align=LEFT (1)
+    '规则迭代' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,4.333) 12.08x0.56 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (3.125,4.333) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,4.333) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,4.333) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,4.333) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,4.885) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,4.417) 2.35x0.42 fill=None
+    '新公司资质' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,4.396) 2.12x0.46 fill=None
+    '经营范围' sz=11.5 b=None c=16301F align=LEFT (1)
+    '软著商标' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,4.396) 2.12x0.46 fill=None
+    'ISO9001' sz=11.5 b=None c=16301F align=LEFT (1)
+    '双软认定' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,4.396) 2.12x0.46 fill=None
+    '电子智能化' sz=11.5 b=None c=16301F align=LEFT (1)
+    '满1年报科小' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,4.396) 2.54x0.46 fill=None
+    '双体系立项' sz=11.5 b=None c=16301F align=LEFT (1)
+    '高企储备' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,4.896) 12.08x0.56 fill=solid #F2FAF5
+- AUTO_SHAPE (1) '' (3.125,4.896) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (5.417,4.896) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (7.708,4.896) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (10.000,4.896) 0.01x0.56 fill=solid #DDEDE4
+- AUTO_SHAPE (1) '' (0.625,5.448) 12.08x0.01 fill=solid #DDEDE4
+- TEXT_BOX (17) '' (0.708,4.979) 2.35x0.42 fill=None
+    '硬件采购' sz=12.5 b=True c=0B7A3B align=LEFT (1)
+- TEXT_BOX (17) '' (3.208,4.958) 2.12x0.46 fill=None
+    '供应商盘点' sz=11.5 b=None c=16301F align=LEFT (1)
+    '三家比价' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (5.500,4.958) 2.12x0.46 fill=None
+    '集中采购' sz=11.5 b=None c=16301F align=LEFT (1)
+    '持续降价' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (7.792,4.958) 2.12x0.46 fill=None
+    '采购上线' sz=11.5 b=None c=16301F align=LEFT (1)
+    '毛利卡口' sz=11.5 b=None c=16301F align=LEFT (1)
+- TEXT_BOX (17) '' (10.083,4.958) 2.54x0.46 fill=None
+    '年度复盘' sz=11.5 b=None c=16301F align=LEFT (1)
+    '次年框架' sz=11.5 b=None c=16301F align=LEFT (1)
+- AUTO_SHAPE (1) '' (0.625,5.646) 12.08x1.00 fill=solid #12301F
+- AUTO_SHAPE (1) '' (0.625,5.646) 0.06x1.00 fill=solid #8FC5A6
+- TEXT_BOX (17) '' (0.958,5.750) 11.50x0.29 fill=None
+    '节奏：Q1定调启动 → Q2验证取证 → Q3放量攻坚 → Q4收官验收。' sz=11.5 b=None c=FFFFFF align=None
+- TEXT_BOX (17) '' (0.958,6.062) 11.50x0.29 fill=None
+    '红线：扩编以融资到位为前提；FDE先招约10人；硬件≤20%仅作配套；不达标项列入部门考核。' sz=11.5 b=None c=FFFFFF align=None
+
+===== SLIDE 16 layout=DEFAULT =====
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x7.50 fill=solid #FFFFFF
+- PICTURE (13) '' (11.312,0.125) 1.35x0.33 fill=-
+- AUTO_SHAPE (1) '' (0.000,0.500) 13.33x0.02 fill=solid #009F44
+- AUTO_SHAPE (1) '' (0.000,0.000) 13.33x0.08 fill=solid #00B050
+- TEXT_BOX (17) '' (1.896,2.604) 9.54x0.66 fill=None
+    '2027：聚焦部门工作，打赢翻身仗' sz=39.0 b=True c=16301F align=CENTER (2)
+- AUTO_SHAPE (1) '' (6.271,3.573) 0.79x0.03 fill=solid #00B050
+- TEXT_BOX (17) '' (5.042,3.917) 3.25x0.30 fill=None
+    '感谢聆听 · 为梦想加油' sz=18.0 b=True c=00B050 align=None
+- TEXT_BOX (17) '' (4.865,4.802) 3.60x0.21 fill=None
+    '综合管理组\u3000|\u30002026年11月' sz=12.0 b=None c=5F7768 align=None
